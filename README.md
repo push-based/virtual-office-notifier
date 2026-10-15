@@ -102,7 +102,7 @@ Events are handled one at a time, so one that arrives while a Slack post is bein
 
 Recording runs alongside, in its own fiber, so a slow Slack post never holds it up. See [Database](#database) for how it handles the database being down.
 
-Discord only sends soundboard sounds and emoji reactions (`voiceChannelEffectSend`) to clients in the voice channel. So while anyone is in the office, the bot is too: it joins when the office opens and leaves when it empties, already muted and deafened. It only sends the gateway's voice-state message and never opens an audio connection, so it can't hear or send anything. It also leaves an empty office at startup, in case an earlier run left it behind. If Discord disconnects it mid-session, it's back the next time the office opens.
+Discord only sends soundboard sounds and emoji reactions (`voiceChannelEffectSend`) to clients in the voice channel. So while anyone is in the office, the bot is too: it joins when the office opens and leaves when it empties, already muted and deafened. It only sends the gateway's voice-state message and never opens an audio connection, so it can't hear or send anything. It also leaves an empty office at startup, in case an earlier run left it behind. Whenever its Discord connection comes back after a drop, it goes back to where it should be. If someone disconnects it by hand, it's back the next time the office opens.
 
 | Module | Responsibility |
 |---|---|

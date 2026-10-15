@@ -134,7 +134,10 @@ export class ActivityLog extends Context.Service<
           lastSeenAt: DateTime.toDate(seenAt),
         })}
         ON CONFLICT (user_id) DO UPDATE SET
-          display_name = EXCLUDED.display_name,
+          display_name = CASE
+            WHEN EXCLUDED.display_name = EXCLUDED.user_id THEN m.display_name
+            ELSE EXCLUDED.display_name
+          END,
           last_seen_at = GREATEST(m.last_seen_at, EXCLUDED.last_seen_at)
       `;
 

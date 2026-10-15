@@ -9,6 +9,7 @@ import {
   Option,
   Queue,
   Redacted,
+  Ref,
   Schema,
   Stream,
 } from "effect";
@@ -311,6 +312,16 @@ export class DiscordGateway extends Context.Service<
           ),
       });
 
+      const wanted = yield* Ref.make<BotPresence>("Away");
+
+      const goWhereWanted = Option.match(office, {
+        onNone: () => Effect.void,
+        onSome: (channel) => Ref.get(wanted).pipe(Effect.flatMap(moveBot(channel.guild, officeChannelId))),
+      });
+
+      client.on(Events.ShardReady, () => runFork(goWhereWanted));
+      client.on(Events.ShardResume, () => runFork(goWhereWanted));
+
       return DiscordGateway.of({
         officeEvents: updates().pipe(officeEvents(officeChannelId, occupants)),
         voiceObservations: updates().pipe(
@@ -321,10 +332,7 @@ export class DiscordGateway extends Context.Service<
           onNone: () => Stream.empty,
           onSome: () => botPresence(occupants, updates().pipe(officeEvents(officeChannelId, occupants))),
         }),
-        moveBot: Option.match(office, {
-          onNone: () => () => Effect.void,
-          onSome: (channel) => moveBot(channel.guild, officeChannelId),
-        }),
+        moveBot: (presence) => Ref.set(wanted, presence).pipe(Effect.andThen(goWhereWanted)),
         office: Option.map(office, (channel) => ({ guildId: channel.guild.id, channelId: officeChannelId })),
       });
     }),
@@ -349,7 +357,10 @@ export class DiscordGateway extends Context.Service<
 
         // Every stream needs every update, like the listeners on the real
         // client.
-        const shared = yield* Stream.fromQueue(updates).pipe(fromOthers(selfId), Stream.broadcast({ capacity: "unbounded", replay: 1000 }));
+        const shared = yield* Stream.fromQueue(updates).pipe(
+          fromOthers(selfId),
+          Stream.broadcast({ capacity: "unbounded", replay: 1000 }),
+        );
 
         return DiscordGateway.of({
           officeEvents: shared.pipe(officeEvents(officeChannelId, occupants)),

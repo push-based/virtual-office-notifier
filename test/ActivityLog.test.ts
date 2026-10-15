@@ -112,6 +112,25 @@ describe("ActivityLog", () => {
       assert.strictEqual(member?.lastSeenAt.getTime(), 120_000);
     }).pipe(Effect.provide(TestLayer)));
 
+  it.effect("keeps the display name when Discord only sent the user ID", () =>
+    Effect.gen(function* () {
+      yield* ready;
+
+      const log = yield* ActivityLog;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* log.startSession(SESSION, DateTime.makeUnsafe(0));
+      yield* log.record(SESSION, crypto.randomUUID(), joined(1));
+      yield* log.record(SESSION, crypto.randomUUID(), observation(2, { displayName: "u1" }));
+
+      const [member] = yield* sql<{ readonly displayName: string; readonly lastSeenAt: Date }>`
+        SELECT display_name, last_seen_at FROM office.members
+      `;
+
+      assert.strictEqual(member?.displayName, "Ada");
+      assert.strictEqual(member?.lastSeenAt.getTime(), 120_000);
+    }).pipe(Effect.provide(TestLayer)));
+
   it.effect("stores a repeated write once, since a timed-out write may have gone through", () =>
     Effect.gen(function* () {
       yield* ready;
