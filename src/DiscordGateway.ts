@@ -63,6 +63,11 @@ const voiceObservations =
       Stream.concat(stamped(updates).pipe(Stream.filterMap(observe(officeChannelId)))),
     );
 
+const fromOthers =
+  (selfId: string) =>
+  <A extends { readonly userId: string }, E, R>(stream: Stream.Stream<A, E, R>): Stream.Stream<A, E, R> =>
+    stream.pipe(Stream.filter((item) => item.userId !== selfId));
+
 const officeEffects =
   (officeChannelId: string) =>
   <E, R>(effects: Stream.Stream<VoiceEffect, E, R>): Stream.Stream<TimedVoiceEffect, E, R> =>
@@ -89,7 +94,7 @@ const memberOf = (state: VoiceState) => ({
   // Slack can't show Discord's default WebP avatars.
   avatarUrl: state.member?.displayAvatarURL({ extension: "png", size: 128 }) ?? null,
   guildId: state.guild.id,
-  isBot: (state.member?.user.bot ?? false) || state.id === state.client.user?.id,
+  isBot: state.member?.user.bot ?? false,
 });
 
 const toVoiceStateUpdate = (oldState: VoiceState, newState: VoiceState): VoiceStateUpdate => ({
@@ -224,6 +229,7 @@ export interface TestGateway {
   readonly present?: ReadonlyArray<VoiceStateUpdate>;
   readonly effects?: ReadonlyArray<VoiceEffect>;
   readonly moves?: Queue.Enqueue<BotPresence>;
+  readonly selfId?: string;
 }
 
 export class DiscordGateway extends Context.Service<
@@ -274,6 +280,7 @@ export class DiscordGateway extends Context.Service<
       );
 
       const defaultSounds = yield* fetchDefaultSoundNames(ready);
+      const updates = () => voiceStateUpdates(client).pipe(fromOthers(ready.user.id));
 
       // From the voice states Discord sends on connect.
       const present = Option.match(office, {
@@ -305,14 +312,14 @@ export class DiscordGateway extends Context.Service<
       });
 
       return DiscordGateway.of({
-        officeEvents: voiceStateUpdates(client).pipe(officeEvents(officeChannelId, occupants)),
-        voiceObservations: voiceStateUpdates(client).pipe(
+        officeEvents: updates().pipe(officeEvents(officeChannelId, occupants)),
+        voiceObservations: updates().pipe(
           voiceObservations(officeChannelId, present.map(alreadyPresent)),
         ),
-        voiceEffects: voiceEffects(client, defaultSounds).pipe(officeEffects(officeChannelId)),
+        voiceEffects: voiceEffects(client, defaultSounds).pipe(fromOthers(ready.user.id), officeEffects(officeChannelId)),
         botPresence: Option.match(office, {
           onNone: () => Stream.empty,
-          onSome: () => botPresence(occupants, voiceStateUpdates(client).pipe(officeEvents(officeChannelId, occupants))),
+          onSome: () => botPresence(occupants, updates().pipe(officeEvents(officeChannelId, occupants))),
         }),
         moveBot: Option.match(office, {
           onNone: () => () => Effect.void,
@@ -333,6 +340,7 @@ export class DiscordGateway extends Context.Service<
     present = [],
     effects = [],
     moves,
+    selfId = "self",
   }: TestGateway) =>
     Layer.effect(
       DiscordGateway,
@@ -341,12 +349,12 @@ export class DiscordGateway extends Context.Service<
 
         // Every stream needs every update, like the listeners on the real
         // client.
-        const shared = yield* Stream.fromQueue(updates).pipe(Stream.broadcast({ capacity: "unbounded", replay: 1000 }));
+        const shared = yield* Stream.fromQueue(updates).pipe(fromOthers(selfId), Stream.broadcast({ capacity: "unbounded", replay: 1000 }));
 
         return DiscordGateway.of({
           officeEvents: shared.pipe(officeEvents(officeChannelId, occupants)),
           voiceObservations: shared.pipe(voiceObservations(officeChannelId, present)),
-          voiceEffects: Stream.fromIterable(effects).pipe(officeEffects(officeChannelId)),
+          voiceEffects: Stream.fromIterable(effects).pipe(fromOthers(selfId), officeEffects(officeChannelId)),
           botPresence: botPresence(occupants, shared.pipe(officeEvents(officeChannelId, occupants))),
           moveBot: (presence) => (moves === undefined ? Effect.void : Queue.offer(moves, presence).pipe(Effect.asVoid)),
           office: Option.some({ guildId, channelId: officeChannelId }),

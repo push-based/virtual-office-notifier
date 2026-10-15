@@ -33,6 +33,8 @@ const update = (overrides: Partial<VoiceStateUpdate> = {}): VoiceStateUpdate => 
   ...overrides,
 });
 
+const SELF = "self";
+
 const effect = (overrides: Partial<VoiceEffect> = {}): VoiceEffect => ({
   userId: "u1",
   displayName: "Ada",
@@ -98,6 +100,7 @@ const runProgram = Effect.fnUntraced(function* (
           present,
           effects,
           moves,
+          selfId: SELF,
         }),
         slack.layer,
         recorder.layer,
@@ -304,6 +307,22 @@ describe("recording", () => {
 });
 
 describe("bot presence", () => {
+  it.effect("never announces or records the bot itself, even when Discord leaves out that it's a bot", () =>
+    Effect.gen(function* () {
+      const { posted, recorded, recordedEffects, moves } = yield* runProgram(
+        [update({ userId: SELF, displayName: "Notifier" }), leave({ userId: SELF, displayName: "Notifier" })],
+        [ok],
+        [],
+        [effect({ userId: SELF, displayName: "Notifier" })],
+      );
+
+      assert.deepStrictEqual(posted, []);
+      assert.deepStrictEqual(recorded, []);
+      assert.deepStrictEqual(recordedEffects, []);
+      assert.deepStrictEqual(moves, ["Away"]);
+    }));
+
+
   it.effect("stays out of an empty office, joins when it opens and leaves when it empties", () =>
     Effect.gen(function* () {
       const { moves } = yield* runProgram([

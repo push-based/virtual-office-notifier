@@ -72,7 +72,7 @@ Banter is always written by an AI model, from what's actually happened in the of
 | Reminder | Weekdays at 11:15 UTC+2. It's a fixed offset, so it doesn't shift with daylight saving. Skipped if the office channel wasn't found at startup, since there's nothing to link to. |
 | Banter | At random, between 1 and 2½ hours apart, from 09:00 to 18:00 UTC+2 on weekdays, and at most 5 a day. See [Banter](#banter). |
 
-It only watches the one office channel and ignores bots. Mute, deafen and video changes, soundboard sounds and emoji reactions aren't announced, only [recorded](#database).
+It only watches the one office channel and ignores bots, itself included. Mute, deafen and video changes, soundboard sounds and emoji reactions aren't announced, only [recorded](#database).
 
 The fixed opened and emptied headlines are picked at random from a few phrasings. The reminder rotates through its phrasings by date, so each one comes up once before any repeats.
 
