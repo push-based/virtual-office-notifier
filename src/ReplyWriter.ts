@@ -56,8 +56,7 @@ export interface ThreadLine {
 
 export interface ReplyContext {
   readonly office: BanterContext;
-  readonly botPost: ThreadLine;
-  readonly earlier: ReadonlyArray<ThreadLine>;
+  readonly thread: ReadonlyArray<ThreadLine>;
   readonly earlierLeftOut: number;
   readonly message: ThreadLine;
 }
@@ -86,10 +85,13 @@ export const replyRequest = (context: ReplyContext): string =>
   [
     banterLog(context.office),
     "",
-    "The thread under your post, oldest first:",
-    line(context.botPost),
-    ...(context.earlierLeftOut === 0 ? [] : [`(${context.earlierLeftOut} earlier messages are left out.)`]),
-    ...context.earlier.map(line),
+    ...(context.thread.length === 0
+      ? ["The message isn't in a thread."]
+      : [
+          "The thread so far, oldest first, with your own messages as You:",
+          ...(context.earlierLeftOut === 0 ? [] : [`(${context.earlierLeftOut} earlier messages are left out.)`]),
+          ...context.thread.map(line),
+        ]),
     "",
     "The latest message, which you're replying to:",
     line(context.message),

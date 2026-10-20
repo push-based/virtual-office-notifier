@@ -10,7 +10,14 @@ import {
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
 import { HeadlineWriter } from "../src/HeadlineWriter.ts";
 import { HistoryUnavailable } from "../src/OfficeHistory.ts";
-import { SlackClient } from "../src/SlackClient.ts";
+import {
+  type OutgoingMessage,
+  SlackClient,
+  SlackError,
+  type SlackErrorReason,
+  type SlackProfile,
+  type ThreadMessage,
+} from "../src/SlackClient.ts";
 import {
   type ConsideredMessage,
   type DecisionRecord,
@@ -228,5 +235,58 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
     messages: Ref.get(messages),
     decisions: Ref.get(decisions),
     reactions: Ref.get(reactions),
+  };
+});
+
+export const BOT_USER_ID = "UBOT";
+
+export interface FakeSlackClientOptions {
+  readonly threads?: ReadonlyMap<string, ReadonlyArray<ThreadMessage>> | undefined;
+  readonly profiles?: ReadonlyMap<string, SlackProfile> | undefined;
+  readonly postFailure?: SlackErrorReason | undefined;
+}
+
+// Slack in memory: posts land in their thread, so later reads see them.
+export const makeFakeSlackClient = Effect.fnUntraced(function* (options: FakeSlackClientOptions = {}) {
+  const posts = yield* Ref.make<ReadonlyArray<OutgoingMessage>>([]);
+  const reactions = yield* Ref.make<ReadonlyArray<readonly [string, string, string]>>([]);
+  const threads = yield* Ref.make(new Map(options.threads ?? []));
+  const profiles = options.profiles ?? new Map<string, SlackProfile>();
+
+  const postMessage = (message: OutgoingMessage) =>
+    options.postFailure === undefined
+      ? Ref.modify(posts, (all) => {
+          const ts = `${900 + all.length}.0`;
+
+          return [{ ts, threadTs: message.threadTs ?? ts }, [...all, message]] as const;
+        }).pipe(
+          Effect.tap(({ ts, threadTs }) =>
+            Ref.update(threads, (all) =>
+              new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), { ts, userId: BOT_USER_ID, text: message.text }]),
+            ),
+          ),
+          Effect.map(({ ts }) => ({ channel: message.channel, ts })),
+        )
+      : Effect.fail(new SlackError({ reason: options.postFailure }));
+
+  const layer = Layer.succeed(
+    SlackClient,
+    SlackClient.of({
+      postMessage,
+      addReaction: (channel, ts, emoji) => Ref.update(reactions, (all) => [...all, [channel, ts, emoji] as const]),
+      threadReplies: (_channel, threadTs) => Ref.get(threads).pipe(Effect.map((all) => all.get(threadTs) ?? [])),
+      userProfile: (userId) =>
+        Effect.succeed(profiles.get(userId) ?? { displayName: userId, realName: "" }),
+      botUserId: Effect.succeed(BOT_USER_ID),
+      openConnection: Effect.never,
+    }),
+  );
+
+  return {
+    layer,
+    posts: Ref.get(posts),
+    reactions: Ref.get(reactions),
+    addToThread: (threadTs: string, message: ThreadMessage) =>
+      Ref.update(threads, (all) => new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message])),
   };
 });

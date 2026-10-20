@@ -43,8 +43,10 @@ const context: ReplyContext = {
     olderEntriesLeftOut: 0,
     present: ["Sam"],
   },
-  botPost: { who: "You", text: "🐦 Sam was first in every day this week." },
-  earlier: [{ who: "Grace Hopper", text: "Sam lives there now" }],
+  thread: [
+    { who: "You", text: "🐦 Sam was first in every day this week." },
+    { who: "Grace Hopper", text: "Sam lives there now" },
+  ],
   earlierLeftOut: 3,
   message: { who: "Ada", text: "how long was Sam in today?" },
 };
