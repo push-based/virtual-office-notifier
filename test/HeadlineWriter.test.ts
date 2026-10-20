@@ -76,6 +76,22 @@ const dailyLimitHit: Reply = Effect.fail(
   }),
 );
 
+const cloudflareAllocationSpent: Reply = Effect.fail(
+  AiError.make({
+    module: "Test",
+    method: "generateText",
+    reason: new AiError.RateLimitError({
+      http: {
+        request: { method: "POST", url: "https://api.cloudflare.com/client/v4/accounts/a/ai/v1/chat/completions", urlParams: [], headers: {} },
+        body: JSON.stringify({
+          success: false,
+          errors: [{ code: 4006, message: "you have used up your daily free allocation of 10,000 neurons" }],
+        }),
+      },
+    }),
+  }),
+);
+
 const good = says("🛋️ {name} saved you a seat in the virtual office!\n🪑 Grab a seat");
 
 describe("OpenedReply", () => {
@@ -212,6 +228,14 @@ describe("HeadlineWriter", () => {
   it.effect("stops trying models once the daily free limit is hit", () =>
     Effect.gen(function* () {
       const { write, calls } = yield* makeWriter(dailyLimitHit, good, good);
+
+      assert.isTrue(Option.isNone(yield* write(opened)));
+      assert.deepStrictEqual(yield* calls, ["model-1"]);
+    }));
+
+  it.effect("stops trying Cloudflare's models once its daily free allocation is spent", () =>
+    Effect.gen(function* () {
+      const { write, calls } = yield* makeWriter(cloudflareAllocationSpent, good, good);
 
       assert.isTrue(Option.isNone(yield* write(opened)));
       assert.deepStrictEqual(yield* calls, ["model-1"]);
