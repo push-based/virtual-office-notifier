@@ -80,7 +80,7 @@ const runWithSentry = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>
 });
 
 describe("Sentry", () => {
-  it.effect("traces each announcement without the webhook URL", () =>
+  it.effect("traces each announcement without the Slack token", () =>
     Effect.gen(function* () {
       const { spans } = yield* runWithSentry([ok]);
 

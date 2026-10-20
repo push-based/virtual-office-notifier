@@ -12,8 +12,8 @@ export const layerSentry = (options: Sentry.EffectServerLayerOptions) =>
     Layer.succeed(Tracer.Tracer, Sentry.SentryEffectTracer),
     // Alongside the console logger, so the journal keeps every line too.
     Logger.layer([Sentry.SentryEffectLogger], { mergeWithExisting: true }),
-    // HTTP client spans record the full request URL, and the Slack webhook URL
-    // is a secret. The Effect AI spans already record each model call.
+    // HTTP client spans record full request URLs, which carry account IDs. The
+    // Slack and Effect AI spans already record each call.
     Layer.succeed(HttpClient.TracerDisabledWhen, constTrue),
     Layer.effectDiscard(Effect.addFinalizer(() => Effect.promise(() => Sentry.close(2000)))),
   );
