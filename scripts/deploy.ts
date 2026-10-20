@@ -61,7 +61,9 @@ const writeEnvFile = Effect.gen(function* () {
     [
       `DISCORD_BOT_TOKEN=${Redacted.value(discord.botToken)}`,
       `DISCORD_OFFICE_CHANNEL_ID=${discord.officeChannelId}`,
-      `SLACK_WEBHOOK_URL=${Redacted.value(slack.webhookUrl)}`,
+      `SLACK_BOT_TOKEN=${Redacted.value(slack.botToken)}`,
+      `SLACK_APP_TOKEN=${Redacted.value(slack.appToken)}`,
+      `SLACK_CHANNEL_ID=${slack.channelId}`,
       ...envLine("OPENROUTER_API_KEY", ai.openRouter.apiKey),
       ...envLine("CLOUDFLARE_ACCOUNT_ID", ai.cloudflare.accountId),
       ...envLine("CLOUDFLARE_API_TOKEN", ai.cloudflare.apiToken),

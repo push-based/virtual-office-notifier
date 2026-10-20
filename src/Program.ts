@@ -5,7 +5,8 @@ import { banter } from "./Banter.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import { OfficeEvent } from "./OfficeEvent.ts";
 import { reminders } from "./Reminder.ts";
-import { isRetryable, type SlackError, SlackNotifier } from "./SlackNotifier.ts";
+import { isRetryable, type SlackError } from "./SlackClient.ts";
+import { SlackNotifier } from "./SlackNotifier.ts";
 import { StorageLayer } from "./Storage.ts";
 
 const logSlackError = (error: SlackError) =>

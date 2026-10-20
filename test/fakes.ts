@@ -1,4 +1,4 @@
-import { ConfigProvider, DateTime, Effect, ErrorReporter, Layer, Random, Ref } from "effect";
+import { ConfigProvider, DateTime, Effect, ErrorReporter, Layer, Random, Ref, type Schema } from "effect";
 import {
   HttpBody,
   HttpClient,
@@ -9,12 +9,17 @@ import {
 
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
 import { HeadlineWriter } from "../src/HeadlineWriter.ts";
+import { SlackClient } from "../src/SlackClient.ts";
 import { SlackNotifier } from "../src/SlackNotifier.ts";
 import { OfficeEvent } from "../src/OfficeEvent.ts";
 import type { TimedVoiceEffect } from "../src/VoiceEffect.ts";
 import type { VoiceObservation } from "../src/VoiceObservation.ts";
 
-export const WEBHOOK_URL = "https://hooks.slack.com/services/TEST/WEBHOOK/secret";
+export const SLACK_ENV = {
+  SLACK_BOT_TOKEN: "xoxb-bot-secret",
+  SLACK_APP_TOKEN: "xapp-app-secret",
+  SLACK_CHANNEL_ID: "C-OFFICE",
+};
 
 export const opened = OfficeEvent.Opened({
   userId: "u1",
@@ -40,7 +45,13 @@ export const respond =
   (request) =>
     Effect.succeed(HttpClientResponse.fromWeb(request, new Response(body, { status, headers })));
 
-export const ok = respond(200, "ok");
+export const slackOk = (fields: Readonly<Record<string, Schema.Json>> = {}, headers: Record<string, string> = {}): Reply =>
+  respond(200, JSON.stringify({ ok: true, ...fields }), headers);
+
+export const slackError = (error: string, headers: Record<string, string> = {}): Reply =>
+  respond(200, JSON.stringify({ ok: false, error }), headers);
+
+export const ok = slackOk({ channel: SLACK_ENV.SLACK_CHANNEL_ID, ts: "1700000000.000100" });
 
 export const networkDown: Reply = (request) =>
   Effect.fail(
@@ -57,12 +68,11 @@ export const hang: Reply = () => Effect.never;
 export const requestText = (request: HttpClientRequest.HttpClientRequest): string =>
   request.body instanceof HttpBody.Uint8Array ? new TextDecoder().decode(request.body.body) : "";
 
-// A fake Slack webhook: serves the scripted replies in order, repeating the
+export const requestJson = (request: HttpClientRequest.HttpClientRequest): Schema.Json => JSON.parse(requestText(request));
+
+// A fake Slack Web API: serves the scripted replies in order, repeating the
 // last one, and records every request so tests can count attempts.
-export const makeFakeSlack = Effect.fnUntraced(function* (
-  replies: ReadonlyArray<Reply>,
-  headlines: Layer.Layer<HeadlineWriter> = HeadlineWriter.layerFixed,
-) {
+export const makeFakeSlackHttp = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>) {
   const requests = yield* Ref.make<ReadonlyArray<HttpClientRequest.HttpClientRequest>>([]);
 
   const client = HttpClient.make((request) =>
@@ -71,18 +81,31 @@ export const makeFakeSlack = Effect.fnUntraced(function* (
     ),
   );
 
+  return { layer: Layer.succeed(HttpClient.HttpClient, client), requests: Ref.get(requests) };
+});
+
+const isPost = (request: HttpClientRequest.HttpClientRequest): boolean =>
+  request.url === "https://slack.com/api/chat.postMessage";
+
+export const makeFakeSlack = Effect.fnUntraced(function* (
+  replies: ReadonlyArray<Reply>,
+  headlines: Layer.Layer<HeadlineWriter> = HeadlineWriter.layerFixed,
+) {
+  const http = yield* makeFakeSlackHttp(replies);
+
   const layer = SlackNotifier.layerNoDeps.pipe(
-    Layer.provide(Layer.succeed(HttpClient.HttpClient, client)),
+    Layer.provideMerge(SlackClient.layerNoDeps),
+    Layer.provide(http.layer),
     Layer.provide(headlines),
   );
 
+  const posts = http.requests.pipe(Effect.map((sent) => sent.filter(isPost)));
+
   return {
     layer,
-    requests: Ref.get(requests),
-    postedTexts: Ref.get(requests).pipe(
-      Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request)).text)),
-    ),
-    postedBodies: Ref.get(requests).pipe(Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request))))),
+    requests: http.requests,
+    postedTexts: posts.pipe(Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request)).text))),
+    postedBodies: posts.pipe(Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request))))),
   };
 });
 

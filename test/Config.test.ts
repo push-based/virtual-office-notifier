@@ -39,10 +39,10 @@ describe("Config", () => {
 
   it.effect("rejects an empty secret without leaking anything", () =>
     Effect.gen(function* () {
-      const exit = yield* SlackConfig.pipe(withEnv({ SLACK_WEBHOOK_URL: "" }), Effect.exit);
+      const exit = yield* SlackConfig.pipe(withEnv({ SLACK_BOT_TOKEN: "", SLACK_APP_TOKEN: "xapp", SLACK_CHANNEL_ID: "C1" }), Effect.exit);
 
       assert.isTrue(Exit.isFailure(exit));
-      assert.include(failureMessage(exit), "SLACK_WEBHOOK_URL");
+      assert.include(failureMessage(exit), "SLACK_BOT_TOKEN");
     }));
 
   it.effect("treats missing or blank AI credentials as unset, with free default models", () =>
