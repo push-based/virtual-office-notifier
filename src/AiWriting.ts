@@ -100,7 +100,7 @@ const respondingModel = (content: ReadonlyArray<Response.AnyPart>, requested: st
 const logFailure = Effect.fnUntraced(function* (error: WritingError) {
   const model = yield* Model.ModelName;
 
-  yield* Effect.logWarning("AI model couldn't write a headline").pipe(
+  yield* Effect.logWarning("AI model couldn't write it").pipe(
     Effect.annotateLogs({ model, reason: failureReason(error) }),
   );
 });
