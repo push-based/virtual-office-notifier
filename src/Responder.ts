@@ -1,4 +1,18 @@
-import { Cause, DateTime, Duration, Effect, ErrorReporter, Option, Queue, Redacted, Ref, Schedule, Stream } from "effect";
+import {
+  Cause,
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  ErrorReporter,
+  Layer,
+  Option,
+  Queue,
+  Redacted,
+  Ref,
+  Schedule,
+  Stream,
+} from "effect";
 
 import { isBanterTime, periodRange, startOfOfficeDay } from "./Banter.ts";
 import { SlackConfig } from "./Config.ts";
@@ -415,3 +429,34 @@ export const respondToSlack = Effect.gen(function* () {
 
   yield* Effect.all([lane, Stream.runForEach(socket.envelopes, route)], { concurrency: "unbounded", discard: true });
 });
+
+export class Responder extends Context.Service<
+  Responder,
+  {
+    readonly run: Effect.Effect<void>;
+  }
+>()("virtual-office-notifier/Responder") {
+  static readonly layerNoDeps = Layer.effect(
+    Responder,
+    Effect.gen(function* () {
+      const context = yield* Effect.context<
+        SlackClient | SlackSocket | SlackHistory | ReplyDecider | ReplyWriter | OfficeHistory
+      >();
+
+      return Responder.of({
+        run: respondToSlack.pipe(
+          Effect.provideContext(context),
+          Effect.catchCause((cause) =>
+            Effect.logError("Stopped responding on Slack", cause).pipe(Effect.andThen(ErrorReporter.report(cause))),
+          ),
+        ),
+      });
+    }),
+  );
+
+  static readonly layer = Responder.layerNoDeps.pipe(
+    Layer.provide(Layer.mergeAll(SlackSocket.layer, ReplyDecider.layer, ReplyWriter.layer)),
+  );
+
+  static readonly layerNone = Layer.succeed(Responder, Responder.of({ run: Effect.void }));
+}

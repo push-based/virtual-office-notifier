@@ -5,6 +5,7 @@ import { banter } from "./Banter.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import { OfficeEvent } from "./OfficeEvent.ts";
 import { reminders } from "./Reminder.ts";
+import { Responder } from "./Responder.ts";
 import { isRetryable, type SlackError } from "./SlackClient.ts";
 import { SlackNotifier } from "./SlackNotifier.ts";
 import { StorageLayer } from "./Storage.ts";
@@ -29,6 +30,7 @@ export const program = Effect.gen(function* () {
   const gateway = yield* DiscordGateway;
   const slack = yield* SlackNotifier;
   const recorder = yield* ActivityRecorder;
+  const responder = yield* Responder;
 
   yield* Effect.logInfo("Watching the virtual office");
 
@@ -66,13 +68,15 @@ export const program = Effect.gen(function* () {
 
   const followOccupancy = Stream.runForEach(gateway.botPresence, gateway.moveBot);
 
+  yield* responder.run.pipe(Effect.forkChild);
+
   yield* Effect.all([announce, record, recordEffects, followOccupancy], { concurrency: "unbounded", discard: true });
 });
 
 // Slack is built before Discord, so a missing Slack token fails before logging
 // in to Discord. Recording connects to the database in the background and
 // never fails startup.
-export const MainLayer = DiscordGateway.layer.pipe(
+export const MainLayer = Layer.mergeAll(DiscordGateway.layer, Responder.layer).pipe(
   Layer.provideMerge(SlackNotifier.layer),
   Layer.provideMerge(StorageLayer),
 );

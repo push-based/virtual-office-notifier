@@ -1,11 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
-import { type Cause, Effect, Fiber, Layer, Logger, type LogLevel, Queue, References } from "effect";
+import { type Cause, Deferred, Effect, Fiber, Layer, Logger, type LogLevel, Queue, References } from "effect";
 import { TestClock } from "effect/testing";
 
 import type { BotPresence } from "../src/BotPresence.ts";
 import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { OfficeHistory } from "../src/OfficeHistory.ts";
 import { MainLayer, program } from "../src/Program.ts";
+import { Responder } from "../src/Responder.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import type { VoiceEffect } from "../src/VoiceEffect.ts";
 import { firstVariant, hang, makeFakeRecorder, makeFakeSlack, ok, type Reply, SLACK_ENV, slackError, withEnv } from "./fakes.ts";
@@ -66,6 +67,7 @@ const runProgram = Effect.fnUntraced(function* (
   replies: ReadonlyArray<Reply> = [ok],
   present: ReadonlyArray<VoiceStateUpdate> = [],
   effects: ReadonlyArray<VoiceEffect> = [],
+  responder: Layer.Layer<Responder> = Responder.layerNone,
 ) {
   const queue = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
   const moves = yield* Queue.unbounded<BotPresence>();
@@ -105,6 +107,7 @@ const runProgram = Effect.fnUntraced(function* (
         slack.layer,
         recorder.layer,
         OfficeHistory.layerDisabled,
+        responder,
         Logger.layer([captureLogs]),
       ),
     ),
@@ -289,7 +292,7 @@ describe("recording", () => {
       const recorder = yield* makeFakeRecorder();
 
       const fiber = yield* program.pipe(
-        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled)),
+        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone)),
         withEnv(env),
         firstVariant,
         Effect.forkChild,
@@ -353,7 +356,7 @@ describe("daily reminder", () => {
       const recorder = yield* makeFakeRecorder();
 
       const fiber = yield* program.pipe(
-        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled)),
+        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone)),
         withEnv(env),
         firstVariant,
         Effect.forkChild,
@@ -372,6 +375,23 @@ describe("daily reminder", () => {
       assert.deepStrictEqual(yield* slack.postedTexts, [
         "🪴 The office plant is lonely. It's been talking to itself again. Come keep it company!",
       ]);
+    }));
+});
+
+describe("program and the Slack responder", () => {
+  it.effect("runs the responder alongside, and ends when the Discord events do", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+
+      const responder = Layer.succeed(
+        Responder,
+        Responder.of({ run: Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)) }),
+      );
+
+      const { posted } = yield* runProgram([update()], [ok], [], [], responder);
+
+      assert.strictEqual(posted.length, 1);
+      assert.isTrue(yield* Deferred.isDone(started));
     }));
 });
 
