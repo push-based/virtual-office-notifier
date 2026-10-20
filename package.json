@@ -17,24 +17,24 @@
   "license": "0BSD",
   "packageManager": "pnpm@10.15.0",
   "dependencies": {
-    "@effect/ai-openai-compat": "4.0.0",
-    "@effect/ai-openrouter": "4.0.0",
-    "@effect/platform-node": "4.0.0",
-    "@effect/sql-pg": "4.0.0",
-    "@sentry/effect": "11.4.0",
+    "@effect/ai-openai-compat": "4.0.5",
+    "@effect/ai-openrouter": "4.0.5",
+    "@effect/platform-node": "4.0.5",
+    "@effect/sql-pg": "4.0.5",
+    "@sentry/effect": "11.8.0",
     "discord.js": "14.27.0",
-    "effect": "4.0.0"
+    "effect": "4.0.5"
   },
   "devDependencies": {
-    "@effect/sql-pglite": "4.0.0",
-    "@effect/tsgo": "0.47.2",
-    "@effect/vitest": "4.0.0",
-    "@oxlint/plugins": "1.85.0",
-    "@types/node": "26.6.2",
-    "oxlint": "1.85.0",
-    "rolldown": "1.2.11",
+    "@effect/sql-pglite": "4.0.5",
+    "@effect/tsgo": "0.54.0",
+    "@effect/vitest": "4.0.5",
+    "@oxlint/plugins": "1.89.0",
+    "@types/node": "26.6.5",
+    "oxlint": "1.89.0",
+    "rolldown": "1.2.14",
     "typescript": "7.0.2",
-    "vitest": "5.0.1"
+    "vitest": "5.0.5"
   },
   "type": "module",
   "engines": {
