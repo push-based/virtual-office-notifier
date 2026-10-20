@@ -69,10 +69,10 @@ export const program = Effect.gen(function* () {
   yield* Effect.all([announce, record, recordEffects, followOccupancy], { concurrency: "unbounded", discard: true });
 });
 
-// Slack is built first, so a missing webhook URL fails before logging in to
-// Discord. Recording connects to the database in the background and never
-// fails startup.
+// Slack is built before Discord, so a missing Slack token fails before logging
+// in to Discord. Recording connects to the database in the background and
+// never fails startup.
 export const MainLayer = DiscordGateway.layer.pipe(
   Layer.provideMerge(SlackNotifier.layer),
-  Layer.merge(StorageLayer),
+  Layer.provideMerge(StorageLayer),
 );

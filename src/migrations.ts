@@ -205,4 +205,112 @@ export const migrations = Migrator.fromRecord({
 
     yield* sql.unsafe(officeActivityView);
   }),
+
+  "0004_answer_slack": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      CREATE TABLE office.responder_settings (
+        id boolean PRIMARY KEY DEFAULT true CHECK (id),
+        enabled boolean NOT NULL DEFAULT false,
+        clef_model text NOT NULL DEFAULT '@cf/cloudflare/clef' CHECK (clef_model <> ''),
+        min_confidence double precision NOT NULL DEFAULT 0.7 CHECK (min_confidence BETWEEN 0 AND 1),
+        max_replies_per_day integer NOT NULL DEFAULT 20 CHECK (max_replies_per_day >= 0),
+        max_reactions_per_day integer NOT NULL DEFAULT 30 CHECK (max_reactions_per_day >= 0),
+        max_replies_per_thread integer NOT NULL DEFAULT 3 CHECK (max_replies_per_thread >= 0),
+        stale_after_seconds integer NOT NULL DEFAULT 120 CHECK (stale_after_seconds > 0),
+        clef_thread_messages integer NOT NULL DEFAULT 10 CHECK (clef_thread_messages >= 0),
+        writer_thread_messages integer NOT NULL DEFAULT 50 CHECK (writer_thread_messages >= 0),
+        reaction_emoji text[] NOT NULL CHECK (
+          cardinality(reaction_emoji) >= 2 AND array_position(reaction_emoji, '') IS NULL
+        ),
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+
+    yield* sql`
+      INSERT INTO office.responder_settings (reaction_emoji)
+      VALUES (ARRAY['joy', 'eyes', 'raised_hands', 'heart', '+1', 'saluting_face'])
+    `;
+
+    yield* sql`ALTER TABLE office.members ADD COLUMN slack_user_id text UNIQUE`;
+
+    yield* sql`
+      CREATE TABLE office.slack_posts (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        channel_id text NOT NULL,
+        ts text NOT NULL,
+        thread_ts text,
+        kind text NOT NULL CHECK (kind IN ('Opened', 'Emptied', 'Reminder', 'Banter', 'Reply')),
+        model text,
+        posted_at timestamptz NOT NULL,
+        UNIQUE (channel_id, ts)
+      )
+    `;
+
+    yield* sql`CREATE INDEX slack_posts_posted_at ON office.slack_posts (posted_at)`;
+    yield* sql`CREATE INDEX slack_posts_thread ON office.slack_posts (channel_id, thread_ts)`;
+
+    yield* sql`
+      CREATE TABLE office.slack_messages (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        channel_id text NOT NULL,
+        ts text NOT NULL,
+        thread_ts text NOT NULL,
+        user_id text NOT NULL,
+        display_name text NOT NULL,
+        member_user_id text REFERENCES office.members (user_id),
+        text text NOT NULL,
+        is_mention boolean NOT NULL,
+        received_at timestamptz NOT NULL
+      )
+    `;
+
+    yield* sql`CREATE INDEX slack_messages_received_at ON office.slack_messages (received_at)`;
+
+    yield* sql`
+      CREATE TABLE office.slack_decisions (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        message_id bigint NOT NULL REFERENCES office.slack_messages (id),
+        decided_at timestamptz NOT NULL,
+        clef_model text,
+        clef_request jsonb,
+        action text CHECK (action IN ('reply', 'react', 'ignore')),
+        action_probabilities jsonb,
+        action_confidence double precision,
+        reaction text,
+        reaction_probabilities jsonb,
+        reaction_confidence double precision,
+        latency_ms integer,
+        min_confidence double precision NOT NULL,
+        max_replies_per_day integer NOT NULL,
+        max_reactions_per_day integer NOT NULL,
+        max_replies_per_thread integer NOT NULL,
+        outcome text NOT NULL CHECK (outcome IN ('replied', 'reacted', 'ignored')),
+        reason text NOT NULL CHECK (
+          reason IN (
+            'clef', 'mention', 'low_confidence', 'daily_cap', 'thread_cap', 'outside_hours',
+            'stale', 'superseded', 'clef_failed', 'no_model'
+          )
+        )
+      )
+    `;
+
+    yield* sql`CREATE INDEX slack_decisions_decided_at ON office.slack_decisions (decided_at)`;
+
+    yield* sql`
+      CREATE TABLE office.slack_reactions (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        channel_id text NOT NULL,
+        item_ts text NOT NULL,
+        user_id text NOT NULL,
+        emoji text NOT NULL,
+        added boolean NOT NULL,
+        event_ts text NOT NULL,
+        received_at timestamptz NOT NULL
+      )
+    `;
+
+    yield* sql`CREATE INDEX slack_reactions_item ON office.slack_reactions (channel_id, item_ts)`;
+  }),
 });

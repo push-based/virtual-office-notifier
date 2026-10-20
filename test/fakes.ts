@@ -1,4 +1,4 @@
-import { ConfigProvider, DateTime, Effect, ErrorReporter, Layer, Random, Ref, type Schema } from "effect";
+import { ConfigProvider, DateTime, Duration, Effect, ErrorReporter, Layer, Option, Random, Ref, type Schema } from "effect";
 import {
   HttpBody,
   HttpClient,
@@ -9,7 +9,17 @@ import {
 
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
 import { HeadlineWriter } from "../src/HeadlineWriter.ts";
+import { HistoryUnavailable } from "../src/OfficeHistory.ts";
 import { SlackClient } from "../src/SlackClient.ts";
+import {
+  type ConsideredMessage,
+  type DecisionRecord,
+  type LinkedMember,
+  type ReactionRecord,
+  type ResponderSettings,
+  SlackHistory,
+  type SlackPost,
+} from "../src/SlackHistory.ts";
 import { SlackNotifier } from "../src/SlackNotifier.ts";
 import { OfficeEvent } from "../src/OfficeEvent.ts";
 import type { TimedVoiceEffect } from "../src/VoiceEffect.ts";
@@ -90,13 +100,16 @@ const isPost = (request: HttpClientRequest.HttpClientRequest): boolean =>
 export const makeFakeSlack = Effect.fnUntraced(function* (
   replies: ReadonlyArray<Reply>,
   headlines: Layer.Layer<HeadlineWriter> = HeadlineWriter.layerFixed,
+  history?: Layer.Layer<SlackHistory>,
 ) {
   const http = yield* makeFakeSlackHttp(replies);
+  const fakeHistory = yield* makeFakeSlackHistory();
 
   const layer = SlackNotifier.layerNoDeps.pipe(
     Layer.provideMerge(SlackClient.layerNoDeps),
     Layer.provide(http.layer),
     Layer.provide(headlines),
+    Layer.provide(history ?? fakeHistory.layer),
   );
 
   const posts = http.requests.pipe(Effect.map((sent) => sent.filter(isPost)));
@@ -104,6 +117,7 @@ export const makeFakeSlack = Effect.fnUntraced(function* (
   return {
     layer,
     requests: http.requests,
+    recordedPosts: fakeHistory.posts,
     postedTexts: posts.pipe(Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request)).text))),
     postedBodies: posts.pipe(Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request))))),
   };
@@ -146,3 +160,73 @@ export const captureReports = () => {
 
   return { reports, layer };
 };
+
+export const DEFAULT_SETTINGS: ResponderSettings = {
+  enabled: true,
+  clefModel: "@cf/cloudflare/clef",
+  minConfidence: 0.7,
+  maxRepliesPerDay: 20,
+  maxReactionsPerDay: 30,
+  maxRepliesPerThread: 3,
+  staleAfter: Duration.minutes(2),
+  clefThreadMessages: 10,
+  writerThreadMessages: 50,
+  reactionEmoji: ["joy", "eyes", "raised_hands"],
+};
+
+export interface FakeHistoryOptions {
+  readonly settings?: ResponderSettings | undefined;
+  readonly members?: ReadonlyMap<string, LinkedMember> | undefined;
+}
+
+// Keeps what would be stored in memory, and counts caps the way the database does.
+export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHistoryOptions = {}) {
+  const settings = yield* Ref.make(Option.some(options.settings ?? DEFAULT_SETTINGS));
+  const posts = yield* Ref.make<ReadonlyArray<SlackPost>>([]);
+  const messages = yield* Ref.make<ReadonlyArray<ConsideredMessage>>([]);
+  const decisions = yield* Ref.make<ReadonlyArray<DecisionRecord>>([]);
+  const reactions = yield* Ref.make<ReadonlyArray<ReactionRecord>>([]);
+  const members = options.members ?? new Map<string, LinkedMember>();
+
+  const replies = Ref.get(posts).pipe(Effect.map((all) => all.filter((post) => post.kind === "Reply")));
+
+  const layer = Layer.succeed(
+    SlackHistory,
+    SlackHistory.of({
+      settings: Ref.get(settings).pipe(
+        Effect.flatMap(Option.match({
+          onNone: () => Effect.fail(new HistoryUnavailable({ reason: "No settings" })),
+          onSome: Effect.succeed,
+        })),
+      ),
+      recordPost: (post) => Ref.update(posts, (all) => [...all, post]),
+      recordMessage: (message) => Ref.modify(messages, (all) => [all.length + 1, [...all, message]]),
+      recordDecision: (decision) => Ref.update(decisions, (all) => [...all, decision]),
+      recordReaction: (reaction) => Ref.update(reactions, (all) => [...all, reaction]),
+      repliesSince: (from) =>
+        replies.pipe(Effect.map((all) => all.filter((post) => DateTime.isGreaterThanOrEqualTo(post.postedAt, from)).length)),
+      reactionsSince: (from) =>
+        Ref.get(decisions).pipe(
+          Effect.map(
+            (all) =>
+              all.filter((decision) => decision.outcome === "reacted" && DateTime.isGreaterThanOrEqualTo(decision.decidedAt, from))
+                .length,
+          ),
+        ),
+      repliesInThread: (channel, threadTs) =>
+        replies.pipe(
+          Effect.map((all) => all.filter((post) => post.channel === channel && post.threadTs === threadTs).length),
+        ),
+      linkMember: (slackUserId) => Effect.succeed(Option.fromUndefinedOr(members.get(slackUserId))),
+    }),
+  );
+
+  return {
+    layer,
+    setSettings: (next: Option.Option<ResponderSettings>) => Ref.set(settings, next),
+    posts: Ref.get(posts),
+    messages: Ref.get(messages),
+    decisions: Ref.get(decisions),
+    reactions: Ref.get(reactions),
+  };
+});
