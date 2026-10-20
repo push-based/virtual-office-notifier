@@ -9,14 +9,15 @@ import { layerSentry } from "../src/Observability.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import { OfficeHistory } from "../src/OfficeHistory.ts";
 import { program } from "../src/Program.ts";
-import { firstVariant, makeFakeSlack, ok, type Reply, respond, WEBHOOK_URL, withEnv } from "./fakes.ts";
+import { Responder } from "../src/Responder.ts";
+import { firstVariant, makeFakeSlack, ok, type Reply, respond, SLACK_ENV, slackError, withEnv } from "./fakes.ts";
 
 const OFFICE = "office";
 
 const env = {
   DISCORD_BOT_TOKEN: "discord-token",
   DISCORD_OFFICE_CHANNEL_ID: OFFICE,
-  SLACK_WEBHOOK_URL: WEBHOOK_URL,
+  ...SLACK_ENV,
 };
 
 const join: VoiceStateUpdate = {
@@ -66,7 +67,7 @@ const runWithSentry = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>
     yield* Queue.end(queue);
 
     const fiber = yield* program.pipe(
-      Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, ActivityRecorder.layerDisabled, OfficeHistory.layerDisabled)),
+      Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, ActivityRecorder.layerDisabled, OfficeHistory.layerDisabled, Responder.layerNone)),
       Effect.forkChild,
     );
 
@@ -79,7 +80,7 @@ const runWithSentry = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>
 });
 
 describe("Sentry", () => {
-  it.effect("traces each announcement without the webhook URL", () =>
+  it.effect("traces each announcement without the Slack token", () =>
     Effect.gen(function* () {
       const { spans } = yield* runWithSentry([ok]);
 
@@ -88,10 +89,10 @@ describe("Sentry", () => {
       assert.strictEqual(announce?.attributes["event"], "Opened");
       assert.includeMembers(
         spans.map((span) => span.name),
-        ["Program.announce", "SlackNotifier.notify", "SlackNotifier.post"],
+        ["Program.announce", "SlackNotifier.notify", "SlackClient.chat.postMessage"],
       );
       assert.isTrue(spans.every((span) => span.trace_id === announce?.trace_id));
-      assert.notInclude(JSON.stringify(spans), WEBHOOK_URL);
+      assert.notInclude(JSON.stringify(spans), SLACK_ENV.SLACK_BOT_TOKEN);
     }));
 
   it.effect("sends logs, linked to the announcement's trace", () =>
@@ -104,15 +105,15 @@ describe("Sentry", () => {
       assert.strictEqual(announced?.attributes?.["sentry.trace.parent_span_id"], announce?.span_id);
     }));
 
-  it.effect("reports a revoked webhook as an error", () =>
+  it.effect("reports revoked Slack access as an error", () =>
     Effect.gen(function* () {
-      const { events } = yield* runWithSentry([respond(404, "no_service")]);
+      const { events } = yield* runWithSentry([slackError("token_revoked")]);
 
       assert.strictEqual(events.length, 1);
       assert.strictEqual(events[0]?.level, "error");
-      assert.strictEqual(events[0]?.exception?.values?.[0]?.value, "Slack rejected the post: WebhookRevoked");
-      assert.deepStrictEqual(events[0]?.extra, { reason: "WebhookRevoked" });
-      assert.notInclude(JSON.stringify(events), WEBHOOK_URL);
+      assert.strictEqual(events[0]?.exception?.values?.[0]?.value, "Slack rejected the post: AccessRevoked");
+      assert.deepStrictEqual(events[0]?.extra, { reason: "AccessRevoked" });
+      assert.notInclude(JSON.stringify(events), SLACK_ENV.SLACK_BOT_TOKEN);
     }));
 
   it.effect("reports giving up after retries as a warning", () =>

@@ -1,14 +1,15 @@
 import { assert, describe, it } from "@effect/vitest";
-import { type Cause, Effect, Fiber, Layer, Logger, type LogLevel, Queue, References } from "effect";
+import { type Cause, Deferred, Effect, Fiber, Layer, Logger, type LogLevel, Queue, References } from "effect";
 import { TestClock } from "effect/testing";
 
 import type { BotPresence } from "../src/BotPresence.ts";
 import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { OfficeHistory } from "../src/OfficeHistory.ts";
 import { MainLayer, program } from "../src/Program.ts";
+import { Responder } from "../src/Responder.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import type { VoiceEffect } from "../src/VoiceEffect.ts";
-import { firstVariant, hang, makeFakeRecorder, makeFakeSlack, ok, type Reply, respond, WEBHOOK_URL, withEnv } from "./fakes.ts";
+import { firstVariant, hang, makeFakeRecorder, makeFakeSlack, ok, type Reply, SLACK_ENV, slackError, withEnv } from "./fakes.ts";
 
 const OFFICE = "office";
 
@@ -17,7 +18,7 @@ const GUILD = "guild";
 const env = {
   DISCORD_BOT_TOKEN: "discord-token",
   DISCORD_OFFICE_CHANNEL_ID: OFFICE,
-  SLACK_WEBHOOK_URL: WEBHOOK_URL,
+  ...SLACK_ENV,
 };
 
 const update = (overrides: Partial<VoiceStateUpdate> = {}): VoiceStateUpdate => ({
@@ -66,6 +67,7 @@ const runProgram = Effect.fnUntraced(function* (
   replies: ReadonlyArray<Reply> = [ok],
   present: ReadonlyArray<VoiceStateUpdate> = [],
   effects: ReadonlyArray<VoiceEffect> = [],
+  responder: Layer.Layer<Responder> = Responder.layerNone,
 ) {
   const queue = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
   const moves = yield* Queue.unbounded<BotPresence>();
@@ -105,6 +107,7 @@ const runProgram = Effect.fnUntraced(function* (
         slack.layer,
         recorder.layer,
         OfficeHistory.layerDisabled,
+        responder,
         Logger.layer([captureLogs]),
       ),
     ),
@@ -200,15 +203,15 @@ describe("program", () => {
       assert.deepStrictEqual(posted, [OPENED, EMPTIED]);
     }));
 
-  it.effect("8. logs a revoked webhook as an error and keeps handling events", () =>
+  it.effect("8. logs revoked Slack access as an error and keeps handling events", () =>
     Effect.gen(function* () {
-      const { posted, logs } = yield* runProgram([update(), leave()], [respond(404, "no_service"), ok]);
+      const { posted, logs } = yield* runProgram([update(), leave()], [slackError("invalid_auth"), ok]);
 
       assert.strictEqual(posted.length, 2);
 
       const failure = logs.find((entry) => entry.level === "Error");
       assert.strictEqual(failure?.message, "Slack rejected the post");
-      assert.deepInclude(failure?.annotations, { reason: "WebhookRevoked", event: "Opened", userId: "<redacted>" });
+      assert.deepInclude(failure?.annotations, { reason: "AccessRevoked", event: "Opened", userId: "<redacted>" });
 
       const success = logs.find((entry) => entry.message === "Announced office event");
       assert.deepInclude(success?.annotations, { event: "Emptied", outcome: "posted", userId: "<redacted>" });
@@ -289,7 +292,7 @@ describe("recording", () => {
       const recorder = yield* makeFakeRecorder();
 
       const fiber = yield* program.pipe(
-        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled)),
+        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone)),
         withEnv(env),
         firstVariant,
         Effect.forkChild,
@@ -353,7 +356,7 @@ describe("daily reminder", () => {
       const recorder = yield* makeFakeRecorder();
 
       const fiber = yield* program.pipe(
-        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled)),
+        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone)),
         withEnv(env),
         firstVariant,
         Effect.forkChild,
@@ -375,12 +378,29 @@ describe("daily reminder", () => {
     }));
 });
 
+describe("program and the Slack responder", () => {
+  it.effect("runs the responder alongside, and ends when the Discord events do", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+
+      const responder = Layer.succeed(
+        Responder,
+        Responder.of({ run: Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)) }),
+      );
+
+      const { posted } = yield* runProgram([update()], [ok], [], [], responder);
+
+      assert.strictEqual(posted.length, 1);
+      assert.isTrue(yield* Deferred.isDone(started));
+    }));
+});
+
 describe("MainLayer", () => {
-  const { SLACK_WEBHOOK_URL: _slack, ...withoutSlack } = env;
+  const { SLACK_BOT_TOKEN: _slack, ...withoutSlack } = env;
   const { DISCORD_OFFICE_CHANNEL_ID: _office, ...withoutOffice } = env;
 
   it.effect.each([
-    { missing: "SLACK_WEBHOOK_URL", env: withoutSlack },
+    { missing: "SLACK_BOT_TOKEN", env: withoutSlack },
     { missing: "DISCORD_OFFICE_CHANNEL_ID", env: withoutOffice },
   ])("9. fails at startup naming a missing $missing", ({ missing, env }) =>
     Effect.gen(function* () {

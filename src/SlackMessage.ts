@@ -207,6 +207,15 @@ const banterMessage = (office: OfficeLocation, { template, button, model }: Gene
   };
 };
 
+export const replyMessage = (text: string, model: string): SlackMessage => {
+  const escaped = escapeSlackText(text);
+
+  return {
+    text: escaped,
+    blocks: [headline(escaped, Option.none()), context(`Reply by ${escapeSlackText(model)}`, AI_DISCLAIMER)],
+  };
+};
+
 // `variant` picks one of the fixed phrasings, so repeated posts don't all read
 // the same. Reminders ignore it and rotate by date instead, so every phrasing
 // comes up once before any repeats.

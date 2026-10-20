@@ -28,7 +28,7 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: Relevant log lines, if you have them. Remove tokens, webhook URLs and API keys first.
+      description: Relevant log lines, if you have them. Remove tokens and API keys first.
       render: text
   - type: input
     id: commit

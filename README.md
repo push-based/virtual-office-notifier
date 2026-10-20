@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/push-based/virtual-office-notifier/actions/workflows/ci.yml/badge.svg)](https://github.com/push-based/virtual-office-notifier/actions/workflows/ci.yml)
 
-Posts to Slack when someone opens our Discord "virtual office" voice channel, and again when it empties out, so people know when they can jump in. On weekdays it also posts a reminder to come hang out, and a few bits of AI-written banter about what's been going on in the office. It also records what happens in the office channel to a Postgres database.
+Posts to Slack when someone opens our Discord "virtual office" voice channel, and again when it empties out, so people know when they can jump in. On weekdays it also posts a reminder to come hang out, and a few bits of AI-written banter about what's been going on in the office. When someone mentions it or replies under one of its posts, it can answer, react or stay out of it. It also records what happens in the office channel to a Postgres database.
 
 - [Features](#features)
 - [What it posts](#what-it-posts)
@@ -26,6 +26,7 @@ Posts to Slack when someone opens our Discord "virtual office" voice channel, an
 - **Office banter.** Up to five times a working day, at random, an AI model reads what happened in the office and posts something playful about it.
 - **Slack cards** with a button that opens the office in Discord, the opener's avatar, and times shown in each reader's own time zone.
 - **AI-written headlines** from free models on OpenRouter or Cloudflare Workers AI, falling back to fixed phrasings.
+- **Answers in Slack**, but only when an answer is wanted. Mentions always get a reply; for replies under its posts, [Clef](#answering-in-slack) decides whether to reply, react or ignore. It's switched on and tuned in the database, and capped per day and per thread.
 - **Restart-safe.** It counts whoever is already in the channel at startup, so a restart mid-session doesn't announce the office opening again.
 - **Keeps going when Slack doesn't.** Failed posts are retried with backoff and logged, and never crash the process.
 - **Records voice activity** in the office channel to a [database](#database): joins, leaves, mute, deafen, camera and streaming, exactly as Discord reports them, plus soundboard sounds and emoji reactions. The database can never stop the announcements.
@@ -71,6 +72,7 @@ Banter is always written by an AI model, from what's actually happened in the of
 | Emptied | The last person leaves. Moving to another voice channel counts as leaving. The recap is left out for a session that was already under way when the bot started, since it missed the beginning. |
 | Reminder | Weekdays at 11:15 UTC+2. It's a fixed offset, so it doesn't shift with daylight saving. Skipped if the office channel wasn't found at startup, since there's nothing to link to. |
 | Banter | At random, between 1 and 2½ hours apart, from 09:00 to 18:00 UTC+2 on weekdays, and at most 5 a day. See [Banter](#banter). |
+| Reply | In the thread, when someone mentions the bot or Clef decides a reply under one of its posts wants an answer, 09:00 to 18:00 UTC+2 on weekdays. See [Answering in Slack](#answering-in-slack). |
 
 It only watches the one office channel and ignores bots, itself included. Mute, deafen and video changes, soundboard sounds and emoji reactions aren't announced, only [recorded](#database).
 
@@ -80,7 +82,7 @@ The original design is in [issue #1](https://github.com/push-based/virtual-offic
 
 ## How it works
 
-Discord only pushes voice-state changes over its Gateway WebSocket, so this is an always-on Node.js process rather than a webhook or serverless function. It's written in TypeScript with [Effect](https://effect.website) v4, uses [discord.js](https://discord.js.org) to receive `voiceStateUpdate` events, and posts to a Slack Incoming Webhook.
+Discord only pushes voice-state changes over its Gateway WebSocket, so this is an always-on Node.js process rather than a webhook or serverless function. It's written in TypeScript with [Effect](https://effect.website) v4, uses [discord.js](https://discord.js.org) to receive `voiceStateUpdate` events, and posts to Slack with a bot token through `chat.postMessage`. It listens to Slack over a [Socket Mode](https://api.slack.com/apis/socket-mode) WebSocket, so the VM needs no public endpoint either.
 
 ```mermaid
 flowchart LR
@@ -91,14 +93,22 @@ flowchart LR
   Program --> Notifier[SlackNotifier]
   Notifier <-->|headline + label| Writer[HeadlineWriter]
   Writer <-.->|optional| AI[OpenRouter / Workers AI]
-  Notifier -->|Block Kit card| Slack[Slack webhook]
+  Notifier -->|chat.postMessage| Slack[Slack]
+  Slack -->|Socket Mode events| Responder
+  Responder <-.->|reply, react or ignore| Clef[Clef on Workers AI]
+  Responder <-->|reply| ReplyWriter
+  ReplyWriter <-.-> AI
+  Responder -->|replies and reactions| Slack
+  Responder <-.->|settings, caps and decisions| Postgres
   Gateway -->|voice observations and effects| Recorder[ActivityRecorder]
   Program -->|join / leave the office| Gateway
   Recorder -->|in order, in the background| Log[ActivityLog]
   Log --> Postgres[(Supabase Postgres)]
 ```
 
-Events are handled one at a time, so one that arrives while a Slack post is being retried waits its turn and messages stay in order. Each post times out after 10 seconds and is retried up to 4 times with jittered exponential backoff from 1 second, or after Slack's `Retry-After` when rate-limited. A revoked webhook (403, 404 or 410) or a rejected payload isn't retried. Either way the failure is logged and the next event is handled as normal.
+Events are handled one at a time, so one that arrives while a Slack post is being retried waits its turn and messages stay in order. Each call to Slack's Web API times out after 10 seconds and is retried up to 4 times with jittered exponential backoff from 1 second, or after Slack's `Retry-After` when rate-limited (`ratelimited` or a 429). Slack answers `200` with `ok: false` when it refuses something, so failures are told apart by Slack's error code: `invalid_auth`, `token_revoked`, `account_inactive`, `channel_not_found` and `not_in_channel` mean the bot has lost access, and anything else means it rejected what was sent. Neither is retried. Either way the failure is logged and the next event is handled as normal.
+
+Answering in Slack runs in its own fiber too, so nothing on the Slack side can hold up or stop the announcements. See [Answering in Slack](#answering-in-slack).
 
 Recording runs alongside, in its own fiber, so a slow Slack post never holds it up. See [Database](#database) for how it handles the database being down.
 
@@ -116,7 +126,16 @@ Discord only sends soundboard sounds and emoji reactions (`voiceChannelEffectSen
 | [`src/Storage.ts`](src/Storage.ts) | Sets up the database once for recording and reading, or turns both off without `DATABASE_URL`. |
 | [`src/HeadlineWriter.ts`](src/HeadlineWriter.ts) | Asks the AI providers for a headline or banter and a button label, and checks the reply. |
 | [`src/SlackMessage.ts`](src/SlackMessage.ts) | Builds the Block Kit message, including the fixed phrasings. |
-| [`src/SlackNotifier.ts`](src/SlackNotifier.ts) | Posts to the webhook, with retries and error classification. |
+| [`src/SlackClient.ts`](src/SlackClient.ts) | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification. |
+| [`src/SlackNotifier.ts`](src/SlackNotifier.ts) | Posts the announcements, reminders and banter, and records each post. |
+| [`src/SlackSocket.ts`](src/SlackSocket.ts) | The Socket Mode connection: acks every event at once, drops redeliveries and reconnects. |
+| [`src/SlackEvent.ts`](src/SlackEvent.ts) | Decodes Slack events and decides which ones the bot considers. |
+| [`src/Responder.ts`](src/Responder.ts) | Waits for messages per thread, handles them one at a time, applies the limits, and replies, reacts or ignores. |
+| [`src/ReplyDecider.ts`](src/ReplyDecider.ts) | Asks Clef whether to reply, react or ignore, and applies the confidence threshold. |
+| [`src/CloudflareDecisionModel.ts`](src/CloudflareDecisionModel.ts) | An Effect `DecisionModel` for Clef on Workers AI. |
+| [`src/ReplyWriter.ts`](src/ReplyWriter.ts) | Asks the AI providers for a reply, and checks it. |
+| [`src/AiWriting.ts`](src/AiWriting.ts) | The model fallback, timeouts and daily-limit handling shared by both writers. |
+| [`src/SlackHistory.ts`](src/SlackHistory.ts) | Reads the responder settings and keeps the Slack posts, messages, decisions and reactions. |
 | [`src/VoiceObservation.ts`](src/VoiceObservation.ts) | Decides which voice-state updates are worth recording. |
 | [`src/VoiceEffect.ts`](src/VoiceEffect.ts) | Soundboard sounds and emoji reactions, and which ones are worth recording. |
 | [`src/BotPresence.ts`](src/BotPresence.ts) | Whether the bot should be in the office, from who's there at startup and the office opening and emptying. |
@@ -130,7 +149,7 @@ Discord only sends soundboard sounds and emoji reactions (`voiceChannelEffectSen
 
 ## Getting started
 
-You'll need Node 26 (see `.nvmrc`), pnpm, a [Discord bot](#discord-bot) and a [Slack webhook](#slack-webhook).
+You'll need Node 26 (see `.nvmrc`), pnpm, a [Discord bot](#discord-bot) and a [Slack app](#slack-app).
 
 ```bash
 git clone https://github.com/push-based/virtual-office-notifier.git
@@ -143,7 +162,7 @@ pnpm dev
 Once it logs `Watching the virtual office`, join the office channel and the post should show up in Slack.
 
 > [!WARNING]
-> Use a separate bot and webhook for local runs while production is running. Two copies watching the same channel post every announcement twice.
+> Use a separate Discord bot and Slack app for local runs while production is running. Two copies watching the same channel post every announcement twice.
 
 ## Configuration
 
@@ -153,7 +172,9 @@ All configuration comes from environment variables. Copy `.env.example` to `.env
 |---|---|---|
 | `DISCORD_BOT_TOKEN` | Yes | Bot token from the Discord Developer Portal. Secret. |
 | `DISCORD_OFFICE_CHANNEL_ID` | Yes | ID of the office voice channel (Developer Mode → right-click the channel → Copy Channel ID). |
-| `SLACK_WEBHOOK_URL` | Yes | Slack Incoming Webhook URL. Secret: anyone with it can post to the channel. |
+| `SLACK_BOT_TOKEN` | Yes | The Slack app's bot token (`xoxb-…`). Secret: anyone with it can post as the bot. |
+| `SLACK_APP_TOKEN` | Yes | The Slack app's app-level token (`xapp-…`) with `connections:write`, for Socket Mode. Secret. |
+| `SLACK_CHANNEL_ID` | Yes | ID of the Slack channel announcements, reminders and banter go to, and the only one the bot answers in. |
 | `OPENROUTER_API_KEY` | No | [OpenRouter](https://openrouter.ai/settings/keys) API key for AI headlines. Secret. |
 | `OPENROUTER_MODELS` | No | Comma-separated OpenRouter models to try, preferred first. Defaults to `DEFAULT_OPENROUTER_MODELS` in [`src/Config.ts`](src/Config.ts). |
 | `OPENROUTER_BANTER_MODELS` | No | Comma-separated OpenRouter models to try for [banter](#banter), preferred first. Defaults to `DEFAULT_OPENROUTER_BANTER_MODELS` in [`src/Config.ts`](src/Config.ts). |
@@ -175,10 +196,15 @@ The process exits at startup with an error naming the variable if a required one
 2. Under **Bot**, turn off **Public Bot**. No privileged intents are needed; the bot only uses `Guilds`, `GuildVoiceStates` and `GuildExpressions` (to keep the server's soundboard sound names up to date).
 3. Under **OAuth2 → URL Generator**, pick the `bot` scope with the **View Channels** and **Connect** permissions, open the URL and add the bot to the server. Without **Connect** it can't join the office, so soundboard sounds and emoji reactions aren't recorded, and it logs a warning at startup saying so.
 
-### Slack webhook
+### Slack app
 
-1. Create an app at <https://api.slack.com/apps> → **From scratch** → pick the workspace.
-2. **Features → Incoming Webhooks** → turn it on → **Add New Webhook to Workspace** → pick the channel → **Allow**. Webhooks can't post to `#general`.
+1. Create an app at <https://api.slack.com/apps> → **From scratch** → pick the workspace, or open the app that had the old webhook.
+2. **Settings → Socket Mode** → turn it on, and create an app-level token with the `connections:write` scope. That's `SLACK_APP_TOKEN`.
+3. **Features → OAuth & Permissions → Bot Token Scopes**: add `chat:write`, `reactions:write`, `reactions:read`, `app_mentions:read`, `channels:history` and `users:read`. If the channel is private, add `groups:history` too.
+4. **Features → Event Subscriptions** → turn it on and subscribe to the bot events `app_mention`, `message.channels`, `reaction_added` and `reaction_removed`, plus `message.groups` for a private channel. With Socket Mode on, there's no request URL to fill in.
+5. Leave **Interactivity** off. The join buttons only open a link.
+6. **Install to Workspace**, and copy the **Bot User OAuth Token** into `SLACK_BOT_TOKEN`.
+7. Invite the bot to the channel (`/invite @your-bot`), and copy the channel ID (channel details → **About**, at the bottom) into `SLACK_CHANNEL_ID`.
 
 ### AI headlines
 
@@ -212,7 +238,7 @@ Free models come and go on OpenRouter. To change the list, pick from the [free m
 2. Go to **Workers AI** → **Use REST API** → **Create a Workers AI API Token**, and copy the token into `CLOUDFLARE_API_TOKEN`.
 3. Copy the **Account ID** from the same page into `CLOUDFLARE_ACCOUNT_ID`.
 
-Workers AI includes 10,000 Neurons a day for free, which covers a few hundred headlines on the default models.
+Workers AI includes 10,000 Neurons a day for free, which covers a few hundred headlines on the default models. [Clef](#answering-in-slack) and Slack replies come out of the same allowance, so replies try OpenRouter first. When Cloudflare says the day's allowance is used up, the rest of its models are skipped, like OpenRouter's daily limit.
 
 ### Banter
 
@@ -250,6 +276,53 @@ On its own it only prints the prompts. With `--call-ai` it asks one OpenRouter m
 node --env-file=.env scripts/try-banter.ts --call-ai
 ```
 
+### Answering in Slack
+
+Needs the [database](#database), and stays off until it's switched on there. Mentions also need at least one [AI provider](#ai-headlines), and replies under the bot's posts need Cloudflare for Clef. The design is in [issue #18](https://github.com/push-based/virtual-office-notifier/issues/18).
+
+**What it considers**
+
+- Only messages in the `SLACK_CHANNEL_ID` channel.
+- **Mentions of the bot.** These always get a reply, within the limits below, in the thread they're in, or in a new thread under a mention that isn't in one.
+- **Replies in threads under the bot's own posts**: announcements, reminders, banter and its own replies. [Clef](https://blog.cloudflare.com/clef-decision-models/), a decision model on Workers AI, decides whether to reply, react with an emoji or ignore it.
+- Nothing else: other channels, DMs, top-level messages that don't mention it, other bots and itself, edits, deletions and joins. A mention inside a thread under its post is handled once, as a mention.
+
+**How it decides**
+
+- Clef gets the bot's post, the last few messages in the thread and the new one, each cut to 1,000 characters. It answers with a choice and a confidence for the action (`reply`, `react` or `ignore`) and for the emoji. The bot acts only when the action's confidence is at least `min_confidence`. Every request is stored with Clef's answer, so the threshold can be tuned on real data later.
+- The reply is written by the [banter](#banter) models, OpenRouter first, in the same warm and gently teasing voice. The model gets the thread (up to the last `writer_thread_messages` messages), who's in the office right now and this week's [`office_activity`](#whats-recorded), at most 400 entries. The reply must be one message of up to 600 characters with no Slack link or mention syntax. It's escaped and posted in the thread with a line crediting the model and saying it's AI.
+- Slack text is untrusted. The model has no tools, and what it writes is checked and escaped, so a message that tries to give it instructions can only change what it says, not what it does.
+- People in the thread are shown by their Slack name, or by their office name when they're linked: `office.members.slack_user_id` first, then a case-insensitive match of their Slack real name against `real_name`. The model is told not to assume anyone else in the thread is anyone in the log.
+
+**Limits**
+
+- Only 09:00 to 18:00 UTC+2 on weekdays, mentions included.
+- At most `max_replies_per_day` replies and `max_reactions_per_day` reactions per office day, and `max_replies_per_thread` replies in any one thread. Mentions count. When it couldn't act anyway, Clef isn't asked. A reply that's over a limit is never turned into a reaction.
+- Each thread keeps only its latest waiting message: an older one is skipped as `superseded`. Mentions wait separately, so chatter can't push one out. Threads take turns, one message at a time, in the order they first spoke, and a message that waited more than `stale_after_seconds` is skipped as `stale`.
+- Every message it considers is recorded with what it did and why: `replied`, `reacted` or `ignored`, because of `clef`, `mention`, `low_confidence`, `daily_cap`, `thread_cap`, `outside_hours`, `stale`, `superseded`, `clef_failed` or `no_model`.
+- If Clef fails or every writing model fails, it stays quiet. Both are logged and reported as warnings.
+
+**Settings**
+
+Everything is in the single row of `office.responder_settings`, read for every message, so a change in Supabase applies to the next one. The database refuses values that can't work.
+
+| Column | Default | What it does |
+|---|---|---|
+| `enabled` | `false` | Switches answering on. While it's off, nothing is decided, posted or recorded, reactions included. |
+| `clef_model` | `@cf/cloudflare/clef` | The Clef model. `@cf/cloudflare/clef-flash` is faster but weaker on messages that fit none of the choices. |
+| `min_confidence` | `0.7` | How sure Clef must be, from 0 to 1. |
+| `max_replies_per_day` | `20` | Replies per office day. |
+| `max_reactions_per_day` | `30` | Reactions per office day. |
+| `max_replies_per_thread` | `3` | Replies in any one thread. |
+| `stale_after_seconds` | `120` | How long a message can wait for its turn. |
+| `clef_thread_messages` | `10` | Earlier thread messages Clef sees. |
+| `writer_thread_messages` | `50` | Earlier thread messages the reply's writer sees. |
+| `reaction_emoji` | `joy`, `eyes`, `raised_hands`, `heart`, `+1`, `saluting_face` | The emoji Clef picks from, as Slack names them. At least two. |
+
+```sql
+UPDATE office.responder_settings SET enabled = true, updated_at = now();
+```
+
 ### Database
 
 The bot records voice activity in the office channel to a Postgres database on [Supabase](https://supabase.com). It's collected now, to decide later what to use it for. The design is in [issue #10](https://github.com/push-based/virtual-office-notifier/issues/10).
@@ -269,10 +342,15 @@ Everything lives in an `office` schema, out of the `public` schema that Supabase
 |---|---|
 | `voice_snapshots` | One row per Discord voice-state update touching the office: joining, leaving, moving in or out, and every change inside. It has the old and new value of every field Discord sends (channel, self and server mute and deafen, camera, streaming, suppressed, request to speak and voice session), as Discord sent them. Bots are left out. `source` is `update`, or `startup` for someone already in the office when the bot started. |
 | `voice_effects` | One row per soundboard sound or emoji reaction someone sent in the office, as Discord sent it: the sound's ID, volume and name (looked up from the server's sounds and Discord's default ones, empty when it couldn't be found), the emoji, and the animation. Bots are left out. |
-| `members` | One row per Discord user seen, with their latest display name and when they were first and last seen. `real_name` is yours to fill in by hand; the bot never writes it. |
+| `members` | One row per Discord user seen, with their latest display name and when they were first and last seen. `real_name` and `slack_user_id` are yours to fill in by hand; the bot never writes them. They link people in Slack threads to the office. |
 | `bot_sessions` | One row per run of the bot, with when it started and stopped. `stopped_at` stays empty when it didn't stop cleanly, so gaps in the data can be told apart from an empty office. |
 | `rejected_updates` | Anything the database refused to store, as JSON with the error, so it can be fixed and replayed by hand. |
 | `banter_posts` | One row per bit of [banter](#banter), with when and which stretch of time it covered, so the daily limit holds across restarts. |
+| `slack_posts` | Every message the bot posts to Slack: channel, `ts`, thread, kind (`Opened`, `Emptied`, `Reminder`, `Banter` or `Reply`) and the model that wrote it. |
+| `slack_messages` | Every Slack message the bot [considered](#answering-in-slack): who wrote it, their linked office member if any, the text, whether it was a mention and when it arrived. |
+| `slack_decisions` | One per considered message: Clef's model, the exact request, its choices with their probabilities and confidence, how long it took, the settings in effect, and what the bot did and why. |
+| `slack_reactions` | Every reaction added to or removed from the bot's posts, as Slack sent it, for judging how the posts land. |
+| `responder_settings` | The [settings](#answering-in-slack) for answering in Slack. |
 
 The `voice_activity` view turns the snapshots into readable events with names: `AlreadyThere`, `Joined`, `Left`, `Muted`/`Unmuted`, `Deafened`/`Undeafened`, `ServerMuted`/`ServerUnmuted`, `ServerDeafened`/`ServerUndeafened`, `CameraOn`/`CameraOff` and `StreamStarted`/`StreamStopped`. Anything already on when someone arrives counts as switched on, so joining muted is `Joined` and `Muted`. Deafening in Discord also mutes, so it shows as `Deafened` and `Muted`.
 
@@ -314,7 +392,7 @@ The connection is encrypted and checked against Supabase's own root certificate 
 
 CI runs typecheck, lint, test and build on every push and pull request.
 
-The tests run the program against fakes for Discord, the Slack webhook and the AI models, so they need no tokens or network access. `DiscordGateway.layerTest` feeds voice-state updates from a queue through the same occupancy tracking the real gateway uses. The database tests run the real migrations and SQL against an in-process Postgres ([PGlite](https://pglite.dev)), so they need no database either.
+The tests run the program against fakes for Discord, Slack and the AI models, so they need no tokens or network access. `DiscordGateway.layerTest` feeds voice-state updates from a queue through the same occupancy tracking the real gateway uses. The database tests run the real migrations and SQL against an in-process Postgres ([PGlite](https://pglite.dev)), so they need no database either.
 
 TypeScript is pinned to the exact version `@effect/tsgo` supports, so upgrade the two together. The `prepare` script patches it on install.
 
@@ -368,14 +446,14 @@ This creates a `github-deploy` service account and a Workload Identity pool trus
 |---|---|
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | The Workload Identity provider created above |
 | `GCP_SERVICE_ACCOUNT` | The `github-deploy` service account email |
-| `DISCORD_BOT_TOKEN`, `DISCORD_OFFICE_CHANNEL_ID`, `SLACK_WEBHOOK_URL` | Your local `.env` |
+| `DISCORD_BOT_TOKEN`, `DISCORD_OFFICE_CHANNEL_ID`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CHANNEL_ID` | Your local `.env` |
 | `DATABASE_URL` | The Supabase session pooler connection string. See [Database](#database). |
 | `OPENROUTER_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `SENTRY_DSN` | Optional, your local `.env` |
 
 GitHub secrets are the source of truth for the app's configuration. To change a value, update the secret and re-run the latest `CI` workflow on `main`:
 
 ```bash
-gh secret set SLACK_WEBHOOK_URL
+gh secret set SLACK_BOT_TOKEN
 ```
 
 ### What a deploy does
@@ -400,8 +478,8 @@ gcloud compute ssh virtual-office-notifier --zone=us-central1-a -- journalctl -u
 
 With `SENTRY_DSN` set, the app sends errors, traces and logs to [Sentry](https://sentry.io) through [`@sentry/effect`](https://docs.sentry.io/platforms/javascript/guides/effect/). Everything still goes to the journal as well.
 
-- **Issues.** A crash, including at startup, is an error. A Slack post that only failed after retries is a warning; a revoked webhook or rejected payload is an error. Discord client errors are errors, and every AI model failing to write a headline is a warning. For the [database](#database), every retry while it's unreachable and every update it rejects is a warning, and an update that could only be logged, or a database client that couldn't be created, is an error. These never include the update itself.
-- **Traces.** Each announcement is its own trace: the Slack post with each attempt, and the AI model calls. HTTP client spans are turned off, because they'd record the webhook URL, which is a secret.
+- **Issues.** A crash, including at startup, is an error. A Slack call that only failed after retries is a warning; lost access or a rejected payload is an error. Discord client errors are errors, and every AI model failing to write a headline or reply is a warning. So are Clef failing and the Slack Socket Mode connection dropping. For the [database](#database), every retry while it's unreachable and every update it rejects is a warning, and an update that could only be logged, or a database client that couldn't be created, is an error. These never include the update itself.
+- **Traces.** Each announcement is its own trace: the Slack post with each attempt, and the AI model calls. HTTP client spans are turned off, so request details never leave the VM.
 - **Logs.** Every log line, linked to the trace it was logged in. Only the message is sent, not the annotations.
 
 To turn it on, create a Node.js project in Sentry and set its DSN as a secret, then re-run the latest `CI` workflow on `main`:
@@ -416,10 +494,11 @@ gh secret set SENTRY_DSN
 |---|---|
 | Exits at startup naming a variable | It's missing or empty. Check `.env` locally, or the GitHub secret in production. |
 | `Office voice channel not found` in the logs | `DISCORD_OFFICE_CHANNEL_ID` is wrong, or the bot isn't in the server or can't view the channel. It keeps running in case the bot is added later, but reminders stay off until it restarts. |
-| Every announcement shows up twice | Two copies are running, for example `pnpm dev` with the production token and webhook. |
-| `Slack rejected the post` with `WebhookRevoked` | The webhook was removed or the Slack app uninstalled. Create a new webhook and update `SLACK_WEBHOOK_URL`. |
+| Every announcement shows up twice | Two copies are running, for example `pnpm dev` with the production tokens. |
+| `Slack rejected the post` with `AccessRevoked` | The token was revoked, the app uninstalled, or the bot isn't in the channel. Reinstall the app or invite the bot, and update the secrets. |
+| The bot never answers in Slack | Check `office.responder_settings.enabled`, then `office.slack_decisions` for why. No rows at all means the events aren't arriving: look for `Lost the Slack connection, reconnecting` warnings and check the app's Socket Mode, events and scopes. |
 | No banter shows up | Look for `Skipped banter` warnings: the reason says why the database couldn't be read. Without the database there's no banter at all. If every AI model failed, the log says `Nothing to announce, no AI model wrote the banter`. |
-| Posts always use the fixed headlines | Every AI model is failing. Look for `AI model couldn't write a headline` warnings and their reason. `DailyLimit` means the OpenRouter key has used up its free requests for the day. |
+| Posts always use the fixed headlines | Every AI model is failing. Look for `AI model couldn't write it` warnings and their reason. `DailyLimit` means the OpenRouter key has used up its free requests for the day. |
 | `Couldn't set up the database, retrying` in the logs | The bot can't reach the database or run the migrations. The `reason` says why, for example a wrong password in `DATABASE_URL` or a paused Supabase project. Announcements carry on, and observations are buffered until it connects. |
 | `Couldn't record to the database, retrying` in the logs | The database went away after connecting, or a write took over 10 seconds. Writing resumes where it left off once it's back. |
 | `The database rejected an update` in the logs | Postgres refused a row. It's in `office.rejected_updates` with the error. |
@@ -435,6 +514,8 @@ For headlines, the AI providers only get the instructions and a few example head
 [Banter](#banter) is different: the model gets the recorded office activity for up to a week, with everyone's name, and can name people in what it writes. The defaults are free models, and providers of free models may keep and train on what they're sent. Tell the team before turning it on.
 
 The [database](#database) keeps a detailed record of each person's activity in the office channel: when they joined and left, when they muted, deafened, turned on their camera or streamed, and every soundboard sound and emoji reaction they sent, with their Discord user ID and display name, and a real name if one is filled in. Nothing is ever deleted. Tell the team it's being recorded before turning it on.
+
+When [answering in Slack](#answering-in-slack) is on, the bot reads mentions of it and replies under its posts in the office Slack channel. Those messages, the thread around them, people's Slack and office names and this week's office activity go to Clef on Cloudflare and to free AI models, which may keep and train on them. Every message it considers is stored with what it did, and every reaction to its posts is stored, with Slack user IDs. Nothing is ever deleted. Tell the team before switching it on.
 
 While anyone is in the office, the bot shows up in the channel too. It's muted and deafened and never opens an audio connection, so it doesn't hear or record anything anyone says.
 

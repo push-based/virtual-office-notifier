@@ -9,7 +9,9 @@ export const DiscordConfig = Config.all({
 });
 
 export const SlackConfig = Config.all({
-  webhookUrl: secret("SLACK_WEBHOOK_URL"),
+  botToken: secret("SLACK_BOT_TOKEN"),
+  appToken: secret("SLACK_APP_TOKEN"),
+  channelId: Config.NonEmptyString("SLACK_CHANNEL_ID"),
 });
 
 // Blank counts as unset, since that's how CI passes a missing secret.

@@ -1,5 +1,3 @@
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai-compat";
-import { OpenRouterClient, OpenRouterLanguageModel } from "@effect/ai-openrouter";
 import { NodeHttpClient } from "@effect/platform-node";
 import {
   Array,
@@ -7,22 +5,17 @@ import {
   Context,
   Effect,
   ErrorReporter,
-  ExecutionPlan,
   identity,
   Layer,
   type LogLevel,
-  Match,
-  Option,
+  type Option,
   Random,
-  Redacted,
   Schema,
   SchemaTransformation,
 } from "effect";
-import { AiError, LanguageModel, Model, type Response } from "effect/ai";
-import type { HttpClient } from "effect/http";
 
+import { type Brief, configuredProviders, failureReason, type Providers, writeWithProviders } from "./AiWriting.ts";
 import { banterLog } from "./Banter.ts";
-import { AiConfig } from "./Config.ts";
 import { OfficeEvent } from "./OfficeEvent.ts";
 import {
   banterExamples,
@@ -68,10 +61,6 @@ export const UnnamedReply = ReplyWith(Line(10, 160, /^[^{}<>]+$/));
 
 export const BanterReply = ReplyWith(Line(10, 300, /^[^{}<>]+$/));
 
-export class UnusableHeadline extends Schema.TaggedError<UnusableHeadline>()("UnusableHeadline", {
-  text: Schema.String,
-}) {}
-
 // Reported once every model has failed, so a run of fixed headlines shows up
 // in Sentry. `reason` is why the last model failed.
 export class NoAiHeadline extends Schema.TaggedError<NoAiHeadline>()("NoAiHeadline", {
@@ -90,13 +79,9 @@ export class NoAiHeadline extends Schema.TaggedError<NoAiHeadline>()("NoAiHeadli
   }
 }
 
-interface Brief {
-  readonly prompt: string;
-  readonly request: string;
-  readonly reply: typeof OpenedReply;
-}
+type HeadlineBrief = Brief<readonly [string, string]>;
 
-const announcement = (task: string, examples: Variants, button: string, reply: typeof OpenedReply): Brief => ({
+const announcement = (task: string, examples: Variants, button: string, reply: typeof OpenedReply): HeadlineBrief => ({
   prompt: [
     "You write one-line Slack announcements for a team's virtual office, a Discord voice channel where people work alongside each other.",
     task,
@@ -125,147 +110,29 @@ const BANTER_PROMPT = [
 ].join("\n");
 
 export const briefFor = OfficeEvent.$match({
-  Opened: (): Brief =>
+  Opened: (): HeadlineBrief =>
     announcement(
       `Someone just opened the office. Write a short, warm, playful headline that says so and invites others to join. Refer to the person only as ${NAME_PLACEHOLDER}, exactly once.`,
       openedHeadlines(NAME_PLACEHOLDER),
       JOIN_LABEL,
       OpenedReply,
     ),
-  Emptied: (): Brief =>
+  Emptied: (): HeadlineBrief =>
     announcement(
       "Everyone just left the office, so it's empty. Write a short, warm, playful headline that says so and invites people to jump back in. Don't name anyone.",
       emptiedHeadlines,
       JUMP_IN_LABEL,
       UnnamedReply,
     ),
-  Reminder: (): Brief =>
+  Reminder: (): HeadlineBrief =>
     announcement(
       "It's the weekday reminder. Write a short, funny headline inviting the team to come work alongside each other in the office. Don't name anyone.",
       reminderHeadlines,
       JOIN_LABEL,
       UnnamedReply,
     ),
-  Banter: (context): Brief => ({ prompt: BANTER_PROMPT, request: banterLog(context), reply: BanterReply }),
+  Banter: (context): HeadlineBrief => ({ prompt: BANTER_PROMPT, request: banterLog(context), reply: BanterReply }),
 });
-
-// Free models often take 5-10 seconds, and sometimes over 30.
-const MODEL_TIMEOUT = "1 minute";
-
-type HeadlineError = AiError.AiError | Cause.TimeoutError | UnusableHeadline;
-
-const decodeDailyLimitBody = Schema.decodeUnknownOption(
-  Schema.fromJsonString(
-    Schema.Struct({
-      error: Schema.Struct({
-        metadata: Schema.Struct({ limit_source: Schema.Literal("openrouter_free_tier_daily") }),
-      }),
-    }),
-  ),
-);
-
-// The key's free requests for the day are used up, so every other free model
-// would refuse too.
-const isDailyLimit = (error: HeadlineError): boolean =>
-  error instanceof AiError.AiError &&
-  error.reason instanceof AiError.RateLimitError &&
-  Option.isSome(decodeDailyLimitBody(error.reason.http?.body));
-
-const failureReason = Match.typeTags<HeadlineError, string>()({
-  AiError: (error) => (isDailyLimit(error) ? "DailyLimit" : error.reason._tag),
-  TimeoutError: () => "Timeout",
-  UnusableHeadline: () => "UnusableHeadline",
-});
-
-// A router like openrouter/free reports which model actually answered.
-const respondingModel = (content: ReadonlyArray<Response.AnyPart>, requested: string): string =>
-  Array.findFirst(content, (part): part is Response.ResponseMetadataPart => part.type === "response-metadata").pipe(
-    Option.flatMap((part) => Option.fromUndefinedOr(part.modelId)),
-    Option.getOrElse(() => requested),
-  );
-
-const logFailure = Effect.fnUntraced(function* (error: HeadlineError) {
-  const model = yield* Model.ModelName;
-
-  yield* Effect.logWarning("AI model couldn't write a headline").pipe(
-    Effect.annotateLogs({ model, reason: failureReason(error) }),
-  );
-});
-
-const writeWithModel = Effect.fnUntraced(function* (brief: Brief) {
-  const model = yield* Model.ModelName;
-
-  const response = yield* LanguageModel.generateText({
-    prompt: [
-      { role: "system", content: brief.prompt },
-      { role: "user", content: brief.request },
-    ],
-  }).pipe(Effect.timeout(MODEL_TIMEOUT));
-
-  const [template, button] = yield* Schema.decodeEffect(brief.reply)(response.text).pipe(
-    Effect.mapError(() => new UnusableHeadline({ text: response.text })),
-  );
-
-  return { template, button, model: respondingModel(response.content, model) };
-}, Effect.tapError(logFailure));
-
-// The first model goes first at least half the time, and the rest follow in
-// random order.
-const orderModels = Effect.fnUntraced(function* <A>(models: Array.NonEmptyReadonlyArray<A>) {
-  const first = (yield* Random.nextBoolean) ? models[0] : yield* Random.choice(models);
-
-  return Array.prepend(yield* Random.shuffle(Array.filter(models, (model) => model !== first)), first);
-});
-
-type ModelLayer = Layer.Layer<LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName>;
-
-interface ModelStep {
-  readonly provide: ModelLayer;
-  readonly while: (error: HeadlineError) => boolean;
-}
-
-// A daily limit only skips the rest of that provider's models.
-const providerSteps = (models: Array.NonEmptyReadonlyArray<ModelLayer>) =>
-  Array.map(models, (provide, index): ModelStep => ({ provide, while: (error) => index === 0 || !isDailyLimit(error) }));
-
-// Thinking would spend the minute and the free daily Neurons before the reply,
-// and a headline needs well under 200 tokens.
-const CLOUDFLARE_MODEL_CONFIG = {
-  temperature: 1,
-  max_output_tokens: 200,
-  chat_template_kwargs: { enable_thinking: false },
-};
-
-// Builds the provider's client once, for as long as the writer lives.
-const withClient = Effect.fnUntraced(function* <C>(
-  models: Array.NonEmptyReadonlyArray<Model.Model<"openai", LanguageModel.LanguageModel, C>>,
-  client: Layer.Layer<C, never, HttpClient.HttpClient>,
-) {
-  const context = yield* Layer.build(client);
-
-  return yield* Effect.all(Array.map(models, (model) => model.captureRequirements)).pipe(Effect.provideContext(context));
-});
-
-export const openRouterProvider = (apiKey: Redacted.Redacted<string>, models: Array.NonEmptyReadonlyArray<string>) =>
-  withClient(
-    Array.map(models, (model) => OpenRouterLanguageModel.model(model, { temperature: 1 })),
-    OpenRouterClient.layer({ apiKey, siteTitle: "Virtual Office Notifier" }),
-  );
-
-export const cloudflareProvider = (
-  accountId: Redacted.Redacted<string>,
-  apiToken: Redacted.Redacted<string>,
-  models: Array.NonEmptyReadonlyArray<string>,
-) =>
-  withClient(
-    Array.map(models, (model) => OpenAiLanguageModel.model(model, CLOUDFLARE_MODEL_CONFIG)),
-    OpenAiClient.layer({
-      apiKey: apiToken,
-      apiUrl: `https://api.cloudflare.com/client/v4/accounts/${Redacted.value(accountId)}/ai/v1`,
-    }),
-  );
-
-type Providers = Array.NonEmptyReadonlyArray<Array.NonEmptyReadonlyArray<ModelLayer>>;
 
 export class HeadlineWriter extends Context.Service<
   HeadlineWriter,
@@ -276,10 +143,7 @@ export class HeadlineWriter extends Context.Service<
 >()("virtual-office-notifier/HeadlineWriter") {
   // Either provider may go first, and its models are tried in turn until one
   // writes a usable headline.
-  static readonly layerProviders = (
-    providers: Providers,
-    banterProviders: Providers = providers,
-  ) =>
+  static readonly layerProviders = (providers: Providers, banterProviders: Providers = providers) =>
     Layer.succeed(
       HeadlineWriter,
       HeadlineWriter.of({
@@ -287,10 +151,10 @@ export class HeadlineWriter extends Context.Service<
           function* (event: OfficeEvent) {
             const candidates = OfficeEvent.$is("Banter")(event) ? banterProviders : providers;
             const shuffled = (yield* Random.nextBoolean) ? candidates : Array.reverse(candidates);
-            const ordered = yield* Effect.all(Array.map(shuffled, orderModels));
-            const plan = ExecutionPlan.make<Array.NonEmptyReadonlyArray<ModelStep>>(...Array.flatMap(ordered, providerSteps));
+            const { value, model } = yield* writeWithProviders(briefFor(event), shuffled);
+            const [template, button] = value;
 
-            return yield* writeWithModel(briefFor(event)).pipe(Effect.withExecutionPlan(plan));
+            return { template, button, model };
           },
           Effect.tapError((error) =>
             Effect.logWarning("No AI model could write a headline").pipe(
@@ -307,20 +171,8 @@ export class HeadlineWriter extends Context.Service<
 
   static readonly layer = Layer.unwrap(
     Effect.gen(function* () {
-      const { openRouter, cloudflare } = yield* AiConfig;
-
-      const cloudflareModels = Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }).pipe(
-        Option.map(({ accountId, apiToken }) => cloudflareProvider(accountId, apiToken, cloudflare.models)),
-      );
-
-      const providersWith = (openRouterModels: Array.NonEmptyReadonlyArray<string>) =>
-        Effect.all([
-          ...Option.toArray(Option.map(openRouter.apiKey, (apiKey) => openRouterProvider(apiKey, openRouterModels))),
-          ...Option.toArray(cloudflareModels),
-        ]);
-
-      const providers = yield* providersWith(openRouter.models);
-      const banterProviders = yield* providersWith(openRouter.banterModels);
+      const providers = yield* configuredProviders((config) => config.openRouter.models);
+      const banterProviders = yield* configuredProviders((config) => config.openRouter.banterModels);
 
       return Array.match(providers, {
         onEmpty: () =>

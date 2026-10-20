@@ -2,7 +2,8 @@ import { NodeHttpClient, NodeRuntime } from "@effect/platform-node";
 import { Config, Console, Effect, Option } from "effect";
 
 import { DEFAULT_OPENROUTER_BANTER_MODELS } from "../src/Config.ts";
-import { briefFor, HeadlineWriter, openRouterProvider } from "../src/HeadlineWriter.ts";
+import { openRouterProvider } from "../src/AiWriting.ts";
+import { briefFor, HeadlineWriter } from "../src/HeadlineWriter.ts";
 import { OfficeEvent } from "../src/OfficeEvent.ts";
 import { AI_DISCLAIMER } from "../src/SlackMessage.ts";
 import { banterScenarios } from "./banter-scenarios.ts";
