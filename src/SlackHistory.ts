@@ -1,6 +1,7 @@
 import { Array, Context, DateTime, Duration, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 
+import type { ClefRequest } from "./CloudflareDecisionModel.ts";
 import { Database, describeError } from "./Database.ts";
 import { HistoryUnavailable } from "./OfficeHistory.ts";
 
@@ -75,7 +76,7 @@ export type DecisionReason =
 
 export interface ClefVerdict {
   readonly model: string;
-  readonly request: Schema.Json;
+  readonly request: ClefRequest;
   readonly action: Action;
   readonly actionProbabilities: Readonly<Record<string, number>>;
   readonly actionConfidence: number;
@@ -112,7 +113,7 @@ export interface LinkedMember {
   readonly name: string;
 }
 
-const jsonb = (value: Schema.Json): string => JSON.stringify(value);
+const jsonb = (value: ClefRequest | Readonly<Record<string, number>>): string => JSON.stringify(value);
 
 const notRecording = () => Effect.fail(new HistoryUnavailable({ reason: "Nothing is recorded" }));
 
