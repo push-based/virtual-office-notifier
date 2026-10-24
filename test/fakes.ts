@@ -11,6 +11,7 @@ import { ActivityRecorder } from "../src/ActivityRecorder.ts";
 import { HeadlineWriter } from "../src/HeadlineWriter.ts";
 import { HistoryUnavailable } from "../src/OfficeHistory.ts";
 import {
+  type FileUpload,
   type OutgoingMessage,
   SlackClient,
   SlackError,
@@ -250,6 +251,7 @@ export interface FakeSlackClientOptions {
 export const makeFakeSlackClient = Effect.fnUntraced(function* (options: FakeSlackClientOptions = {}) {
   const posts = yield* Ref.make<ReadonlyArray<OutgoingMessage>>([]);
   const reactions = yield* Ref.make<ReadonlyArray<readonly [string, string, string]>>([]);
+  const uploads = yield* Ref.make<ReadonlyArray<FileUpload>>([]);
   const threads = yield* Ref.make(new Map(options.threads ?? []));
   const profiles = options.profiles ?? new Map<string, SlackProfile>();
 
@@ -274,6 +276,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (options: FakeSla
     SlackClient.of({
       postMessage,
       addReaction: (channel, ts, emoji) => Ref.update(reactions, (all) => [...all, [channel, ts, emoji] as const]),
+      uploadFile: (upload) => Ref.update(uploads, (all) => [...all, upload]),
       threadReplies: (_channel, threadTs) => Ref.get(threads).pipe(Effect.map((all) => all.get(threadTs) ?? [])),
       userProfile: (userId) =>
         Effect.succeed(profiles.get(userId) ?? { displayName: userId, realName: "" }),
@@ -286,6 +289,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (options: FakeSla
     layer,
     posts: Ref.get(posts),
     reactions: Ref.get(reactions),
+    uploads: Ref.get(uploads),
     addToThread: (threadTs: string, message: ThreadMessage) =>
       Ref.update(threads, (all) => new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message])),
   };

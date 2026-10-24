@@ -2,7 +2,15 @@ import { DateTime, Duration, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { OfficeEvent } from "../src/OfficeEvent.ts";
-import { escapeSlackText, formatDuration, formatMessage, reminderHeadlines, weekdaysSinceEpoch } from "../src/SlackMessage.ts";
+import {
+  AI_DISCLAIMER,
+  escapeSlackText,
+  formatDuration,
+  formatMessage,
+  reminderHeadlines,
+  summaryMessage,
+  weekdaysSinceEpoch,
+} from "../src/SlackMessage.ts";
 
 // 2026-09-25T14:05:00Z
 const at = DateTime.makeUnsafe(1_790_345_100_000);
@@ -299,5 +307,39 @@ describe("formatMessage for banter", () => {
         ],
       }),
     );
+  });
+});
+
+describe("summaryMessage", () => {
+  const recording = {
+    office,
+    startedAt: at,
+    stoppedAt: DateTime.add(at, { minutes: 95 }),
+    startedByName: "Ada <3",
+    speakers: ["Ada <3", "Grace"],
+    summary: Option.some({ text: "• Ada & Grace agreed to ship", model: "nvidia/nemotron" }),
+  };
+
+  it("leads with when and how long, then the summary, who started it and who spoke", () => {
+    const message = summaryMessage(recording);
+    const card = JSON.stringify(message.blocks);
+
+    expect(message.text).toBe("📝 Office recording, 1h 35m");
+    expect(card).toContain("📝 *Office recording* from <!date^1790345100^{date_short} {time}|2026-09-25 14:05 UTC>, 1h 35m");
+    expect(card).toContain("• Ada &amp; Grace agreed to ship");
+    expect(card).toContain("*Started by*\\nAda &lt;3");
+    expect(card).toContain("*Who spoke*\\nAda &lt;3, Grace");
+    expect(card).toContain("✨ Summary by nvidia/nemotron");
+    expect(card).toContain("📄 Full transcript in the thread");
+    expect(card).toContain(AI_DISCLAIMER);
+  });
+
+  it("says so when no model could write a summary", () => {
+    const card = JSON.stringify(summaryMessage({ ...recording, summary: Option.none(), speakers: [] }).blocks);
+
+    expect(card).toContain("No AI model could write a summary this time");
+    expect(card).toContain("*Who spoke*\\nNobody");
+    expect(card).not.toContain("Summary by");
+    expect(card).not.toContain(AI_DISCLAIMER);
   });
 });

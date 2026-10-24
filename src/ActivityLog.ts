@@ -38,6 +38,22 @@ export const classify = (error: SqlError.SqlError): ActivityLogError => {
 
 const toDate = (at: DateTime.Utc | null): Date | null => (at === null ? null : DateTime.toDate(at));
 
+export const memberUpsert =
+  (sql: SqlClient.SqlClient) => (userId: string, displayName: string, seenAt: DateTime.Utc) => sql`
+    INSERT INTO office.members AS m ${sql.insert({
+      userId,
+      displayName,
+      firstSeenAt: DateTime.toDate(seenAt),
+      lastSeenAt: DateTime.toDate(seenAt),
+    })}
+    ON CONFLICT (user_id) DO UPDATE SET
+      display_name = CASE
+        WHEN EXCLUDED.display_name = EXCLUDED.user_id THEN m.display_name
+        ELSE EXCLUDED.display_name
+      END,
+      last_seen_at = GREATEST(m.last_seen_at, EXCLUDED.last_seen_at)
+  `;
+
 // Column names are camelCase here and snake_case in Postgres; the client
 // converts them.
 export const snapshotRow = (sessionId: string, entryId: string, observation: VoiceObservation) => {
@@ -126,20 +142,7 @@ export class ActivityLog extends Context.Service<
         Effect.mapError(classify),
       );
 
-      const upsertMember = (userId: string, displayName: string, seenAt: DateTime.Utc) => sql`
-        INSERT INTO office.members AS m ${sql.insert({
-          userId,
-          displayName,
-          firstSeenAt: DateTime.toDate(seenAt),
-          lastSeenAt: DateTime.toDate(seenAt),
-        })}
-        ON CONFLICT (user_id) DO UPDATE SET
-          display_name = CASE
-            WHEN EXCLUDED.display_name = EXCLUDED.user_id THEN m.display_name
-            ELSE EXCLUDED.display_name
-          END,
-          last_seen_at = GREATEST(m.last_seen_at, EXCLUDED.last_seen_at)
-      `;
+      const upsertMember = memberUpsert(sql);
 
       // The member and the snapshot go in together, so a snapshot never points
       // at a missing member. `real_name` is never touched.

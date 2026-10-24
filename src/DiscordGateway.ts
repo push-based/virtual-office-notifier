@@ -1,3 +1,4 @@
+import type { DiscordGatewayAdapterCreator } from "@discordjs/voice";
 import {
   Cause,
   Context,
@@ -30,6 +31,8 @@ import {
 import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
 import { DiscordConfig } from "./Config.ts";
 import {
+  isOfficeJoin,
+  isOfficeLeave,
   NO_VOICE_DETAILS,
   type OfficeEvent,
   type OfficeLocation,
@@ -40,7 +43,10 @@ import {
   type VoiceStateUpdate,
 } from "./OfficeEvent.ts";
 import { sentInOffice, type TimedVoiceEffect, type VoiceEffect } from "./VoiceEffect.ts";
+import type { Occupant } from "./Recording.ts";
 import { observe, type VoiceObservation } from "./VoiceObservation.ts";
+
+export const RECORDING_NICKNAME = "🔴 Recording";
 
 export class DiscordLoginError extends Schema.TaggedError<DiscordLoginError>()("DiscordLoginError", {
   cause: Schema.Defect(),
@@ -113,6 +119,12 @@ const alreadyPresent = (member: GuildMember): VoiceStateUpdate => ({
   newChannelId: member.voice.channelId,
   oldDetails: NO_VOICE_DETAILS,
   newDetails: detailsOf(member.voice),
+});
+
+const occupantOfUpdate = (update: VoiceStateUpdate): Occupant => ({
+  userId: update.userId,
+  displayName: update.displayName,
+  avatarUrl: update.avatarUrl,
 });
 
 const voiceStateUpdates = (client: Client) =>
@@ -194,26 +206,43 @@ export class BotMoveError extends Schema.TaggedError<BotMoveError>()("BotMoveErr
   reason: Schema.String,
 }) {}
 
-const sendVoiceState = (guild: Guild, channelId: string | null) =>
+const sendVoiceState = (guild: Guild, channelId: string | null, selfDeaf: boolean) =>
   guild.shard.status === Status.Ready
     ? Effect.try({
         try: () =>
           guild.shard.send({
             op: GatewayOpcodes.VoiceStateUpdate,
-            d: { guild_id: guild.id, channel_id: channelId, self_mute: true, self_deaf: true },
+            d: { guild_id: guild.id, channel_id: channelId, self_mute: true, self_deaf: selfDeaf },
           }),
         catch: (cause) => new BotMoveError({ reason: String(cause) }),
       })
     : Effect.fail(new BotMoveError({ reason: "Discord isn't connected" }));
 
-const moveBot = (guild: Guild, officeChannelId: string) => (presence: BotPresence) =>
-  sendVoiceState(guild, presence === "InOffice" ? officeChannelId : null).pipe(
+// Deafened unless recording, which is the only time it needs to hear anything.
+const moveBot = (guild: Guild, officeChannelId: string) => (presence: BotPresence, recording: boolean) =>
+  sendVoiceState(guild, presence === "InOffice" ? officeChannelId : null, !recording).pipe(
     Effect.andThen(Effect.logInfo("Moved the bot")),
     Effect.catchTag("BotMoveError", (error) =>
       Effect.logWarning("Couldn't move the bot").pipe(Effect.annotateLogs({ reason: error.reason })),
     ),
-    Effect.annotateLogs({ presence }),
+    Effect.annotateLogs({ presence, recording }),
   );
+
+const setNickname = (guild: Guild, nickname: string | null) =>
+  Effect.tryPromise(() => guild.members.me?.setNickname(nickname) ?? Promise.resolve(null)).pipe(
+    Effect.asVoid,
+    Effect.catch((error) =>
+      Effect.logWarning("Couldn't change the bot's nickname. Give it the Change Nickname permission.").pipe(
+        Effect.annotateLogs({ reason: String(error) }),
+      ),
+    ),
+  );
+
+const occupantOf = (member: GuildMember): Occupant => ({
+  userId: member.id,
+  displayName: member.displayName,
+  avatarUrl: member.displayAvatarURL({ extension: "png", size: 128 }),
+});
 
 const login = (client: Client, token: Redacted.Redacted<string>) =>
   Effect.callback<Client<true>, DiscordLoginError>((resume) => {
@@ -230,6 +259,7 @@ export interface TestGateway {
   readonly present?: ReadonlyArray<VoiceStateUpdate>;
   readonly effects?: ReadonlyArray<VoiceEffect>;
   readonly moves?: Queue.Enqueue<BotPresence>;
+  readonly recordings?: Queue.Enqueue<boolean>;
   readonly selfId?: string;
 }
 
@@ -242,6 +272,11 @@ export class DiscordGateway extends Context.Service<
     readonly voiceEffects: Stream.Stream<TimedVoiceEffect>;
     readonly botPresence: Stream.Stream<BotPresence>;
     moveBot(presence: BotPresence): Effect.Effect<void>;
+    // Un-deafens and renames the bot while it records, and back afterwards.
+    setRecording(active: boolean): Effect.Effect<void>;
+    readonly occupants: Effect.Effect<ReadonlyArray<Occupant>>;
+    readonly selfUserId: string;
+    readonly voiceAdapter: Option.Option<DiscordGatewayAdapterCreator>;
     // None when the office channel wasn't found at startup.
     readonly office: Option.Option<OfficeLocation>;
   }
@@ -313,11 +348,34 @@ export class DiscordGateway extends Context.Service<
       });
 
       const wanted = yield* Ref.make<BotPresence>("Away");
+      const recording = yield* Ref.make(false);
 
       const goWhereWanted = Option.match(office, {
         onNone: () => Effect.void,
-        onSome: (channel) => Ref.get(wanted).pipe(Effect.flatMap(moveBot(channel.guild, officeChannelId))),
+        onSome: (channel) =>
+          Effect.all([Ref.get(wanted), Ref.get(recording)]).pipe(
+            Effect.flatMap(([presence, active]) => moveBot(channel.guild, officeChannelId)(presence, active)),
+          ),
       });
+
+      const setRecording = (active: boolean) =>
+        Ref.set(recording, active).pipe(
+          Effect.andThen(
+            Option.match(office, {
+              onNone: () => Effect.void,
+              onSome: (channel) => setNickname(channel.guild, active ? RECORDING_NICKNAME : null),
+            }),
+          ),
+          Effect.andThen(goWhereWanted),
+        );
+
+      const whoIsIn = Effect.sync(
+        (): ReadonlyArray<Occupant> =>
+          Option.match(office, {
+            onNone: () => [],
+            onSome: (channel) => [...channel.members.filter((member) => !member.user.bot).values()].map(occupantOf),
+          }),
+      );
 
       client.on(Events.ShardReady, () => runFork(goWhereWanted));
       client.on(Events.ShardResume, () => runFork(goWhereWanted));
@@ -333,6 +391,10 @@ export class DiscordGateway extends Context.Service<
           onSome: () => botPresence(occupants, updates().pipe(officeEvents(officeChannelId, occupants))),
         }),
         moveBot: (presence) => Ref.set(wanted, presence).pipe(Effect.andThen(goWhereWanted)),
+        setRecording,
+        occupants: whoIsIn,
+        selfUserId: ready.user.id,
+        voiceAdapter: Option.map(office, (channel) => channel.guild.voiceAdapterCreator),
         office: Option.map(office, (channel) => ({ guildId: channel.guild.id, channelId: officeChannelId })),
       });
     }),
@@ -348,6 +410,7 @@ export class DiscordGateway extends Context.Service<
     present = [],
     effects = [],
     moves,
+    recordings,
     selfId = "self",
   }: TestGateway) =>
     Layer.effect(
@@ -362,12 +425,36 @@ export class DiscordGateway extends Context.Service<
           Stream.broadcast({ capacity: "unbounded", replay: 1000 }),
         );
 
+        const inOffice = yield* Ref.make<ReadonlyMap<string, Occupant>>(
+          new Map(present.map((update) => [update.userId, occupantOfUpdate(update)])),
+        );
+
+        yield* shared.pipe(
+          Stream.runForEach((update) =>
+            Ref.update(inOffice, (members) => {
+              const next = new Map(members);
+
+              if (isOfficeJoin(officeChannelId, update)) next.set(update.userId, occupantOfUpdate(update));
+
+              if (isOfficeLeave(officeChannelId, update)) next.delete(update.userId);
+
+              return next;
+            }),
+          ),
+          Effect.forkScoped,
+        );
+
         return DiscordGateway.of({
           officeEvents: shared.pipe(officeEvents(officeChannelId, occupants)),
           voiceObservations: shared.pipe(voiceObservations(officeChannelId, present)),
           voiceEffects: Stream.fromIterable(effects).pipe(fromOthers(selfId), officeEffects(officeChannelId)),
           botPresence: botPresence(occupants, shared.pipe(officeEvents(officeChannelId, occupants))),
           moveBot: (presence) => (moves === undefined ? Effect.void : Queue.offer(moves, presence).pipe(Effect.asVoid)),
+          setRecording: (active) =>
+            recordings === undefined ? Effect.void : Queue.offer(recordings, active).pipe(Effect.asVoid),
+          occupants: Ref.get(inOffice).pipe(Effect.map((members) => [...members.values()])),
+          selfUserId: selfId,
+          voiceAdapter: Option.none(),
           office: Option.some({ guildId, channelId: officeChannelId }),
         });
       }),

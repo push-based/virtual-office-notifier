@@ -8,6 +8,7 @@ import {
   networkDown,
   type Reply,
   requestJson,
+  requestText,
   respond,
   SLACK_ENV,
   slackError,
@@ -45,6 +46,42 @@ describe("SlackClient", () => {
         text: "hello",
         blocks: [],
         thread_ts: "1699999999.000100",
+      });
+    }));
+
+  it.effect("uploads a file into a thread in Slack's three steps", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([
+        slackOk({ upload_url: "https://files.slack.com/upload/v1/abc", file_id: "F123" }),
+        respond(200, "OK - 12"),
+        slackOk(),
+      ]);
+
+      yield* slack.client.uploadFile({
+        channel: "C-OFFICE",
+        threadTs: "1700000000.000100",
+        filename: "transcript.txt",
+        title: "Transcript",
+        content: new TextEncoder().encode("hello world!"),
+      });
+
+      const [getUrl, upload, complete] = yield* slack.requests;
+      assert.strictEqual(getUrl?.url, "https://slack.com/api/files.getUploadURLExternal");
+      assert.deepStrictEqual(
+        [...(getUrl?.urlParams ?? [])],
+        [
+          ["filename", "transcript.txt"],
+          ["length", "12"],
+        ],
+      );
+      assert.strictEqual(upload?.url, "https://files.slack.com/upload/v1/abc");
+      assert.isUndefined(upload?.headers["authorization"]);
+      assert.strictEqual(requestText(upload!), "hello world!");
+      assert.strictEqual(complete?.url, "https://slack.com/api/files.completeUploadExternal");
+      assert.deepStrictEqual(requestJson(complete!), {
+        files: [{ id: "F123", title: "Transcript" }],
+        channel_id: "C-OFFICE",
+        thread_ts: "1700000000.000100",
       });
     }));
 
