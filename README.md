@@ -30,6 +30,7 @@ Posts to Slack when someone opens our Discord "virtual office" voice channel, an
 - **Restart-safe.** It counts whoever is already in the channel at startup, so a restart mid-session doesn't announce the office opening again.
 - **Keeps going when Slack doesn't.** Failed posts are retried with backoff and logged, and never crash the process.
 - **Records voice activity** in the office channel to a [database](#database): joins, leaves, mute, deafen, camera and streaming, exactly as Discord reports them, plus soundboard sounds and emoji reactions. The database can never stop the announcements.
+- **Records the office on demand.** Anyone in the office can press a button in a Discord Activity to record what's said. Each person's speech is kept as audio, transcribed with Whisper, and the summary lands in Slack with the full transcript. See [Recording the office](#recording-the-office).
 - **Optional Sentry monitoring** of errors, traces and logs.
 
 ## What it posts
@@ -114,6 +115,8 @@ Recording runs alongside, in its own fiber, so a slow Slack post never holds it 
 
 Discord only sends soundboard sounds and emoji reactions (`voiceChannelEffectSend`) to clients in the voice channel. So while anyone is in the office, the bot is too: it joins when the office opens and leaves when it empties, already muted and deafened. It only sends the gateway's voice-state message and never opens an audio connection, so it can't hear or send anything. It also leaves an empty office at startup, in case an earlier run left it behind. Whenever its Discord connection comes back after a drop, it goes back to where it should be. If someone disconnects it by hand, it's back the next time the office opens.
 
+The one exception is a [recording](#recording-the-office): for as long as one is on, the bot un-deafens, opens an audio connection and is renamed `🔴 Recording`, so everyone in the channel can see it's listening. It goes back to muted and deafened the moment the recording stops.
+
 | Module | Responsibility |
 |---|---|
 | [`src/main.ts`](src/main.ts) | Entry point. Provides the layers and runs the program. |
@@ -139,6 +142,15 @@ Discord only sends soundboard sounds and emoji reactions (`voiceChannelEffectSen
 | [`src/VoiceObservation.ts`](src/VoiceObservation.ts) | Decides which voice-state updates are worth recording. |
 | [`src/VoiceEffect.ts`](src/VoiceEffect.ts) | Soundboard sounds and emoji reactions, and which ones are worth recording. |
 | [`src/BotPresence.ts`](src/BotPresence.ts) | Whether the bot should be in the office, from who's there at startup and the office opening and emptying. |
+| [`src/Recorder.ts`](src/Recorder.ts) | Starts and stops [recordings](#recording-the-office) on request, stores the clips, transcribes them in the background and posts the summary. |
+| [`src/Recording.ts`](src/Recording.ts) | The recording rules and the shapes the bot and the Activity share: who may start or stop one, the time limit, and the status the Activity shows. |
+| [`src/RecordingStore.ts`](src/RecordingStore.ts) | The repository for recordings, requests from the Activity, clips and the status row. |
+| [`src/VoiceCapture.ts`](src/VoiceCapture.ts) | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses. |
+| [`src/OggOpus.ts`](src/OggOpus.ts) | Writes Opus packets into an Ogg file without transcoding. |
+| [`src/ClipArchive.ts`](src/ClipArchive.ts) | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back. |
+| [`src/Transcriber.ts`](src/Transcriber.ts) | Whisper on Workers AI. |
+| [`src/SummaryWriter.ts`](src/SummaryWriter.ts) | Builds the transcript and asks the AI providers for a summary. |
+| [`activity/`](activity) | The Discord Activity: a Cloudflare Worker that talks to the database, and the page with the button. |
 | [`src/ActivityRecorder.ts`](src/ActivityRecorder.ts) | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects. |
 | [`src/ActivityLog.ts`](src/ActivityLog.ts) | The repository: the SQL that writes sessions, members, snapshots and effects, and tells outages from bad rows. |
 | [`src/Database.ts`](src/Database.ts) | Connects to Postgres and runs the migrations in the background, retrying until it works. |
@@ -182,13 +194,16 @@ All configuration comes from environment variables. Copy `.env.example` to `.env
 | `CLOUDFLARE_API_TOKEN` | No | Workers AI API token. Secret. |
 | `CLOUDFLARE_MODELS` | No | Comma-separated Workers AI models to try, preferred first. Defaults to `DEFAULT_CLOUDFLARE_MODELS` in [`src/Config.ts`](src/Config.ts), all within the free daily allocation. |
 | `DATABASE_URL` | Deploys only | Supabase session pooler connection string, for the [database](#database). Secret. Optional locally, where leaving it out records nothing; the deploy fails without it. |
+| `RECORDINGS_BUCKET` | No | The Cloud Storage bucket [recorded](#recording-the-office) clips are archived in. Without it, clips are only kept in memory until they're transcribed. |
+| `WHISPER_MODEL` | No | The Workers AI model that transcribes clips. Defaults to `@cf/openai/whisper-large-v3-turbo`. |
+| `TRANSCRIPTION_LANGUAGE` | No | The language people speak in the office, as Whisper names it. Defaults to `en`. |
 | `SENTRY_DSN` | No | [Sentry](#monitoring) project DSN. Without it, nothing is sent to Sentry. |
 | `SENTRY_ENVIRONMENT` | No | Environment to tag Sentry data with. Defaults to `development`; the deploy sets `production`. |
 | `SENTRY_RELEASE` | No | Release to tag Sentry data with. The deploy sets it to the commit SHA. |
 
 The process exits at startup with an error naming the variable if a required one is missing. A blank optional key, account ID or database URL counts as unset.
 
-`OPENROUTER_MODELS`, `OPENROUTER_BANTER_MODELS` and `CLOUDFLARE_MODELS` aren't passed through the deploy, so production always uses the defaults. Change those in `src/Config.ts`.
+`OPENROUTER_MODELS`, `OPENROUTER_BANTER_MODELS`, `CLOUDFLARE_MODELS`, `WHISPER_MODEL` and `TRANSCRIPTION_LANGUAGE` aren't passed through the deploy, so production always uses the defaults. Change those in `src/Config.ts`.
 
 ### Discord bot
 
@@ -351,6 +366,11 @@ Everything lives in an `office` schema, out of the `public` schema that Supabase
 | `slack_decisions` | One per considered message: Clef's model, the exact request, its choices with their probabilities and confidence, how long it took, the settings in effect, and what the bot did and why. |
 | `slack_reactions` | Every reaction added to or removed from the bot's posts, as Slack sent it, for judging how the posts land. |
 | `responder_settings` | The [settings](#answering-in-slack) for answering in Slack. |
+| `recordings` | One row per [recording](#recording-the-office): when it started and stopped, who started and stopped it, why it stopped, and once it's finished, the transcript, the summary and the model that wrote it, and where the Slack post is. |
+| `recording_events` | The history of each recording: `started`, `resumed` after a restart, and `stopped` with the reason. |
+| `recording_requests` | Every press of the Activity's button, with who pressed it, and what the bot did about it: `started`, `stopped` or `ignored` with the reason. |
+| `recording_clips` | One row per stretch of speech: who spoke, when, for how long, where the audio is in the bucket, and the transcript once Whisper has heard it, or why it was skipped or failed. |
+| `recording_status` | A single row the Activity reads: whether the bot is in the office, who's there, and the recording that's on. |
 
 The `voice_activity` view turns the snapshots into readable events with names: `AlreadyThere`, `Joined`, `Left`, `Muted`/`Unmuted`, `Deafened`/`Undeafened`, `ServerMuted`/`ServerUnmuted`, `ServerDeafened`/`ServerUndeafened`, `CameraOn`/`CameraOff` and `StreamStarted`/`StreamStopped`. Anything already on when someone arrives counts as switched on, so joining muted is `Joined` and `Muted`. Deafening in Discord also mutes, so it shows as `Deafened` and `Muted`.
 
@@ -379,6 +399,68 @@ Anything that can't be stored is logged with an `entry` holding the full JSON, s
 
 The connection is encrypted and checked against Supabase's own root certificate in [`src/SupabaseCa.ts`](src/SupabaseCa.ts), which expires in April 2031.
 
+### Recording the office
+
+Needs the [database](#database), the bot's Cloudflare account for Whisper, and a Discord Activity for the button. The design is in [issue #21](https://github.com/push-based/virtual-office-notifier/issues/21).
+
+**How it works**
+
+- Anyone in the office opens the **Office Recorder** Activity from the rocket button in the voice channel and presses **Start**. Pressing it writes a request to `office.recording_requests`; the bot checks for new requests every 2 seconds, and only acts on one from someone who's in the office right now. Anyone in the office can press **Stop**, not just whoever started it. The Activity shows the state, who's in the room, and when the recording would stop by itself.
+- While recording, the bot un-deafens, opens an audio connection and is renamed `🔴 Recording`. Discord gives it one stream per speaker, so each stretch of speech becomes a clip of that one person with no speaker detection needed. A clip ends after 1.5 seconds of silence, or at 5 minutes.
+- A recording stops when someone presses **Stop**, when the office empties, or after 4 hours, whichever comes first. If the bot restarts mid-recording and the office is still occupied, it carries on under the same recording; otherwise the recording ends as `bot_restarted`.
+- Each clip is written as Ogg/Opus, exactly as Discord sent it, and uploaded to `RECORDINGS_BUCKET` under `recordings/<recording>/<user>/<time>.ogg` with the VM's own identity. Clips are never deleted. Clips under half a second are kept but never transcribed, since that's where Whisper makes things up.
+- Clips are transcribed one at a time in the background with `WHISPER_MODEL` on Workers AI, in `TRANSCRIPTION_LANGUAGE`. A clip that fails stays pending and is retried, up to 10 times. When Workers AI's daily allocation is used up (10,000 Neurons, about 3.5 hours of speech, shared with headlines, banter and Clef), transcription waits for the reset at midnight UTC. Nothing is lost, just late.
+- Once every clip of a stopped recording is done, the transcript is built with office names and times in UTC+2, the [banter](#banter) models write a summary, and the summary is posted to the Slack channel with the full transcript attached in its thread. If nobody said anything, nothing is posted. If no model could write a summary, the post says so and the transcript is still attached.
+- Like everything else, this can't break the announcements. A database, Whisper, storage or Slack outage is logged and retried, and recording itself needs none of them to carry on.
+
+**Setup outside the code**
+
+1. **Discord.** In the Developer Portal, give the bot the **Change Nickname** permission (re-run the OAuth URL from [Discord bot](#discord-bot) with it ticked, or grant it in the server's role settings). Under **OAuth2**, add `https://127.0.0.1` as a redirect and note the **Client ID** and **Client Secret**. Under **Activities → Settings**, enable Activities; under **Activities → URL Mappings**, map `/` to the Worker's `workers.dev` host (without `https://`), once it's deployed.
+2. **Slack.** Add the `files:write` bot scope to the app from [Slack app](#slack-app) and reinstall it, so the transcript can be attached.
+3. **Cloud Storage.** Create a private bucket in `us-central1`, with no lifecycle rule that deletes objects, and set it as the `RECORDINGS_BUCKET` secret. Give the VM the `storage-rw` scope, which means stopping and starting it once:
+
+   ```bash
+   gcloud compute instances stop virtual-office-notifier --zone=us-central1-a
+   ```
+
+   ```bash
+   gcloud compute instances set-service-account virtual-office-notifier --zone=us-central1-a --scopes=default,storage-rw
+   ```
+
+   ```bash
+   gcloud compute instances start virtual-office-notifier --zone=us-central1-a
+   ```
+
+   Then grant the VM's service account (the project's default compute service account) **Storage Object Creator** and **Storage Object Viewer** on the bucket.
+
+4. **A database role for the Activity.** The Worker never gets the bot's `DATABASE_URL`. In the Supabase SQL editor, with a password of your own:
+
+   ```sql
+   CREATE ROLE activity LOGIN PASSWORD 'change-me';
+   GRANT USAGE ON SCHEMA office TO activity;
+   GRANT SELECT ON office.recording_status, office.recordings, office.members TO activity;
+   GRANT SELECT, INSERT ON office.recording_requests TO activity;
+   GRANT USAGE ON SEQUENCE office.recording_requests_id_seq TO activity;
+   ```
+
+   Its session pooler connection string is the bot's with `postgres.<ref>` replaced by `activity.<ref>` and the new password.
+
+5. **The Worker.** It lives in [`activity/`](activity) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
+
+   ```bash
+   for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET ACTIVITY_DATABASE_URL SESSION_SECRET; do pnpm wrangler secret put $name --config activity/wrangler.jsonc; done
+   ```
+
+   `SESSION_SECRET` is any long random string; it signs the sessions the page gets after Discord's login. The first deploy prints the `workers.dev` host for the URL mapping above.
+
+**Trying the two things it depends on**
+
+Received audio has to decrypt, since Discord's voice is end-to-end encrypted (DAVE), and Whisper has to accept Ogg/Opus as is. [`scripts/try-recording.ts`](scripts/try-recording.ts) checks both: it joins the office with audio on for a minute, writes one `.ogg` per stretch of speech into `recordings-check/`, and sends the first one to Whisper. Have someone say a few words while it runs. It needs the Discord token and channel, and the Cloudflare account and token for the Whisper step; it never touches the database or Slack.
+
+```bash
+node --env-file=.env scripts/try-recording.ts --seconds 60
+```
+
 ## Development
 
 | Command | What it does |
@@ -389,8 +471,11 @@ The connection is encrypted and checked against Supabase's own root certificate 
 | `pnpm test` | Run the tests with Vitest. |
 | `pnpm build` | Bundle to `dist/main.js` with a source map. |
 | `pnpm start` | Run the bundle with `.env`. |
+| `pnpm build:activity` | Bundle the Activity's page to `activity/public/main.js`. |
+| `pnpm check:activity` | Bundle the Activity's Worker without deploying it. |
+| `pnpm dev:activity` | Run the Activity's Worker locally with `wrangler dev`. |
 
-CI runs typecheck, lint, test and build on every push and pull request.
+CI runs typecheck, lint, test and build on every push and pull request, and bundles the Activity's page and Worker.
 
 The tests run the program against fakes for Discord, Slack and the AI models, so they need no tokens or network access. `DiscordGateway.layerTest` feeds voice-state updates from a queue through the same occupancy tracking the real gateway uses. The database tests run the real migrations and SQL against an in-process Postgres ([PGlite](https://pglite.dev)), so they need no database either.
 
@@ -504,6 +589,11 @@ gh secret set SENTRY_DSN
 | `The database rejected an update` in the logs | Postgres refused a row. It's in `office.rejected_updates` with the error. |
 | `logging this instead` or `logging it instead` in the logs | Something couldn't be stored at all: the buffer was full, the bot was shutting down, or setting it aside failed too. The `entry` annotation has the full JSON. |
 | The service has stopped and isn't restarting | systemd gave up after 5 failed starts in 10 minutes. Check the logs, then merge a fix, or update the secret and re-run the latest `CI` workflow on `main`. |
+| The Activity says `The bot isn't in the office yet` | The bot hasn't seen anyone join, or `office.recording_status` isn't being updated: look for `Couldn't update the recording status` warnings. |
+| Pressing Start does nothing | Check `office.recording_requests`: no row means the Worker can't reach the database (its own `ACTIVITY_DATABASE_URL`); a row with no `outcome` means the bot isn't reading them (`Couldn't handle recording requests` in the logs); `ignored` says why. |
+| Clips are recorded but never transcribed | Look for `Couldn't reach the transcriber` or `daily allocation is used up` warnings. The clips stay `pending` and are picked up when Workers AI is back. |
+| `Couldn't change the bot's nickname` in the logs | Give the bot the Change Nickname permission. Recording still works without it. |
+| `Couldn't archive a clip` in the logs | The VM can't write to the bucket: check its scopes and the service account's roles on the bucket. The clip was still transcribed from memory. |
 
 ## Privacy
 
@@ -517,7 +607,7 @@ The [database](#database) keeps a detailed record of each person's activity in t
 
 When [answering in Slack](#answering-in-slack) is on, the bot reads mentions of it and replies under its posts in the office Slack channel. Those messages, the thread around them, people's Slack and office names and this week's office activity go to Clef on Cloudflare and to free AI models, which may keep and train on them. Every message it considers is stored with what it did, and every reaction to its posts is stored, with Slack user IDs. Nothing is ever deleted. Tell the team before switching it on.
 
-While anyone is in the office, the bot shows up in the channel too. It's muted and deafened and never opens an audio connection, so it doesn't hear or record anything anyone says.
+While anyone is in the office, the bot shows up in the channel too. It's muted and deafened and never opens an audio connection, so it doesn't hear or record anything anyone says. The exception is a [recording](#recording-the-office), which someone in the office has to start on purpose: for as long as it's on, the bot is un-deafened and renamed `🔴 Recording`, everything said is kept as audio in the bucket and as text in the database, the audio goes to Whisper on Cloudflare, the transcript goes to the free AI models for a summary, and the summary and transcript are posted to Slack. Nothing is ever deleted. Tell the team how it works before turning it on.
 
 Sentry, when it's configured, gets error reports, timings, database queries without their values, and log messages without their annotations, so no names or Discord user IDs. User IDs are also redacted in the announcement logs; an update the database couldn't store is logged in full, but only to the journal.
 

@@ -207,6 +207,51 @@ const banterMessage = (office: OfficeLocation, { template, button, model }: Gene
   };
 };
 
+export interface RecordingSummary {
+  readonly office: OfficeLocation;
+  readonly startedAt: DateTime.Utc;
+  readonly stoppedAt: DateTime.Utc;
+  readonly startedByName: string;
+  readonly speakers: ReadonlyArray<string>;
+  readonly summary: Option.Option<{ readonly text: string; readonly model: string }>;
+}
+
+const NO_SUMMARY = "No AI model could write a summary this time. The full transcript is in the thread.";
+
+const slackDate = (at: DateTime.Utc): string =>
+  `<!date^${DateTime.toEpochSeconds(at)}^{date_short} {time}|${DateTime.formatIso(at).slice(0, 16).replace("T", " ")} UTC>`;
+
+export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
+  const duration = formatDuration(DateTime.distance(recording.startedAt, recording.stoppedAt));
+  const text = `📝 *Office recording* from ${slackDate(recording.startedAt)}, ${duration}`;
+
+  const body = Option.match(recording.summary, {
+    onNone: () => NO_SUMMARY,
+    onSome: ({ text }) => escapeSlackText(text),
+  });
+
+  return {
+    text: `📝 Office recording, ${duration}`,
+    blocks: [
+      headline(text, Option.none()),
+      headline(body, Option.none()),
+      {
+        type: "section",
+        fields: [
+          mrkdwn(`*Started by*\n${escapeSlackText(recording.startedByName)}`),
+          mrkdwn(`*Who spoke*\n${recording.speakers.length === 0 ? "Nobody" : recording.speakers.map(escapeSlackText).join(", ")}`),
+        ],
+      },
+      context(
+        ...Option.match(recording.summary, {
+          onNone: () => ["📄 Full transcript in the thread"],
+          onSome: ({ model }) => [`✨ Summary by ${escapeSlackText(model)}`, AI_DISCLAIMER, "📄 Full transcript in the thread"],
+        }),
+      ),
+    ],
+  };
+};
+
 export const replyMessage = (text: string, model: string): SlackMessage => {
   const escaped = escapeSlackText(text);
 

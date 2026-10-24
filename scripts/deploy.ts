@@ -2,9 +2,14 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Config, Effect, FileSystem, Option, Path, Redacted, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import { AiConfig, DiscordConfig, ProductionDatabaseConfig, SentryConfig, SlackConfig } from "../src/Config.ts";
+import { AiConfig, DiscordConfig, ProductionDatabaseConfig, RecordingConfig, SentryConfig, SlackConfig } from "../src/Config.ts";
+import pkg from "../package.json" with { type: "json" };
 
 const APP_DIR = "/opt/virtual-office-notifier";
+
+// The one dependency that isn't bundled: DAVE's native add-on, which
+// @discordjs/voice needs to decrypt the office's audio.
+const NATIVE_DEPENDENCY = `@snazzah/davey@${pkg.dependencies["@snazzah/davey"]}`;
 
 const SERVICE = "virtual-office-notifier";
 
@@ -49,6 +54,7 @@ const writeEnvFile = Effect.gen(function* () {
   const slack = yield* SlackConfig;
   const ai = yield* AiConfig;
   const database = yield* ProductionDatabaseConfig;
+  const recording = yield* RecordingConfig;
   const sentry = yield* SentryConfig;
   // Set by GitHub Actions, so everything sent to Sentry is tagged with the commit.
   const commit = yield* Config.option(Config.NonEmptyString("GITHUB_SHA"));
@@ -68,6 +74,7 @@ const writeEnvFile = Effect.gen(function* () {
       ...envLine("CLOUDFLARE_ACCOUNT_ID", ai.cloudflare.accountId),
       ...envLine("CLOUDFLARE_API_TOKEN", ai.cloudflare.apiToken),
       `DATABASE_URL=${Redacted.value(database.url)}`,
+      ...Option.toArray(Option.map(recording.bucket, (bucket) => `RECORDINGS_BUCKET=${bucket}`)),
       ...envLine("SENTRY_DSN", sentry.dsn),
       "SENTRY_ENVIRONMENT=production",
       ...Option.toArray(Option.map(commit, (sha) => `SENTRY_RELEASE=${sha}`)),
@@ -118,6 +125,7 @@ const program = Effect.gen(function* () {
       `sudo install -m 600 -o root -g root ${ENV_FILE} /etc/${ENV_FILE}`,
       `sudo install -m 644 -o root -g root ${SERVICE}.service /etc/systemd/system/${SERVICE}.service`,
       `sudo install -m 644 -o root -g root main.js main.js.map ${APP_DIR}/`,
+      `sudo npm install --prefix ${APP_DIR} --no-save --no-package-lock --no-audit --no-fund --omit=dev ${NATIVE_DEPENDENCY}`,
       "sudo systemctl daemon-reload",
       `sudo systemctl enable ${SERVICE}`,
       `sudo systemctl restart ${SERVICE}`,

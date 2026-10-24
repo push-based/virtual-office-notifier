@@ -35,7 +35,7 @@ const SettingsRow = Schema.Struct({
 
 const decodeSettings = Schema.decodeUnknownEffect(SettingsRow);
 
-export type PostKind = "Opened" | "Emptied" | "Reminder" | "Banter" | "Reply";
+export type PostKind = "Opened" | "Emptied" | "Reminder" | "Banter" | "Reply" | "Recording";
 
 export interface SlackPost {
   readonly channel: string;

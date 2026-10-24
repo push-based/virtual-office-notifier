@@ -6,6 +6,9 @@ node_modules/
 dist/
 build/
 out/
+activity/public/main.js
+activity/public/main.js.map
+.wrangler/
 *.tsbuildinfo
 
 # Environment

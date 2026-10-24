@@ -4,9 +4,13 @@
   "description": "Posts to Slack when the Discord virtual office voice channel opens or empties, plus a weekday reminder",
   "scripts": {
     "build": "rolldown -c",
+    "build:activity": "rolldown -c activity/rolldown.config.ts",
+    "check:activity": "wrangler deploy --config activity/wrangler.jsonc --dry-run --outdir dist/activity",
+    "deploy:activity": "wrangler deploy --config activity/wrangler.jsonc",
+    "dev:activity": "wrangler dev --config activity/wrangler.jsonc",
     "start": "node --env-file=.env --enable-source-maps dist/main.js",
     "dev": "node --env-file=.env src/main.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p activity/server && tsc --noEmit -p activity/client",
     "test": "vitest run",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
@@ -17,15 +21,19 @@
   "license": "0BSD",
   "packageManager": "pnpm@10.15.0",
   "dependencies": {
+    "@discordjs/voice": "0.19.2",
     "@effect/ai-openai-compat": "4.0.5",
     "@effect/ai-openrouter": "4.0.5",
     "@effect/platform-node": "4.0.5",
     "@effect/sql-pg": "4.0.5",
     "@sentry/effect": "11.8.0",
+    "@snazzah/davey": "0.1.12",
     "discord.js": "14.27.0",
     "effect": "4.0.5"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261024.1",
+    "@discord/embedded-app-sdk": "2.5.0",
     "@effect/sql-pglite": "4.0.5",
     "@effect/tsgo": "0.54.0",
     "@effect/vitest": "4.0.5",
@@ -34,7 +42,8 @@
     "oxlint": "1.89.0",
     "rolldown": "1.2.14",
     "typescript": "7.0.2",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "wrangler": "4.152.0"
   },
   "type": "module",
   "engines": {

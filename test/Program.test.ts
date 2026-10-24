@@ -6,6 +6,7 @@ import type { BotPresence } from "../src/BotPresence.ts";
 import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { OfficeHistory } from "../src/OfficeHistory.ts";
 import { MainLayer, program } from "../src/Program.ts";
+import { Recorder } from "../src/Recorder.ts";
 import { Responder } from "../src/Responder.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import type { VoiceEffect } from "../src/VoiceEffect.ts";
@@ -108,6 +109,7 @@ const runProgram = Effect.fnUntraced(function* (
         recorder.layer,
         OfficeHistory.layerDisabled,
         responder,
+        Recorder.layerNone,
         Logger.layer([captureLogs]),
       ),
     ),
@@ -292,7 +294,7 @@ describe("recording", () => {
       const recorder = yield* makeFakeRecorder();
 
       const fiber = yield* program.pipe(
-        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone)),
+        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone, Recorder.layerNone)),
         withEnv(env),
         firstVariant,
         Effect.forkChild,
@@ -356,7 +358,7 @@ describe("daily reminder", () => {
       const recorder = yield* makeFakeRecorder();
 
       const fiber = yield* program.pipe(
-        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone)),
+        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone, Recorder.layerNone)),
         withEnv(env),
         firstVariant,
         Effect.forkChild,
