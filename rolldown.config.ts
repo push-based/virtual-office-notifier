@@ -4,8 +4,8 @@ export default defineConfig({
   input: "src/main.ts",
   platform: "node",
   // discord.js loads these optional native add-ons only if they are installed.
-  // DAVE's native add-on is required for voice and installed on the VM by the
-  // deploy, next to the bundle.
+  // DAVE's native add-on is required for voice; the deploy ships it next to
+  // the bundle as a small node_modules tree.
   external: ["zlib-sync", "bufferutil", "utf-8-validate", "@snazzah/davey"],
   transform: { target: "node26" },
   output: {

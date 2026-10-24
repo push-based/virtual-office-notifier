@@ -8,8 +8,12 @@ import pkg from "../package.json" with { type: "json" };
 const APP_DIR = "/opt/virtual-office-notifier";
 
 // The one dependency that isn't bundled: DAVE's native add-on, which
-// @discordjs/voice needs to decrypt the office's audio.
-const NATIVE_DEPENDENCY = `@snazzah/davey@${pkg.dependencies["@snazzah/davey"]}`;
+// @discordjs/voice needs to decrypt the office's audio. The VM is Linux x64.
+const DAVE_VERSION = pkg.dependencies["@snazzah/davey"];
+
+const NATIVE_PACKAGES = ["@snazzah/davey", "@snazzah/davey-linux-x64-gnu"];
+
+const MODULES_ARCHIVE = "node_modules.tar.gz";
 
 const SERVICE = "virtual-office-notifier";
 
@@ -40,6 +44,38 @@ const run = Effect.fnUntraced(function* (step: string, command: string, args: Re
   if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
     return yield* new DeployError({ step, exitCode });
   }
+});
+
+const tarballName = (name: string): string => `${name.replace("@", "").replace("/", "-")}-${DAVE_VERSION}.tgz`;
+
+// Downloaded with `npm pack`, which doesn't care what platform it runs on, and
+// unpacked into a node_modules tree for the VM. Neither package has
+// dependencies of its own, so this is all the VM needs next to the bundle.
+const packNativeDependencies = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const dir = yield* fs.makeTempDirectoryScoped({ prefix: `${SERVICE}-modules-` });
+
+  yield* run("Fetching the DAVE add-on for Linux x64", "npm", [
+    "pack",
+    "--silent",
+    "--pack-destination",
+    dir,
+    ...NATIVE_PACKAGES.map((name) => `${name}@${DAVE_VERSION}`),
+  ]);
+
+  for (const name of NATIVE_PACKAGES) {
+    const target = path.join(dir, "node_modules", name);
+
+    yield* fs.makeDirectory(target, { recursive: true });
+    yield* run(`Unpacking ${name}`, "tar", ["-xzf", path.join(dir, tarballName(name)), "-C", target, "--strip-components=1"]);
+  }
+
+  const archive = path.join(dir, MODULES_ARCHIVE);
+
+  yield* run("Packing the add-on", "tar", ["-czf", archive, "-C", dir, "node_modules"]);
+
+  return archive;
 });
 
 const envLine = (name: string, value: Option.Option<Redacted.Redacted<string>>): ReadonlyArray<string> =>
@@ -102,12 +138,15 @@ const program = Effect.gen(function* () {
 
   yield* run("Bundling", "pnpm", ["build"]);
 
+  const modules = yield* packNativeDependencies;
+
   yield* run("Uploading release", "gcloud", [
     "compute",
     "scp",
     ...target,
     "dist/main.js",
     "dist/main.js.map",
+    modules,
     UNIT_FILE,
     envFile,
     `${instance}:~/`,
@@ -121,11 +160,12 @@ const program = Effect.gen(function* () {
     "--command",
     [
       "set -eu",
-      `trap 'rm -f main.js main.js.map ${SERVICE}.service ${ENV_FILE}' EXIT`,
+      `trap 'rm -f main.js main.js.map ${MODULES_ARCHIVE} ${SERVICE}.service ${ENV_FILE}' EXIT`,
       `sudo install -m 600 -o root -g root ${ENV_FILE} /etc/${ENV_FILE}`,
       `sudo install -m 644 -o root -g root ${SERVICE}.service /etc/systemd/system/${SERVICE}.service`,
       `sudo install -m 644 -o root -g root main.js main.js.map ${APP_DIR}/`,
-      `sudo npm install --prefix ${APP_DIR} --no-save --no-package-lock --no-audit --no-fund --omit=dev ${NATIVE_DEPENDENCY}`,
+      `sudo rm -rf ${APP_DIR}/node_modules`,
+      `sudo tar -xzf ${MODULES_ARCHIVE} -C ${APP_DIR} --no-same-owner`,
       "sudo systemctl daemon-reload",
       `sudo systemctl enable ${SERVICE}`,
       `sudo systemctl restart ${SERVICE}`,

@@ -547,9 +547,10 @@ The `deploy` job runs [`scripts/deploy.ts`](scripts/deploy.ts), which:
 
 1. Writes the env file from the configuration variables into a temporary directory, so secrets never land in the working tree.
 2. Bundles the app.
-3. Copies `dist/main.js`, its source map, the systemd unit and the env file to the VM.
-4. Installs them under `/opt/virtual-office-notifier` and `/etc`, reloads systemd and restarts the service.
-5. Waits 15 seconds and fails, printing the last log lines, if the service isn't running.
+3. Downloads the one dependency that can't be bundled, DAVE's native add-on for Linux x64 (`@snazzah/davey`, which `@discordjs/voice` needs to decrypt [recorded](#recording-the-office) audio), with `npm pack`, and packs it as a small `node_modules` tree.
+4. Copies `dist/main.js`, its source map, that archive, the systemd unit and the env file to the VM.
+5. Installs them under `/opt/virtual-office-notifier` and `/etc`, replacing the previous `node_modules`, reloads systemd and restarts the service.
+6. Waits 15 seconds and fails, printing the last log lines, if the service isn't running.
 
 The [unit](deploy/virtual-office-notifier.service) runs as the unprivileged `notifier` user with systemd's sandboxing turned on. It restarts 30 seconds after a crash and gives up after 5 failed starts in 10 minutes, so a bad token doesn't keep hammering Discord's login.
 
