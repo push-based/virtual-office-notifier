@@ -11,6 +11,7 @@ import {
   Queue,
   Redacted,
   Ref,
+  Schedule,
   Schema,
   Stream,
 } from "effect";
@@ -218,14 +219,36 @@ const sendVoiceState = (guild: Guild, channelId: string | null, selfDeaf: boolea
       })
     : Effect.fail(new BotMoveError({ reason: "Discord isn't connected" }));
 
-// Deafened unless recording, which is the only time it needs to hear anything.
-const moveBot = (guild: Guild, officeChannelId: string) => (presence: BotPresence, recording: boolean) =>
-  sendVoiceState(guild, presence === "InOffice" ? officeChannelId : null, !recording).pipe(
+const moveBot = (guild: Guild, officeChannelId: string) => (presence: BotPresence) =>
+  sendVoiceState(guild, presence === "InOffice" ? officeChannelId : null, true).pipe(
     Effect.andThen(Effect.logInfo("Moved the bot")),
     Effect.catchTag("BotMoveError", (error) =>
       Effect.logWarning("Couldn't move the bot").pipe(Effect.annotateLogs({ reason: error.reason })),
     ),
-    Effect.annotateLogs({ presence, recording }),
+    Effect.annotateLogs({ presence }),
+  );
+
+const LEAVE_TIMEOUT = Duration.seconds(5);
+
+const leaveForRecording = (guild: Guild) =>
+  sendVoiceState(guild, null, true).pipe(
+    Effect.andThen(
+      Effect.sync(() => guild.members.me?.voice.channelId ?? null).pipe(
+        Effect.repeat({ until: (channelId) => channelId === null, schedule: Schedule.spaced("100 millis") }),
+        Effect.timeoutOption(LEAVE_TIMEOUT),
+      ),
+    ),
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.logWarning("Discord didn't confirm the bot left the office before recording"),
+        onSome: () => Effect.void,
+      }),
+    ),
+    Effect.catchTag("BotMoveError", (error) =>
+      Effect.logWarning("Couldn't step out of the office before recording").pipe(
+        Effect.annotateLogs({ reason: error.reason }),
+      ),
+    ),
   );
 
 const setNickname = (guild: Guild, nickname: string | null) =>
@@ -354,20 +377,19 @@ export class DiscordGateway extends Context.Service<
         onNone: () => Effect.void,
         onSome: (channel) =>
           Effect.all([Ref.get(wanted), Ref.get(recording)]).pipe(
-            Effect.flatMap(([presence, active]) => moveBot(channel.guild, officeChannelId)(presence, active)),
+            Effect.flatMap(([presence, active]) => (active ? Effect.void : moveBot(channel.guild, officeChannelId)(presence))),
           ),
       });
 
       const setRecording = (active: boolean) =>
-        Ref.set(recording, active).pipe(
-          Effect.andThen(
-            Option.match(office, {
-              onNone: () => Effect.void,
-              onSome: (channel) => setNickname(channel.guild, active ? RECORDING_NICKNAME : null),
-            }),
-          ),
-          Effect.andThen(goWhereWanted),
-        );
+        Option.match(office, {
+          onNone: () => Ref.set(recording, active),
+          onSome: (channel) =>
+            Ref.set(recording, active).pipe(
+              Effect.andThen(setNickname(channel.guild, active ? RECORDING_NICKNAME : null)),
+              Effect.andThen(active ? leaveForRecording(channel.guild) : goWhereWanted),
+            ),
+        });
 
       const whoIsIn = Effect.sync(
         (): ReadonlyArray<Occupant> =>
