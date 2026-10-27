@@ -443,12 +443,22 @@ Needs the [database](#database), the bot's Cloudflare account for Whisper, and a
    GRANT USAGE ON SEQUENCE office.recording_requests_id_seq TO activity;
    ```
 
-   Its session pooler connection string is the bot's with `postgres.<ref>` replaced by `activity.<ref>` and the new password.
-
-5. **The Worker.** It lives in [`activity/`](activity) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
+5. **Hyperdrive.** Workers can't open a TLS connection to Supabase themselves, because they only trust public certificate authorities and Supabase signs its database certificates with its own. So the Worker reaches the database through [Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which connects to Supabase as the `activity` role and checks Supabase's certificate against its root CA. From the repo root, with `wrangler login`, upload the CA (the one in [`src/SupabaseCa.ts`](src/SupabaseCa.ts), saved as a `.pem`) and create the config with caching off, so the Activity always sees the current state:
 
    ```bash
-   for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET ACTIVITY_DATABASE_URL SESSION_SECRET; do pnpm wrangler secret put $name --config activity/wrangler.jsonc; done
+   pnpm wrangler cert upload certificate-authority --name supabase-root-2021 --ca-cert supabase-root.pem
+   ```
+
+   ```bash
+   pnpm wrangler hyperdrive create virtual-office-recorder-db --origin-host <pooler host> --origin-port 5432 --database postgres --origin-user activity.<ref> --origin-password <password> --sslmode verify-full --ca-certificate-id <CA ID> --caching-disabled
+   ```
+
+   Put the new config's ID under `hyperdrive` in [`activity/wrangler.jsonc`](activity/wrangler.jsonc). The pooler host and `<ref>` are the ones in the bot's `DATABASE_URL`. Right after the role's password changes, the pooler can refuse it for a few seconds, so a failed create is worth retrying.
+
+6. **The Worker.** It lives in [`activity/`](activity) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
+
+   ```bash
+   for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SESSION_SECRET; do pnpm wrangler secret put $name --config activity/wrangler.jsonc; done
    ```
 
    `SESSION_SECRET` is any long random string; it signs the sessions the page gets after Discord's login. The first deploy prints the `workers.dev` host for the URL mapping above.
@@ -591,7 +601,7 @@ gh secret set SENTRY_DSN
 | `logging this instead` or `logging it instead` in the logs | Something couldn't be stored at all: the buffer was full, the bot was shutting down, or setting it aside failed too. The `entry` annotation has the full JSON. |
 | The service has stopped and isn't restarting | systemd gave up after 5 failed starts in 10 minutes. Check the logs, then merge a fix, or update the secret and re-run the latest `CI` workflow on `main`. |
 | The Activity says `The bot isn't in the office yet` | The bot hasn't seen anyone join, or `office.recording_status` isn't being updated: look for `Couldn't update the recording status` warnings. |
-| Pressing Start does nothing | Check `office.recording_requests`: no row means the Worker can't reach the database (its own `ACTIVITY_DATABASE_URL`); a row with no `outcome` means the bot isn't reading them (`Couldn't handle recording requests` in the logs); `ignored` says why. |
+| Pressing Start does nothing | Check `office.recording_requests`: no row means the Worker can't reach the database through Hyperdrive (the page says `/api/state answered 503`; check the Hyperdrive config's credentials); a row with no `outcome` means the bot isn't reading them (`Couldn't handle recording requests` in the logs); `ignored` says why. |
 | Clips are recorded but never transcribed | Look for `Couldn't reach the transcriber` or `daily allocation is used up` warnings. The clips stay `pending` and are picked up when Workers AI is back. |
 | `Couldn't change the bot's nickname` in the logs | Give the bot the Change Nickname permission. Recording still works without it. |
 | `Couldn't archive a clip` in the logs | The VM can't write to the bucket: check its scopes and the service account's roles on the bucket. The clip was still transcribed from memory. |

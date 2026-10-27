@@ -46,3 +46,4 @@ coverage/
 .DS_Store
 Thumbs.db
 
+activity/.dev.vars
