@@ -25,6 +25,8 @@ jobs:
 
       - run: pnpm test
 
+      - run: pnpm test:activity
+
       - run: pnpm build
 
       - run: pnpm build:activity

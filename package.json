@@ -4,14 +4,15 @@
   "description": "Posts to Slack when the Discord virtual office voice channel opens or empties, plus a weekday reminder",
   "scripts": {
     "build": "rolldown -c",
-    "build:activity": "rolldown -c activity/rolldown.config.ts",
+    "build:activity": "pnpm --dir activity/client build",
     "check:activity": "wrangler deploy --config activity/wrangler.jsonc --dry-run --outdir dist/activity",
     "deploy:activity": "wrangler deploy --config activity/wrangler.jsonc",
     "dev:activity": "wrangler dev --config activity/wrangler.jsonc",
     "start": "node --env-file=.env --enable-source-maps dist/main.js",
     "dev": "node --env-file=.env src/main.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p activity/server && tsc --noEmit -p activity/client",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p activity/server",
     "test": "vitest run",
+    "test:activity": "pnpm --dir activity/client test",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "prepare": "effect-tsgo patch --typescript"
@@ -33,7 +34,6 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261024.1",
-    "@discord/embedded-app-sdk": "2.5.0",
     "@effect/sql-pglite": "4.0.5",
     "@effect/tsgo": "0.54.0",
     "@effect/vitest": "4.0.5",

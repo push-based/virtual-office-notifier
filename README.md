@@ -150,7 +150,7 @@ The one exception is a [recording](#recording-the-office): for as long as one is
 | [`src/ClipArchive.ts`](src/ClipArchive.ts) | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back. |
 | [`src/Transcriber.ts`](src/Transcriber.ts) | Whisper on Workers AI. |
 | [`src/SummaryWriter.ts`](src/SummaryWriter.ts) | Builds the transcript and asks the AI providers for a summary. |
-| [`activity/`](activity) | The Discord Activity: a Cloudflare Worker that talks to the database, and the page with the button. |
+| [`activity/`](activity) | The Discord Activity: a Cloudflare Worker in `server/` that talks to the database, and the Angular page with the button in `client/`. |
 | [`src/ActivityRecorder.ts`](src/ActivityRecorder.ts) | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects. |
 | [`src/ActivityLog.ts`](src/ActivityLog.ts) | The repository: the SQL that writes sessions, members, snapshots and effects, and tells outages from bad rows. |
 | [`src/Database.ts`](src/Database.ts) | Connects to Postgres and runs the migrations in the background, retrying until it works. |
@@ -481,15 +481,18 @@ node --env-file=.env scripts/try-recording.ts --seconds 60
 | `pnpm test` | Run the tests with Vitest. |
 | `pnpm build` | Bundle to `dist/main.js` with a source map. |
 | `pnpm start` | Run the bundle with `.env`. |
-| `pnpm build:activity` | Bundle the Activity's page to `activity/public/main.js`. |
+| `pnpm build:activity` | Build the Activity's Angular page with Vite to `activity/client/dist`, type-checking it on the way. |
 | `pnpm check:activity` | Bundle the Activity's Worker without deploying it. |
-| `pnpm dev:activity` | Run the Activity's Worker locally with `wrangler dev`. |
+| `pnpm dev:activity` | Run the Activity's Worker locally with `wrangler dev`, serving the last built page. |
+| `pnpm --dir activity/client dev` | Serve the Activity's page from Vite with live reload, sending `/api` to the Worker on port 8787. |
 
 CI runs typecheck, lint, test and build on every push and pull request, and bundles the Activity's page and Worker.
 
 The tests run the program against fakes for Discord, Slack and the AI models, so they need no tokens or network access. `DiscordGateway.layerTest` feeds voice-state updates from a queue through the same occupancy tracking the real gateway uses. The database tests run the real migrations and SQL against an in-process Postgres ([PGlite](https://pglite.dev)), so they need no database either.
 
 TypeScript is pinned to the exact version `@effect/tsgo` supports, so upgrade the two together. The `prepare` script patches it on install.
+
+The Activity's page is its own workspace package in [`activity/client`](activity/client), compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package there is pinned to exactly that version, with the TypeScript 6 that Angular's compiler needs. Upgrade them together with the plugin.
 
 The lint rules in `tools/oxlint/anti-slop` are vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop). [`UPSTREAM.md`](tools/oxlint/anti-slop/UPSTREAM.md) records the commit they were copied from.
 
