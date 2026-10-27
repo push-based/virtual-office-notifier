@@ -10,6 +10,7 @@ import {
   type Occupant,
   type RecordingRequest,
   type RequestOutcome,
+  RowId,
   type StopReason,
   type TranscriptionStatus,
 } from "./Recording.ts";
@@ -88,7 +89,7 @@ const decodeActive = Schema.decodeUnknownEffect(
 const decodeRequests = Schema.decodeUnknownEffect(
   Schema.Array(
     Schema.Struct({
-      id: Schema.Number,
+      id: RowId,
       requestedAt: Schema.DateTimeUtcFromDate,
       requestedBy: Schema.String,
       requestedByName: Schema.String,
@@ -100,7 +101,7 @@ const decodeRequests = Schema.decodeUnknownEffect(
 const decodePending = Schema.decodeUnknownEffect(
   Schema.Array(
     Schema.Struct({
-      id: Schema.Number,
+      id: RowId,
       recordingId: Schema.String,
       objectPath: Schema.NullOr(Schema.String),
       attempts: Schema.Number,
