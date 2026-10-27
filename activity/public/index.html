@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Office Recorder</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body data-recording="off">
+    <main>
+      <button id="record" type="button" disabled aria-live="polite">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="record-label">Start</span>
+      </button>
+      <p id="status">Connecting…</p>
+      <p id="detail">Hold on a moment.</p>
+      <p id="notice" hidden></p>
+      <ul id="occupants" aria-label="In the office"></ul>
+    </main>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

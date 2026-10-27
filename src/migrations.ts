@@ -313,4 +313,99 @@ export const migrations = Migrator.fromRecord({
 
     yield* sql`CREATE INDEX slack_reactions_item ON office.slack_reactions (channel_id, item_ts)`;
   }),
+
+  "0005_record_office_voice": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      CREATE TABLE office.recordings (
+        id uuid PRIMARY KEY,
+        guild_id text NOT NULL,
+        channel_id text NOT NULL,
+        started_at timestamptz NOT NULL,
+        started_by text NOT NULL REFERENCES office.members (user_id),
+        stopped_at timestamptz,
+        stop_reason text CHECK (stop_reason IN ('requested', 'office_emptied', 'time_limit', 'bot_restarted')),
+        stopped_by text,
+        transcript text,
+        summary text,
+        summary_model text,
+        slack_channel_id text,
+        slack_ts text,
+        finished_at timestamptz
+      )
+    `;
+
+    yield* sql`CREATE INDEX recordings_started_at ON office.recordings (started_at)`;
+    yield* sql`CREATE UNIQUE INDEX recordings_active ON office.recordings ((true)) WHERE stopped_at IS NULL`;
+
+    yield* sql`
+      CREATE TABLE office.recording_events (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        recording_id uuid NOT NULL REFERENCES office.recordings (id),
+        at timestamptz NOT NULL,
+        event text NOT NULL CHECK (event IN ('started', 'resumed', 'stopped')),
+        reason text,
+        user_id text
+      )
+    `;
+
+    yield* sql`CREATE INDEX recording_events_recording ON office.recording_events (recording_id, id)`;
+
+    yield* sql`
+      CREATE TABLE office.recording_requests (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        requested_at timestamptz NOT NULL DEFAULT now(),
+        requested_by text NOT NULL,
+        requested_by_name text NOT NULL,
+        action text NOT NULL CHECK (action IN ('start', 'stop')),
+        handled_at timestamptz,
+        outcome text CHECK (outcome IN ('started', 'stopped', 'ignored')),
+        reason text,
+        recording_id uuid REFERENCES office.recordings (id)
+      )
+    `;
+
+    yield* sql`CREATE INDEX recording_requests_pending ON office.recording_requests (id) WHERE handled_at IS NULL`;
+
+    yield* sql`
+      CREATE TABLE office.recording_clips (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        recording_id uuid NOT NULL REFERENCES office.recordings (id),
+        user_id text NOT NULL REFERENCES office.members (user_id),
+        started_at timestamptz NOT NULL,
+        duration_ms integer NOT NULL CHECK (duration_ms >= 0),
+        bytes integer NOT NULL CHECK (bytes >= 0),
+        object_path text,
+        transcription text NOT NULL DEFAULT 'pending' CHECK (transcription IN ('pending', 'done', 'skipped', 'failed')),
+        transcript text,
+        transcribed_at timestamptz,
+        model text,
+        attempts integer NOT NULL DEFAULT 0,
+        last_error text,
+        UNIQUE (recording_id, user_id, started_at)
+      )
+    `;
+
+    yield* sql`CREATE INDEX recording_clips_recording ON office.recording_clips (recording_id, started_at)`;
+    yield* sql`CREATE INDEX recording_clips_pending ON office.recording_clips (id) WHERE transcription = 'pending'`;
+
+    yield* sql`
+      CREATE TABLE office.recording_status (
+        id boolean PRIMARY KEY DEFAULT true CHECK (id),
+        recording_id uuid REFERENCES office.recordings (id),
+        bot_in_office boolean NOT NULL DEFAULT false,
+        occupants jsonb NOT NULL DEFAULT '[]'::jsonb,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+
+    yield* sql`INSERT INTO office.recording_status DEFAULT VALUES`;
+
+    yield* sql`ALTER TABLE office.slack_posts DROP CONSTRAINT slack_posts_kind_check`;
+    yield* sql`
+      ALTER TABLE office.slack_posts
+      ADD CONSTRAINT slack_posts_kind_check CHECK (kind IN ('Opened', 'Emptied', 'Reminder', 'Banter', 'Reply', 'Recording'))
+    `;
+  }),
 });

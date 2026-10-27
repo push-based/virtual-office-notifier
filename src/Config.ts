@@ -76,6 +76,18 @@ export const DatabaseConfig = Config.all({
   url: optionalSecret("DATABASE_URL"),
 });
 
+export const DEFAULT_WHISPER_MODEL = "@cf/openai/whisper-large-v3-turbo";
+
+export const DEFAULT_TRANSCRIPTION_LANGUAGE = "en";
+
+export const RecordingConfig = Config.all({
+  bucket: Config.option(Config.NonEmptyString("RECORDINGS_BUCKET")).pipe(
+    Config.map(Option.filter((bucket) => bucket.trim() !== "")),
+  ),
+  whisperModel: Config.NonEmptyString("WHISPER_MODEL").pipe(Config.withDefault(DEFAULT_WHISPER_MODEL)),
+  language: Config.NonEmptyString("TRANSCRIPTION_LANGUAGE").pipe(Config.withDefault(DEFAULT_TRANSCRIPTION_LANGUAGE)),
+});
+
 // Production always records, so a deploy without it fails instead of quietly
 // recording nothing.
 export const ProductionDatabaseConfig = Config.all({

@@ -5,9 +5,15 @@ import { ActivityRecorder, RecordingDisabled } from "./ActivityRecorder.ts";
 import { DatabaseConfig } from "./Config.ts";
 import { Database, describeError } from "./Database.ts";
 import { OfficeHistory } from "./OfficeHistory.ts";
+import { RecordingStore } from "./RecordingStore.ts";
 import { SlackHistory } from "./SlackHistory.ts";
 
-const disabled = Layer.mergeAll(ActivityRecorder.layerDisabled, OfficeHistory.layerDisabled, SlackHistory.layerDisabled);
+const disabled = Layer.mergeAll(
+  ActivityRecorder.layerDisabled,
+  OfficeHistory.layerDisabled,
+  SlackHistory.layerDisabled,
+  RecordingStore.layerDisabled,
+);
 
 export const StorageLayer = Layer.unwrap(
   Effect.gen(function* () {
@@ -16,7 +22,7 @@ export const StorageLayer = Layer.unwrap(
     return Option.match(url, {
       onNone: () => disabled.pipe(Layer.tap(() => Effect.logInfo("DATABASE_URL isn't set, so nothing is recorded"))),
       onSome: (url) =>
-        Layer.mergeAll(ActivityRecorder.layerNoDeps, OfficeHistory.layer, SlackHistory.layer).pipe(
+        Layer.mergeAll(ActivityRecorder.layerNoDeps, OfficeHistory.layer, SlackHistory.layer, RecordingStore.layer).pipe(
           Layer.provide(Layer.provideMerge(ActivityLog.layer, Database.layer(url))),
           Layer.catch((error) =>
             disabled.pipe(

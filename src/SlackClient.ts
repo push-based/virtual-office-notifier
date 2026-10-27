@@ -15,6 +15,7 @@ import {
 } from "effect";
 import {
   Headers,
+  HttpBody,
   HttpClient,
   HttpClientRequest,
   type HttpClientError,
@@ -214,6 +215,16 @@ const AuthTest = Schema.Struct({ user_id: Schema.String });
 
 const ConnectionUrl = Schema.Struct({ url: Schema.String });
 
+const UploadUrl = Schema.Struct({ upload_url: Schema.String, file_id: Schema.String });
+
+export interface FileUpload {
+  readonly channel: string;
+  readonly threadTs: string;
+  readonly filename: string;
+  readonly title: string;
+  readonly content: Uint8Array;
+}
+
 const THREAD_LIMIT = "1000";
 
 interface PostBody extends SlackMessage {
@@ -227,7 +238,13 @@ interface ReactionBody {
   readonly name: string;
 }
 
-type WriteBody = PostBody | ReactionBody | Readonly<Record<string, never>>;
+interface CompleteUploadBody {
+  readonly files: ReadonlyArray<{ readonly id: string; readonly title: string }>;
+  readonly channel_id: string;
+  readonly thread_ts: string;
+}
+
+type WriteBody = PostBody | ReactionBody | CompleteUploadBody | Readonly<Record<string, never>>;
 
 const postBody = (message: OutgoingMessage): PostBody => {
   const body: PostBody = { channel: message.channel, text: message.text, blocks: message.blocks };
@@ -247,6 +264,7 @@ export class SlackClient extends Context.Service<
   {
     postMessage(message: OutgoingMessage): Effect.Effect<PostedMessage, SlackError>;
     addReaction(channel: string, ts: string, emoji: string): Effect.Effect<void, SlackError>;
+    uploadFile(upload: FileUpload): Effect.Effect<void, SlackError>;
     threadReplies(channel: string, threadTs: string): Effect.Effect<ReadonlyArray<ThreadMessage>, SlackError>;
     userProfile(userId: string): Effect.Effect<SlackProfile, SlackError>;
     readonly botUserId: Effect.Effect<string, SlackError>;
@@ -308,6 +326,40 @@ export class SlackClient extends Context.Service<
           ),
         );
 
+      // Slack's external upload: ask for a URL, put the bytes there, then tell
+      // Slack which channel and thread the file belongs in.
+      const uploadFile = Effect.fn("SlackClient.uploadFile")(function* (upload: FileUpload) {
+        const { upload_url, file_id } = yield* read(
+          "files.getUploadURLExternal",
+          { filename: upload.filename, length: String(upload.content.length) },
+          UploadUrl,
+        );
+
+        yield* HttpClientRequest.post(upload_url).pipe(
+          HttpClientRequest.setBody(HttpBody.uint8Array(upload.content, "application/octet-stream")),
+          client.execute,
+          Effect.timeout(REQUEST_TIMEOUT),
+          Effect.catchTags({
+            HttpClientError: (error) => Effect.fail(transportError(describeHttpError(error))),
+            TimeoutError: () => Effect.fail(transportError("Timed out after 10 seconds")),
+          }),
+          Effect.flatMap((response) =>
+            response.status >= 200 && response.status < 300
+              ? Effect.void
+              : response.status >= 500
+                ? failWith(new Unavailable({ status: response.status }))
+                : failWith(new InvalidPayload({ error: `upload_http_${response.status}` })),
+          ),
+          Effect.retry(retrySchedule),
+        );
+
+        yield* write(
+          "files.completeUploadExternal",
+          { files: [{ id: file_id, title: upload.title }], channel_id: upload.channel, thread_ts: upload.threadTs },
+          Nothing,
+        );
+      });
+
       const threadReplies = (channel: string, threadTs: string) =>
         read("conversations.replies", { channel, ts: threadTs, limit: THREAD_LIMIT }, Replies).pipe(
           Effect.map(({ messages }) =>
@@ -335,7 +387,7 @@ export class SlackClient extends Context.Service<
         ConnectionUrl,
       ).pipe(Effect.map(({ url }) => url));
 
-      return SlackClient.of({ postMessage, addReaction, threadReplies, userProfile, botUserId, openConnection });
+      return SlackClient.of({ postMessage, addReaction, uploadFile, threadReplies, userProfile, botUserId, openConnection });
     }),
   );
 
