@@ -21,12 +21,11 @@ import {
   type SessionUser,
   type TokenResponse,
 } from "../../src/Recording.ts";
-import { SUPABASE_ROOT_CA } from "../../src/SupabaseCa.ts";
 
 interface Env {
   readonly DISCORD_CLIENT_ID: string;
   readonly DISCORD_CLIENT_SECRET: string;
-  readonly ACTIVITY_DATABASE_URL: string;
+  readonly DATABASE: Hyperdrive;
   readonly SESSION_SECRET: string;
 }
 
@@ -280,7 +279,7 @@ const json = (body: RecordingStatus | RequestResult | TokenResponse | { readonly
 const databaseLayer = (url: string) =>
   PgClient.layer({
     url: Redacted.make(url),
-    ssl: { ca: SUPABASE_ROOT_CA },
+    ssl: false,
     maxConnections: 1,
     applicationName: "virtual-office-recorder",
     transformQueryNames: String.camelToSnake,
@@ -290,7 +289,7 @@ const databaseLayer = (url: string) =>
 const withDatabase =
   (env: Env) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    effect.pipe(Effect.provide(databaseLayer(env.ACTIVITY_DATABASE_URL)), Effect.scoped);
+    effect.pipe(Effect.provide(databaseLayer(env.DATABASE.connectionString)), Effect.scoped);
 
 const RequestId = Schema.Struct({ id: Schema.FiniteFromString });
 

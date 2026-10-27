@@ -9,6 +9,12 @@
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
+  "hyperdrive": [
+    {
+      "binding": "DATABASE",
+      "id": "09613040911943369f00c74637e7d3a5"
+    }
+  ],
   "observability": {
     "enabled": true
   }
