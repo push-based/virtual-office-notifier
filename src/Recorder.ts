@@ -373,7 +373,7 @@ export class Recorder extends Context.Service<
               const active = Option.map(current, ({ recording }) => recording);
               const at = yield* DateTime.now;
 
-              yield* Match.valueTags(decideRequest(request, occupants, active), {
+              yield* Match.valueTags(decideRequest(request, occupants, active, at), {
                 Start: () =>
                   startRecording(request).pipe(
                     Effect.flatMap((recording) => store.resolveRequest(request.id, at, "started", null, recording.id)),

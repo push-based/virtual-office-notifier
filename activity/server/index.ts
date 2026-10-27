@@ -16,6 +16,7 @@ import {
   endsAt,
   ignoredReasonText,
   RecordingRequestBody,
+  RowId,
   type RecordingStatus,
   type RequestResult,
   type SessionUser,
@@ -233,7 +234,7 @@ const readStatus = Effect.gen(function* () {
 });
 
 const RequestRow = Schema.Struct({
-  id: Schema.Union([Schema.Finite, Schema.FiniteFromString]),
+  id: RowId,
   handledAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
   outcome: Schema.NullOr(Schema.Literals(["started", "stopped", "ignored"])),
   reason: Schema.NullOr(Schema.String),

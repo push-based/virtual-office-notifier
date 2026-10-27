@@ -1,10 +1,23 @@
-import { Data, DateTime, Duration, Option, Schema } from "effect";
+import { Data, DateTime, Duration, Option, Schema, SchemaTransformation } from "effect";
 
 export const RECORDING_LIMIT = Duration.hours(4);
 
 export const MIN_CLIP_DURATION = Duration.millis(500);
 
 export const MAX_TRANSCRIPTION_ATTEMPTS = 10;
+
+export const REQUEST_EXPIRY = Duration.minutes(1);
+
+export const RowId = Schema.Union([
+  Schema.Finite,
+  Schema.FiniteFromString,
+  Schema.BigInt.pipe(
+    Schema.decodeTo(
+      Schema.Finite,
+      SchemaTransformation.transform({ decode: (id) => Number(id), encode: (id) => globalThis.BigInt(id) }),
+    ),
+  ),
+]);
 
 export const RequestAction = Schema.Literals(["start", "stop"]);
 
@@ -14,7 +27,7 @@ export const RequestOutcome = Schema.Literals(["started", "stopped", "ignored"])
 
 export type RequestOutcome = typeof RequestOutcome.Type;
 
-export const IgnoredReason = Schema.Literals(["not_in_office", "already_recording", "not_recording", "office_empty"]);
+export const IgnoredReason = Schema.Literals(["expired", "not_in_office", "already_recording", "not_recording", "office_empty"]);
 
 export type IgnoredReason = typeof IgnoredReason.Type;
 
@@ -57,7 +70,12 @@ export const decideRequest = (
   request: RecordingRequest,
   occupants: ReadonlySet<string>,
   active: Option.Option<ActiveRecording>,
+  now: DateTime.Utc,
 ): RequestDecision => {
+  if (DateTime.isGreaterThan(now, DateTime.addDuration(request.requestedAt, REQUEST_EXPIRY))) {
+    return RequestDecision.Ignore({ reason: "expired" });
+  }
+
   if (occupants.size === 0) return RequestDecision.Ignore({ reason: "office_empty" });
 
   if (!occupants.has(request.requestedBy)) return RequestDecision.Ignore({ reason: "not_in_office" });
@@ -123,6 +141,8 @@ export type TokenResponse = typeof TokenResponse.Type;
 
 export const ignoredReasonText = (reason: string): string => {
   switch (reason) {
+    case "expired":
+      return "The bot only saw that after a minute, so it ignored it. Press it again.";
     case "not_in_office":
       return "You need to be in the office voice channel to do that.";
     case "already_recording":
