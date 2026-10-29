@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "activity-page",
+      "name": "office-recorder-page",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "activity/client", "dev", "--port", "5173", "--strictPort"],
+      "runtimeArgs": ["--filter", "office-recorder-page", "dev", "--port", "5173", "--strictPort"],
       "port": 5173
     }
   ]

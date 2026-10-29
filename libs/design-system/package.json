@@ -1,0 +1,30 @@
+{
+  "name": "design-system",
+  "private": true,
+  "description": "The Office Recorder's Angular components, pipes and design tokens",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css",
+    "./components.css": "./src/components.css"
+  },
+  "peerDependencies": {
+    "@angular/core": "catalog:angular"
+  },
+  "devDependencies": {
+    "@angular/common": "catalog:angular",
+    "@angular/compiler": "catalog:angular",
+    "@angular/compiler-cli": "catalog:angular",
+    "@angular/core": "catalog:angular",
+    "@angular/platform-browser": "catalog:angular",
+    "@push-based/vite-plugin-ngp": "catalog:angular",
+    "jsdom": "30.1.2",
+    "rxjs": "7.8.2",
+    "tslib": "2.8.1",
+    "typescript": "catalog:angular",
+    "vitest": "5.0.5"
+  }
+}

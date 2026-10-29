@@ -1,6 +1,5 @@
 import { Component, input, output } from "@angular/core";
-
-import { PbButton } from "../../../design-system";
+import { PbButton } from "design-system";
 
 @Component({
   selector: "app-record-button",

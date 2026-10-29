@@ -1,6 +1,6 @@
 import { Component, type OnInit, inject } from "@angular/core";
+import { PbCard, PbEyebrow, PbNotice } from "design-system";
 
-import { PbCard, PbEyebrow, PbNotice } from "../../design-system";
 import { OfficeStore } from "./office-store";
 import { OccupantList } from "./ui/occupant-list";
 import { RecordButton } from "./ui/record-button";

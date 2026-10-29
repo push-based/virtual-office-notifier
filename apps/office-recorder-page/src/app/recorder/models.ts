@@ -1,6 +1,5 @@
+import type { NoticeKind } from "design-system";
 import type { RunningRecording } from "recording-requests/wire";
-
-import type { NoticeKind } from "../../design-system";
 
 export type {
   HandledRequest,

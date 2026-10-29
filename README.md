@@ -119,46 +119,48 @@ The one exception is a [recording](#recording-the-office): for as long as one is
 
 | Module | Responsibility |
 |---|---|
-| [`src/main.ts`](src/main.ts) | Entry point. Provides the layers and runs the program. |
-| [`src/Program.ts`](src/Program.ts) | Merges office events with reminders and posts each one to Slack, and records voice activity alongside. |
-| [`src/DiscordGateway.ts`](src/DiscordGateway.ts) | Logs in to Discord, finds the office channel and turns voice-state updates into office events and observations to record. |
-| [`src/OfficeEvent.ts`](src/OfficeEvent.ts) | The event types and the occupancy tracking that decides when the office opens or empties. |
-| [`src/Reminder.ts`](src/Reminder.ts) | The weekday reminder schedule. |
-| [`src/Banter.ts`](src/Banter.ts) | When to post banter, which stretch of activity it covers, and the log the AI model reads. |
-| [`src/OfficeHistory.ts`](src/OfficeHistory.ts) | Reads the recorded activity and who's in, and keeps count of the banter posted. |
-| [`src/Storage.ts`](src/Storage.ts) | Sets up the database once for recording and reading, or turns both off without `DATABASE_URL`. |
-| [`src/HeadlineWriter.ts`](src/HeadlineWriter.ts) | Asks the AI providers for a headline or banter and a button label, and checks the reply. |
-| [`src/SlackMessage.ts`](src/SlackMessage.ts) | Builds the Block Kit message, including the fixed phrasings. |
-| [`src/SlackClient.ts`](src/SlackClient.ts) | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification. |
-| [`src/SlackNotifier.ts`](src/SlackNotifier.ts) | Posts the announcements, reminders and banter, and records each post. |
-| [`src/SlackSocket.ts`](src/SlackSocket.ts) | The Socket Mode connection: acks every event at once, drops redeliveries and reconnects. |
-| [`src/SlackEvent.ts`](src/SlackEvent.ts) | Decodes Slack events and decides which ones the bot considers. |
-| [`src/Responder.ts`](src/Responder.ts) | Waits for messages per thread, handles them one at a time, applies the limits, and replies, reacts or ignores. |
-| [`src/ReplyDecider.ts`](src/ReplyDecider.ts) | Asks Clef whether to reply, react or ignore, and applies the confidence threshold. |
-| [`src/CloudflareDecisionModel.ts`](src/CloudflareDecisionModel.ts) | An Effect `DecisionModel` for Clef on Workers AI. |
-| [`src/ReplyWriter.ts`](src/ReplyWriter.ts) | Asks the AI providers for a reply, and checks it. |
-| [`src/AiWriting.ts`](src/AiWriting.ts) | The model fallback, timeouts and daily-limit handling shared by both writers. |
-| [`src/SlackHistory.ts`](src/SlackHistory.ts) | Reads the responder settings and keeps the Slack posts, messages, decisions and reactions. |
-| [`src/VoiceObservation.ts`](src/VoiceObservation.ts) | Decides which voice-state updates are worth recording. |
-| [`src/VoiceEffect.ts`](src/VoiceEffect.ts) | Soundboard sounds and emoji reactions, and which ones are worth recording. |
-| [`src/BotPresence.ts`](src/BotPresence.ts) | Whether the bot should be in the office, from who's there at startup and the office opening and emptying. |
-| [`src/Recorder.ts`](src/Recorder.ts) | Starts and stops [recordings](#recording-the-office) on request, stores the clips, transcribes them in the background and posts the summary. |
-| [`src/Recording.ts`](src/Recording.ts) | Why a recording stopped, and the clip rules: the shortest clip worth transcribing and how often to retry one. |
-| [`src/RecordingStore.ts`](src/RecordingStore.ts) | The repository for recordings and their clips. |
-| [`src/VoiceCapture.ts`](src/VoiceCapture.ts) | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses. |
-| [`src/OggOpus.ts`](src/OggOpus.ts) | Writes Opus packets into an Ogg file without transcoding. |
-| [`src/ClipArchive.ts`](src/ClipArchive.ts) | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back. |
-| [`src/Transcriber.ts`](src/Transcriber.ts) | Whisper on Workers AI. |
-| [`src/SummaryWriter.ts`](src/SummaryWriter.ts) | Builds the transcript and asks the AI providers for a summary. |
-| [`activity/`](activity) | The Discord Activity: a Cloudflare Worker in `server/` that signs people in and serves the recording requests, and the Angular page with the button in `client/`. |
-| [`packages/recording-requests/`](packages/recording-requests) | The recording requests and the recording status, shared by the bot, the Worker and the page: the rules for a request, the SQL on both sides, the Activity's HTTP API and the types the page reads. The words it uses are in [`CONTEXT.md`](CONTEXT.md). |
-| [`src/ActivityRecorder.ts`](src/ActivityRecorder.ts) | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects. |
-| [`src/ActivityLog.ts`](src/ActivityLog.ts) | The repository: the SQL that writes sessions, members, snapshots and effects, and tells outages from bad rows. |
-| [`src/Database.ts`](src/Database.ts) | Connects to Postgres and runs the migrations in the background, retrying until it works. |
-| [`src/migrations.ts`](src/migrations.ts) | The tables and the `voice_activity` and `office_activity` views, bundled into the app. |
-| [`src/SupabaseCa.ts`](src/SupabaseCa.ts) | Supabase's root certificate, which Node doesn't trust by default. |
-| [`src/Config.ts`](src/Config.ts) | Environment variables and the default model lists. |
-| [`src/Observability.ts`](src/Observability.ts) | Sends errors, traces and logs to Sentry when it's configured. |
+| [`apps/bot/src/main.ts`](apps/bot/src/main.ts) | Entry point. Provides the layers and runs the program. |
+| [`apps/bot/src/Program.ts`](apps/bot/src/Program.ts) | Merges office events with reminders and posts each one to Slack, and records voice activity alongside. |
+| [`apps/bot/src/DiscordGateway.ts`](apps/bot/src/DiscordGateway.ts) | Logs in to Discord, finds the office channel and turns voice-state updates into office events and observations to record. |
+| [`apps/bot/src/OfficeEvent.ts`](apps/bot/src/OfficeEvent.ts) | The event types and the occupancy tracking that decides when the office opens or empties. |
+| [`apps/bot/src/Reminder.ts`](apps/bot/src/Reminder.ts) | The weekday reminder schedule. |
+| [`apps/bot/src/Banter.ts`](apps/bot/src/Banter.ts) | When to post banter, which stretch of activity it covers, and the log the AI model reads. |
+| [`apps/bot/src/OfficeHistory.ts`](apps/bot/src/OfficeHistory.ts) | Reads the recorded activity and who's in, and keeps count of the banter posted. |
+| [`apps/bot/src/Storage.ts`](apps/bot/src/Storage.ts) | Sets up the database once for recording and reading, or turns both off without `DATABASE_URL`. |
+| [`apps/bot/src/HeadlineWriter.ts`](apps/bot/src/HeadlineWriter.ts) | Asks the AI providers for a headline or banter and a button label, and checks the reply. |
+| [`apps/bot/src/SlackMessage.ts`](apps/bot/src/SlackMessage.ts) | Builds the Block Kit message, including the fixed phrasings. |
+| [`apps/bot/src/SlackClient.ts`](apps/bot/src/SlackClient.ts) | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification. |
+| [`apps/bot/src/SlackNotifier.ts`](apps/bot/src/SlackNotifier.ts) | Posts the announcements, reminders and banter, and records each post. |
+| [`apps/bot/src/SlackSocket.ts`](apps/bot/src/SlackSocket.ts) | The Socket Mode connection: acks every event at once, drops redeliveries and reconnects. |
+| [`apps/bot/src/SlackEvent.ts`](apps/bot/src/SlackEvent.ts) | Decodes Slack events and decides which ones the bot considers. |
+| [`apps/bot/src/Responder.ts`](apps/bot/src/Responder.ts) | Waits for messages per thread, handles them one at a time, applies the limits, and replies, reacts or ignores. |
+| [`apps/bot/src/ReplyDecider.ts`](apps/bot/src/ReplyDecider.ts) | Asks Clef whether to reply, react or ignore, and applies the confidence threshold. |
+| [`apps/bot/src/CloudflareDecisionModel.ts`](apps/bot/src/CloudflareDecisionModel.ts) | An Effect `DecisionModel` for Clef on Workers AI. |
+| [`apps/bot/src/ReplyWriter.ts`](apps/bot/src/ReplyWriter.ts) | Asks the AI providers for a reply, and checks it. |
+| [`apps/bot/src/AiWriting.ts`](apps/bot/src/AiWriting.ts) | The model fallback, timeouts and daily-limit handling shared by both writers. |
+| [`apps/bot/src/SlackHistory.ts`](apps/bot/src/SlackHistory.ts) | Reads the responder settings and keeps the Slack posts, messages, decisions and reactions. |
+| [`apps/bot/src/VoiceObservation.ts`](apps/bot/src/VoiceObservation.ts) | Decides which voice-state updates are worth recording. |
+| [`apps/bot/src/VoiceEffect.ts`](apps/bot/src/VoiceEffect.ts) | Soundboard sounds and emoji reactions, and which ones are worth recording. |
+| [`apps/bot/src/BotPresence.ts`](apps/bot/src/BotPresence.ts) | Whether the bot should be in the office, from who's there at startup and the office opening and emptying. |
+| [`apps/bot/src/Recorder.ts`](apps/bot/src/Recorder.ts) | Starts and stops [recordings](#recording-the-office) on request, stores the clips, transcribes them in the background and posts the summary. |
+| [`apps/bot/src/Recording.ts`](apps/bot/src/Recording.ts) | Why a recording stopped, and the clip rules: the shortest clip worth transcribing and how often to retry one. |
+| [`apps/bot/src/RecordingStore.ts`](apps/bot/src/RecordingStore.ts) | The repository for recordings and their clips. |
+| [`apps/bot/src/VoiceCapture.ts`](apps/bot/src/VoiceCapture.ts) | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses. |
+| [`apps/bot/src/OggOpus.ts`](apps/bot/src/OggOpus.ts) | Writes Opus packets into an Ogg file without transcoding. |
+| [`apps/bot/src/ClipArchive.ts`](apps/bot/src/ClipArchive.ts) | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back. |
+| [`apps/bot/src/Transcriber.ts`](apps/bot/src/Transcriber.ts) | Whisper on Workers AI. |
+| [`apps/bot/src/SummaryWriter.ts`](apps/bot/src/SummaryWriter.ts) | Builds the transcript and asks the AI providers for a summary. |
+| [`apps/office-recorder-worker/`](apps/office-recorder-worker) | The Discord Activity's Cloudflare Worker: signs people in, serves the recording requests and the page. |
+| [`apps/office-recorder-page/`](apps/office-recorder-page) | The Discord Activity's Angular page, with the button. |
+| [`libs/design-system/`](libs/design-system) | The page's components, pipes and design tokens. |
+| [`libs/recording-requests/`](libs/recording-requests) | The recording requests and the recording status, shared by the bot, the Worker and the page: the rules for a request, the SQL on both sides, the Activity's HTTP API and the types the page reads. The words it uses are in [`CONTEXT.md`](CONTEXT.md). |
+| [`apps/bot/src/ActivityRecorder.ts`](apps/bot/src/ActivityRecorder.ts) | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects. |
+| [`apps/bot/src/ActivityLog.ts`](apps/bot/src/ActivityLog.ts) | The repository: the SQL that writes sessions, members, snapshots and effects, and tells outages from bad rows. |
+| [`apps/bot/src/Database.ts`](apps/bot/src/Database.ts) | Connects to Postgres and runs the migrations in the background, retrying until it works. |
+| [`apps/bot/src/migrations.ts`](apps/bot/src/migrations.ts) | The tables and the `voice_activity` and `office_activity` views, bundled into the app. |
+| [`apps/bot/src/SupabaseCa.ts`](apps/bot/src/SupabaseCa.ts) | Supabase's root certificate, which Node doesn't trust by default. |
+| [`apps/bot/src/Config.ts`](apps/bot/src/Config.ts) | Environment variables and the default model lists. |
+| [`apps/bot/src/Observability.ts`](apps/bot/src/Observability.ts) | Sends errors, traces and logs to Sentry when it's configured. |
 
 ## Getting started
 
@@ -169,7 +171,7 @@ git clone https://github.com/push-based/virtual-office-notifier.git
 cd virtual-office-notifier
 pnpm install
 cp .env.example .env   # then fill in the values
-pnpm dev
+pnpm --filter bot dev
 ```
 
 Once it logs `Watching the virtual office`, join the office channel and the post should show up in Slack.
@@ -189,11 +191,11 @@ All configuration comes from environment variables. Copy `.env.example` to `.env
 | `SLACK_APP_TOKEN` | Yes | The Slack app's app-level token (`xapp-…`) with `connections:write`, for Socket Mode. Secret. |
 | `SLACK_CHANNEL_ID` | Yes | ID of the Slack channel announcements, reminders and banter go to, and the only one the bot answers in. |
 | `OPENROUTER_API_KEY` | No | [OpenRouter](https://openrouter.ai/settings/keys) API key for AI headlines. Secret. |
-| `OPENROUTER_MODELS` | No | Comma-separated OpenRouter models to try, preferred first. Defaults to `DEFAULT_OPENROUTER_MODELS` in [`src/Config.ts`](src/Config.ts). |
-| `OPENROUTER_BANTER_MODELS` | No | Comma-separated OpenRouter models to try for [banter](#banter), preferred first. Defaults to `DEFAULT_OPENROUTER_BANTER_MODELS` in [`src/Config.ts`](src/Config.ts). |
+| `OPENROUTER_MODELS` | No | Comma-separated OpenRouter models to try, preferred first. Defaults to `DEFAULT_OPENROUTER_MODELS` in [`apps/bot/src/Config.ts`](apps/bot/src/Config.ts). |
+| `OPENROUTER_BANTER_MODELS` | No | Comma-separated OpenRouter models to try for [banter](#banter), preferred first. Defaults to `DEFAULT_OPENROUTER_BANTER_MODELS` in [`apps/bot/src/Config.ts`](apps/bot/src/Config.ts). |
 | `CLOUDFLARE_ACCOUNT_ID` | No | Cloudflare account ID, for AI headlines from Workers AI. Needs `CLOUDFLARE_API_TOKEN` too. |
 | `CLOUDFLARE_API_TOKEN` | No | Workers AI API token. Secret. |
-| `CLOUDFLARE_MODELS` | No | Comma-separated Workers AI models to try, preferred first. Defaults to `DEFAULT_CLOUDFLARE_MODELS` in [`src/Config.ts`](src/Config.ts), all within the free daily allocation. |
+| `CLOUDFLARE_MODELS` | No | Comma-separated Workers AI models to try, preferred first. Defaults to `DEFAULT_CLOUDFLARE_MODELS` in [`apps/bot/src/Config.ts`](apps/bot/src/Config.ts), all within the free daily allocation. |
 | `DATABASE_URL` | Deploys only | Supabase session pooler connection string, for the [database](#database). Secret. Optional locally, where leaving it out records nothing; the deploy fails without it. |
 | `RECORDINGS_BUCKET` | No | The Cloud Storage bucket [recorded](#recording-the-office) clips are archived in. Without it, clips are only kept in memory until they're transcribed. |
 | `WHISPER_MODEL` | No | The Workers AI model that transcribes clips. Defaults to `@cf/openai/whisper-large-v3-turbo`. |
@@ -204,7 +206,7 @@ All configuration comes from environment variables. Copy `.env.example` to `.env
 
 The process exits at startup with an error naming the variable if a required one is missing. A blank optional key, account ID or database URL counts as unset.
 
-`OPENROUTER_MODELS`, `OPENROUTER_BANTER_MODELS`, `CLOUDFLARE_MODELS`, `WHISPER_MODEL` and `TRANSCRIPTION_LANGUAGE` aren't passed through the deploy, so production always uses the defaults. Change those in `src/Config.ts`.
+`OPENROUTER_MODELS`, `OPENROUTER_BANTER_MODELS`, `CLOUDFLARE_MODELS`, `WHISPER_MODEL` and `TRANSCRIPTION_LANGUAGE` aren't passed through the deploy, so production always uses the defaults. Change those in `apps/bot/src/Config.ts`.
 
 ### Discord bot
 
@@ -280,16 +282,16 @@ The same way as the headlines, except OpenRouter uses `OPENROUTER_BANTER_MODELS`
 
 **Trying it on made-up data**
 
-[`scripts/try-banter.ts`](scripts/try-banter.ts) runs the scenarios in [`scripts/banter-scenarios.ts`](scripts/banter-scenarios.ts): a busy Friday, an empty office, a mute marathon, a lone regular, last week's early bird and a camera party. It never posts to Slack or touches the database.
+[`apps/bot/scripts/try-banter.ts`](apps/bot/scripts/try-banter.ts) runs the scenarios in [`apps/bot/scripts/banter-scenarios.ts`](apps/bot/scripts/banter-scenarios.ts): a busy Friday, an empty office, a mute marathon, a lone regular, last week's early bird and a camera party. It never posts to Slack or touches the database.
 
 ```bash
-node --env-file=.env scripts/try-banter.ts
+node --env-file=.env apps/bot/scripts/try-banter.ts
 ```
 
 On its own it only prints the prompts. With `--call-ai` it asks one OpenRouter model once per scenario, with no fallback, so a run is at most 6 requests. `BANTER_MODEL` picks the model (the first of the banter defaults otherwise) and `BANTER_SCENARIO` runs just one scenario by name.
 
 ```bash
-node --env-file=.env scripts/try-banter.ts --call-ai
+node --env-file=.env apps/bot/scripts/try-banter.ts --call-ai
 ```
 
 ### Answering in Slack
@@ -348,7 +350,7 @@ The bot records voice activity in the office channel to a Postgres database on [
 
 Use the session pooler, not the direct connection: the direct one is IPv6-only unless the project has the IPv4 add-on, and GCP VMs only have IPv4 by default. The transaction pooler (port 6543) doesn't support the prepared statements the client uses.
 
-Locally, leave `DATABASE_URL` out unless you mean to record. `pnpm dev` with the production URL writes into the production data.
+Locally, leave `DATABASE_URL` out unless you mean to record. `pnpm --filter bot dev` with the production URL writes into the production data.
 
 #### What's recorded
 
@@ -384,7 +386,7 @@ ORDER BY observed_at DESC
 LIMIT 50;
 ```
 
-Nothing is ever deleted. Migrations live in [`src/migrations.ts`](src/migrations.ts), run once each on the first successful connection, and only ever add.
+Nothing is ever deleted. Migrations live in [`apps/bot/src/migrations.ts`](apps/bot/src/migrations.ts), run once each on the first successful connection, and only ever add.
 
 #### When the database is down
 
@@ -398,7 +400,7 @@ The database can never stop the announcements:
 
 Anything that can't be stored is logged with an `entry` holding the full JSON, so it can be found in the [logs](#logs) and replayed by hand.
 
-The connection is encrypted and checked against Supabase's own root certificate in [`src/SupabaseCa.ts`](src/SupabaseCa.ts), which expires in April 2031.
+The connection is encrypted and checked against Supabase's own root certificate in [`apps/bot/src/SupabaseCa.ts`](apps/bot/src/SupabaseCa.ts), which expires in April 2031.
 
 ### Recording the office
 
@@ -444,48 +446,49 @@ Needs the [database](#database), the bot's Cloudflare account for Whisper, and a
    GRANT USAGE ON SEQUENCE office.recording_requests_id_seq TO activity;
    ```
 
-5. **Hyperdrive.** Workers can't open a TLS connection to Supabase themselves, because they only trust public certificate authorities and Supabase signs its database certificates with its own. So the Worker reaches the database through [Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which connects to Supabase as the `activity` role and checks Supabase's certificate against its root CA. From the repo root, with `wrangler login`, upload the CA (the one in [`src/SupabaseCa.ts`](src/SupabaseCa.ts), saved as a `.pem`) and create the config with caching off, so the Activity always sees the current state:
+5. **Hyperdrive.** Workers can't open a TLS connection to Supabase themselves, because they only trust public certificate authorities and Supabase signs its database certificates with its own. So the Worker reaches the database through [Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which connects to Supabase as the `activity` role and checks Supabase's certificate against its root CA. From the repo root, with `wrangler login`, upload the CA (the one in [`apps/bot/src/SupabaseCa.ts`](apps/bot/src/SupabaseCa.ts), saved as a `.pem`) and create the config with caching off, so the Activity always sees the current state:
 
    ```bash
-   pnpm wrangler cert upload certificate-authority --name supabase-root-2021 --ca-cert supabase-root.pem
+   pnpm --filter office-recorder-worker exec wrangler cert upload certificate-authority --name supabase-root-2021 --ca-cert supabase-root.pem
    ```
 
    ```bash
-   pnpm wrangler hyperdrive create virtual-office-recorder-db --origin-host <pooler host> --origin-port 5432 --database postgres --origin-user activity.<ref> --origin-password <password> --sslmode verify-full --ca-certificate-id <CA ID> --caching-disabled
+   pnpm --filter office-recorder-worker exec wrangler hyperdrive create virtual-office-recorder-db --origin-host <pooler host> --origin-port 5432 --database postgres --origin-user activity.<ref> --origin-password <password> --sslmode verify-full --ca-certificate-id <CA ID> --caching-disabled
    ```
 
-   Put the new config's ID under `hyperdrive` in [`activity/wrangler.jsonc`](activity/wrangler.jsonc). The pooler host and `<ref>` are the ones in the bot's `DATABASE_URL`. Right after the role's password changes, the pooler can refuse it for a few seconds, so a failed create is worth retrying.
+   Put the new config's ID under `hyperdrive` in [`apps/office-recorder-worker/wrangler.jsonc`](apps/office-recorder-worker/wrangler.jsonc). The pooler host and `<ref>` are the ones in the bot's `DATABASE_URL`. Right after the role's password changes, the pooler can refuse it for a few seconds, so a failed create is worth retrying.
 
-6. **The Worker.** It lives in [`activity/`](activity) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Without it, the deploy job fails before shipping anything, so the bot and the Activity always go out together. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
+6. **The Worker.** It lives in [`apps/office-recorder-worker/`](apps/office-recorder-worker) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Without it, the deploy job fails before shipping anything, so the bot and the Activity always go out together. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
 
    ```bash
-   for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SESSION_SECRET; do pnpm wrangler secret put $name --config activity/wrangler.jsonc; done
+   for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SESSION_SECRET; do pnpm --filter office-recorder-worker exec wrangler secret put $name; done
    ```
 
    `SESSION_SECRET` is any long random string; it signs the sessions the page gets after Discord's login. The first deploy prints the `workers.dev` host for the URL mapping above.
 
 **Trying the two things it depends on**
 
-Received audio has to decrypt, since Discord's voice is end-to-end encrypted (DAVE), and Whisper has to accept Ogg/Opus as is. [`scripts/try-recording.ts`](scripts/try-recording.ts) checks both: it joins the office with audio on for a minute, writes one `.ogg` per stretch of speech into `recordings-check/`, and sends the first one to Whisper. Have someone say a few words while it runs. It needs the Discord token and channel, and the Cloudflare account and token for the Whisper step; it never touches the database or Slack.
+Received audio has to decrypt, since Discord's voice is end-to-end encrypted (DAVE), and Whisper has to accept Ogg/Opus as is. [`apps/bot/scripts/try-recording.ts`](apps/bot/scripts/try-recording.ts) checks both: it joins the office with audio on for a minute, writes one `.ogg` per stretch of speech into `recordings-check/`, and sends the first one to Whisper. Have someone say a few words while it runs. It needs the Discord token and channel, and the Cloudflare account and token for the Whisper step; it never touches the database or Slack.
 
 ```bash
-node --env-file=.env scripts/try-recording.ts --seconds 60
+node --env-file=.env apps/bot/scripts/try-recording.ts --seconds 60
 ```
 
 ## Development
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Run from source with `.env`. |
-| `pnpm typecheck` | Type-check with TypeScript 7 and the Effect diagnostics. |
-| `pnpm lint` | Lint with oxlint. `pnpm lint:fix` applies the automatic fixes. |
-| `pnpm test` | Run the tests with Vitest. |
-| `pnpm build` | Bundle to `dist/main.js` with a source map. |
-| `pnpm start` | Run the bundle with `.env`. |
-| `pnpm build:activity` | Build the Activity's Angular page with Vite to `activity/client/dist`, type-checking it on the way. |
-| `pnpm check:activity` | Bundle the Activity's Worker without deploying it. |
-| `pnpm dev:activity` | Run the Activity's Worker locally with `wrangler dev`, serving the last built page. |
-| `pnpm --dir activity/client dev` | Serve the Activity's page from Vite with live reload, sending `/api` to the Worker on port 8787. |
+| `pnpm typecheck` | Type-check every package with TypeScript 7 and the Effect diagnostics. |
+| `pnpm lint` | Lint the whole repo with oxlint. `pnpm lint:fix` applies the automatic fixes. |
+| `pnpm test` | Run every package's tests with Vitest. |
+| `pnpm build` | Bundle the bot to `apps/bot/dist/main.js` with a source map, and build the Activity's page with Vite to `apps/office-recorder-page/dist`, type-checking it on the way. |
+| `pnpm --filter bot dev` | Run the bot from source with `.env`. |
+| `pnpm --filter bot start` | Run the bot's bundle with `.env`. |
+| `pnpm --filter office-recorder-page dev` | Serve the Activity's page from Vite with live reload, sending `/api` to the Worker on port 8787. |
+| `pnpm --filter office-recorder-worker dev` | Run the Activity's Worker locally with `wrangler dev`, serving the last built page. |
+| `pnpm --filter office-recorder-worker check` | Bundle the Activity's Worker without deploying it. |
+
+Each app and lib is a workspace package under `apps/` or `libs/`, so `pnpm --filter <name> <script>` runs any of their scripts.
 
 CI runs typecheck, lint, test and build on every push and pull request, and bundles the Activity's page and Worker.
 
@@ -493,7 +496,7 @@ The tests run the program against fakes for Discord, Slack and the AI models, so
 
 TypeScript is pinned to the exact version `@effect/tsgo` supports, so upgrade the two together. The `prepare` script patches it on install.
 
-The Activity's page is its own workspace package in [`activity/client`](activity/client), compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package there is pinned to exactly that version, with the TypeScript 6 that Angular's compiler needs. Upgrade them together with the plugin.
+The Activity's page and the design system are compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package is pinned to exactly that version in the `angular` catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml), with the plugin and the TypeScript 6 that Angular's compiler needs. Upgrade them together there.
 
 The lint rules in `tools/oxlint/anti-slop` are vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop). [`UPSTREAM.md`](tools/oxlint/anti-slop/UPSTREAM.md) records the commit they were copied from.
 
@@ -557,16 +560,16 @@ gh secret set SLACK_BOT_TOKEN
 
 ### What a deploy does
 
-The `deploy` job runs [`scripts/deploy.ts`](scripts/deploy.ts), which:
+The `deploy` job runs [`apps/bot/scripts/deploy.ts`](apps/bot/scripts/deploy.ts), which:
 
 1. Writes the env file from the configuration variables into a temporary directory, so secrets never land in the working tree.
 2. Bundles the app.
 3. Downloads the one dependency that can't be bundled, DAVE's native add-on for Linux x64 (`@snazzah/davey`, which `@discordjs/voice` needs to decrypt [recorded](#recording-the-office) audio), with `npm pack`, and packs it as a small `node_modules` tree.
-4. Copies `dist/main.js`, its source map, that archive, the systemd unit and the env file to the VM.
+4. Copies `apps/bot/dist/main.js`, its source map, that archive, the systemd unit and the env file to the VM.
 5. Installs them under `/opt/virtual-office-notifier` and `/etc`, replacing the previous `node_modules`, reloads systemd and restarts the service.
 6. Waits 15 seconds and fails, printing the last log lines, if the service isn't running.
 
-The [unit](deploy/virtual-office-notifier.service) runs as the unprivileged `notifier` user with systemd's sandboxing turned on. It restarts 30 seconds after a crash and gives up after 5 failed starts in 10 minutes, so a bad token doesn't keep hammering Discord's login.
+The [unit](apps/bot/deploy/virtual-office-notifier.service) runs as the unprivileged `notifier` user with systemd's sandboxing turned on. It restarts 30 seconds after a crash and gives up after 5 failed starts in 10 minutes, so a bad token doesn't keep hammering Discord's login.
 
 ### Logs
 
@@ -594,7 +597,7 @@ gh secret set SENTRY_DSN
 |---|---|
 | Exits at startup naming a variable | It's missing or empty. Check `.env` locally, or the GitHub secret in production. |
 | `Office voice channel not found` in the logs | `DISCORD_OFFICE_CHANNEL_ID` is wrong, or the bot isn't in the server or can't view the channel. It keeps running in case the bot is added later, but reminders stay off until it restarts. |
-| Every announcement shows up twice | Two copies are running, for example `pnpm dev` with the production tokens. |
+| Every announcement shows up twice | Two copies are running, for example `pnpm --filter bot dev` with the production tokens. |
 | `Slack rejected the post` with `AccessRevoked` | The token was revoked, the app uninstalled, or the bot isn't in the channel. Reinstall the app or invite the bot, and update the secrets. |
 | The bot never answers in Slack | Check `office.responder_settings.enabled`, then `office.slack_decisions` for why. No rows at all means the events aren't arriving: look for `Lost the Slack connection, reconnecting` warnings and check the app's Socket Mode, events and scopes. |
 | No banter shows up | Look for `Skipped banter` warnings: the reason says why the database couldn't be read. Without the database there's no banter at all. If every AI model failed, the log says `Nothing to announce, no AI model wrote the banter`. |

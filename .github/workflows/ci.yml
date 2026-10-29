@@ -25,13 +25,9 @@ jobs:
 
       - run: pnpm test
 
-      - run: pnpm test:activity
-
       - run: pnpm build
 
-      - run: pnpm build:activity
-
-      - run: pnpm check:activity
+      - run: pnpm --filter office-recorder-worker check
 
   deploy:
     needs: check
@@ -65,7 +61,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm build:activity
+      - run: pnpm --filter office-recorder-page build
 
       - uses: google-github-actions/auth@v3
         with:
@@ -74,7 +70,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - run: node scripts/deploy.ts
+      - run: pnpm --filter bot run deploy
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_OFFICE_CHANNEL_ID: ${{ secrets.DISCORD_OFFICE_CHANNEL_ID }}
@@ -88,7 +84,7 @@ jobs:
           RECORDINGS_BUCKET: ${{ secrets.RECORDINGS_BUCKET }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
-      - run: pnpm deploy:activity
+      - run: pnpm --filter office-recorder-worker run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_DEPLOY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
