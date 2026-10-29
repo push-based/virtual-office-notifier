@@ -23,20 +23,20 @@
   "packageManager": "pnpm@10.15.0",
   "dependencies": {
     "@discordjs/voice": "0.19.2",
-    "@effect/ai-openai-compat": "4.0.5",
-    "@effect/ai-openrouter": "4.0.5",
-    "@effect/platform-node": "4.0.5",
-    "@effect/sql-pg": "4.0.5",
+    "@effect/ai-openai-compat": "4.1.0",
+    "@effect/ai-openrouter": "4.1.0",
+    "@effect/platform-node": "4.1.0",
+    "@effect/sql-pg": "4.1.0",
     "@sentry/effect": "11.8.0",
     "@snazzah/davey": "0.1.12",
     "discord.js": "14.27.0",
-    "effect": "4.0.5"
+    "effect": "4.1.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261024.1",
-    "@effect/sql-pglite": "4.0.5",
-    "@effect/tsgo": "0.54.0",
-    "@effect/vitest": "4.0.5",
+    "@effect/sql-pglite": "4.1.0",
+    "@effect/tsgo": "0.63.0",
+    "@effect/vitest": "4.1.0",
     "@oxlint/plugins": "1.89.0",
     "@types/node": "26.6.5",
     "oxlint": "1.89.0",

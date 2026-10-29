@@ -63,7 +63,6 @@ const dailyLimitHit: Reply = Effect.fail(
     method: "generateText",
     reason: new AiError.RateLimitError({
       http: {
-        request: { method: "POST", url: "https://openrouter.ai/api/v1/chat/completions", urlParams: [], headers: {} },
         body: JSON.stringify({
           error: {
             code: 429,
@@ -82,7 +81,6 @@ const cloudflareAllocationSpent: Reply = Effect.fail(
     method: "generateText",
     reason: new AiError.RateLimitError({
       http: {
-        request: { method: "POST", url: "https://api.cloudflare.com/client/v4/accounts/a/ai/v1/chat/completions", urlParams: [], headers: {} },
         body: JSON.stringify({
           success: false,
           errors: [{ code: 4006, message: "you have used up your daily free allocation of 10,000 neurons" }],
