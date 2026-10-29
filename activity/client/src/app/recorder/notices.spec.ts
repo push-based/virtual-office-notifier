@@ -4,27 +4,23 @@ import { outcomeNotice, unreachableNotice } from "./notices";
 
 describe("outcomeNotice", () => {
   it("confirms a started recording", () => {
-    expect(outcomeNotice({ id: 1, handled: true, outcome: "started" })).toEqual({
+    expect(outcomeNotice({ id: 1, outcome: "started" })).toEqual({
       kind: "info",
       text: "Recording started.",
     });
   });
 
   it("says where the summary goes once stopped", () => {
-    expect(outcomeNotice({ id: 1, handled: true, outcome: "stopped" }).kind).toBe("info");
+    expect(outcomeNotice({ id: 1, outcome: "stopped" }).kind).toBe("info");
   });
 
-  it("passes on the bot's reason for ignoring a request", () => {
-    expect(outcomeNotice({ id: 1, handled: true, outcome: "ignored", reasonText: "Already recording." })).toEqual({
+  it("passes on the bot's explanation for ignoring a request", () => {
+    expect(
+      outcomeNotice({ id: 1, outcome: "ignored", reason: "already_recording", explanation: "Someone already started a recording." }),
+    ).toEqual({
       kind: "error",
-      text: "Already recording.",
+      text: "Someone already started a recording.",
     });
-  });
-
-  it("falls back to a generic reason", () => {
-    expect(outcomeNotice({ id: 1, handled: true, outcome: "ignored", reasonText: null }).text).toBe(
-      "The bot couldn't do that right now.",
-    );
   });
 
   it("reports a request the bot never answered", () => {
@@ -34,9 +30,9 @@ describe("outcomeNotice", () => {
 
 describe("unreachableNotice", () => {
   it("includes the reason", () => {
-    expect(unreachableNotice("/api/state answered 500")).toEqual({
+    expect(unreachableNotice("/api/status answered 500")).toEqual({
       kind: "error",
-      text: "Couldn't reach the bot: /api/state answered 500",
+      text: "Couldn't reach the bot: /api/status answered 500",
     });
   });
 });

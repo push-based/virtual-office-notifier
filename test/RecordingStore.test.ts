@@ -45,18 +45,6 @@ const started = Effect.gen(function* () {
   return store;
 });
 
-const request = (requestedBy: string, action: "start" | "stop") =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    const database = yield* Database;
-
-    yield* database.ready;
-
-    yield* sql`
-      INSERT INTO office.recording_requests ${sql.insert({ requestedBy, requestedByName: requestedBy.toUpperCase(), action })}
-    `;
-  });
-
 describe("RecordingStore", () => {
   it.effect("starts a recording, with its member and a started event", () =>
     Effect.gen(function* () {
@@ -134,34 +122,6 @@ describe("RecordingStore", () => {
         { event: "started", at: DateTime.toDate(minute(0)) },
         { event: "resumed", at: DateTime.toDate(minute(3)) },
       ]);
-    }).pipe(Effect.provide(TestLayer)));
-
-  it.effect("hands out requests oldest first and resolves them", () =>
-    Effect.gen(function* () {
-      const store = yield* RecordingStore;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* request("u1", "start");
-      yield* request("u2", "stop");
-
-      const pending = yield* store.pendingRequests;
-      assert.deepStrictEqual(
-        pending.map(({ requestedBy, requestedByName, action }) => ({ requestedBy, requestedByName, action })),
-        [
-          { requestedBy: "u1", requestedByName: "U1", action: "start" },
-          { requestedBy: "u2", requestedByName: "U2", action: "stop" },
-        ],
-      );
-
-      yield* store.resolveRequest(pending[0]!.id, minute(1), "ignored", "office_empty", null);
-
-      assert.deepStrictEqual(
-        (yield* store.pendingRequests).map(({ id }) => id),
-        [pending[1]!.id],
-      );
-
-      const [resolved] = yield* sql`SELECT outcome, reason, handled_at FROM office.recording_requests WHERE id = ${pending[0]!.id}`;
-      assert.deepStrictEqual(resolved, { outcome: "ignored", reason: "office_empty", handledAt: DateTime.toDate(minute(1)) });
     }).pipe(Effect.provide(TestLayer)));
 
   it.effect("stores clips with their member and queues the pending ones in order", () =>
@@ -286,37 +246,11 @@ describe("RecordingStore", () => {
       });
     }).pipe(Effect.provide(TestLayer)));
 
-  it.effect("keeps the status row for the Activity up to date", () =>
-    Effect.gen(function* () {
-      const store = yield* started;
-      const sql = yield* SqlClient.SqlClient;
-
-      yield* store.updateStatus({
-        recordingId: RECORDING,
-        botInOffice: true,
-        occupants: [{ userId: "u1", displayName: "Ada", avatarUrl: null }],
-      });
-
-      const [row] = yield* sql`SELECT recording_id, bot_in_office, occupants FROM office.recording_status`;
-      assert.deepStrictEqual(row, {
-        recordingId: RECORDING,
-        botInOffice: true,
-        occupants: [{ userId: "u1", displayName: "Ada", avatarUrl: null }],
-      });
-
-      yield* store.updateStatus({ recordingId: null, botInOffice: false, occupants: [] });
-
-      const rows = yield* sql`SELECT recording_id, bot_in_office FROM office.recording_status`;
-      assert.deepStrictEqual(rows, [{ recordingId: null, botInOffice: false }]);
-    }).pipe(Effect.provide(TestLayer)));
-
   it.effect("records nothing and says so when there's no database", () =>
     Effect.gen(function* () {
       const store = yield* RecordingStore;
 
       const error = yield* store.activeRecording.pipe(Effect.flip);
       assert.strictEqual(error.reason, "Nothing is recorded");
-
-      yield* store.updateStatus({ recordingId: null, botInOffice: false, occupants: [] });
     }).pipe(Effect.provide(RecordingStore.layerDisabled)));
 });

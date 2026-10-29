@@ -143,14 +143,15 @@ The one exception is a [recording](#recording-the-office): for as long as one is
 | [`src/VoiceEffect.ts`](src/VoiceEffect.ts) | Soundboard sounds and emoji reactions, and which ones are worth recording. |
 | [`src/BotPresence.ts`](src/BotPresence.ts) | Whether the bot should be in the office, from who's there at startup and the office opening and emptying. |
 | [`src/Recorder.ts`](src/Recorder.ts) | Starts and stops [recordings](#recording-the-office) on request, stores the clips, transcribes them in the background and posts the summary. |
-| [`src/Recording.ts`](src/Recording.ts) | The recording rules and the shapes the bot and the Activity share: who may start or stop one, the time limit, and the status the Activity shows. |
-| [`src/RecordingStore.ts`](src/RecordingStore.ts) | The repository for recordings, requests from the Activity, clips and the status row. |
+| [`src/Recording.ts`](src/Recording.ts) | Why a recording stopped, and the clip rules: the shortest clip worth transcribing and how often to retry one. |
+| [`src/RecordingStore.ts`](src/RecordingStore.ts) | The repository for recordings and their clips. |
 | [`src/VoiceCapture.ts`](src/VoiceCapture.ts) | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses. |
 | [`src/OggOpus.ts`](src/OggOpus.ts) | Writes Opus packets into an Ogg file without transcoding. |
 | [`src/ClipArchive.ts`](src/ClipArchive.ts) | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back. |
 | [`src/Transcriber.ts`](src/Transcriber.ts) | Whisper on Workers AI. |
 | [`src/SummaryWriter.ts`](src/SummaryWriter.ts) | Builds the transcript and asks the AI providers for a summary. |
-| [`activity/`](activity) | The Discord Activity: a Cloudflare Worker in `server/` that talks to the database, and the Angular page with the button in `client/`. |
+| [`activity/`](activity) | The Discord Activity: a Cloudflare Worker in `server/` that signs people in and serves the recording requests, and the Angular page with the button in `client/`. |
+| [`packages/recording-requests/`](packages/recording-requests) | The recording requests and the recording status, shared by the bot, the Worker and the page: the rules for a request, the SQL on both sides, the Activity's HTTP API and the types the page reads. The words it uses are in [`CONTEXT.md`](CONTEXT.md). |
 | [`src/ActivityRecorder.ts`](src/ActivityRecorder.ts) | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects. |
 | [`src/ActivityLog.ts`](src/ActivityLog.ts) | The repository: the SQL that writes sessions, members, snapshots and effects, and tells outages from bad rows. |
 | [`src/Database.ts`](src/Database.ts) | Connects to Postgres and runs the migrations in the background, retrying until it works. |
@@ -604,7 +605,7 @@ gh secret set SENTRY_DSN
 | `logging this instead` or `logging it instead` in the logs | Something couldn't be stored at all: the buffer was full, the bot was shutting down, or setting it aside failed too. The `entry` annotation has the full JSON. |
 | The service has stopped and isn't restarting | systemd gave up after 5 failed starts in 10 minutes. Check the logs, then merge a fix, or update the secret and re-run the latest `CI` workflow on `main`. |
 | The Activity says `The bot isn't in the office yet` | The bot hasn't seen anyone join, or `office.recording_status` isn't being updated: look for `Couldn't update the recording status` warnings. |
-| Pressing Start does nothing | Check `office.recording_requests`: no row means the Worker can't reach the database through Hyperdrive (the page says `/api/state answered 503`; check the Hyperdrive config's credentials); a row with no `outcome` means the bot isn't reading them (`Couldn't handle recording requests` in the logs); `ignored` says why. |
+| Pressing Start does nothing | Check `office.recording_requests`: no row means the Worker can't reach the database through Hyperdrive (the page says `/api/status answered 503`; check the Hyperdrive config's credentials); a row with no `outcome` means the bot isn't reading them (`Couldn't handle recording requests` in the logs); `ignored` says why. |
 | Clips are recorded but never transcribed | Look for `Couldn't reach the transcriber` or `daily allocation is used up` warnings. The clips stay `pending` and are picked up when Workers AI is back. |
 | `Couldn't change the bot's nickname` in the logs | Give the bot the Change Nickname permission. Recording still works without it. |
 | `Couldn't archive a clip` in the logs | The VM can't write to the bucket: check its scopes and the service account's roles on the bucket. The clip was still transcribed from memory. |

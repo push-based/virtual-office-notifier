@@ -4,6 +4,30 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@effect/ai-openai-compat':
+      specifier: 4.1.0
+      version: 4.1.0
+    '@effect/ai-openrouter':
+      specifier: 4.1.0
+      version: 4.1.0
+    '@effect/platform-node':
+      specifier: 4.1.0
+      version: 4.1.0
+    '@effect/sql-pg':
+      specifier: 4.1.0
+      version: 4.1.0
+    '@effect/sql-pglite':
+      specifier: 4.1.0
+      version: 4.1.0
+    '@effect/vitest':
+      specifier: 4.1.0
+      version: 4.1.0
+    effect:
+      specifier: 4.1.0
+      version: 4.1.0
+
 importers:
 
   .:
@@ -12,16 +36,16 @@ importers:
         specifier: 0.19.2
         version: 0.19.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@effect/ai-openai-compat':
-        specifier: 4.1.0
+        specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)
       '@effect/ai-openrouter':
-        specifier: 4.1.0
+        specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)
       '@effect/platform-node':
-        specifier: 4.1.0
+        specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/sql-pg':
-        specifier: 4.1.0
+        specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)
       '@sentry/effect':
         specifier: 11.8.0
@@ -33,20 +57,23 @@ importers:
         specifier: 14.27.0
         version: 14.27.0
       effect:
-        specifier: 4.1.0
+        specifier: 'catalog:'
         version: 4.1.0
+      recording-requests:
+        specifier: workspace:*
+        version: link:packages/recording-requests
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20261024.1
         version: 5.20261024.1
       '@effect/sql-pglite':
-        specifier: 4.1.0
+        specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)
       '@effect/tsgo':
         specifier: 0.63.0
         version: 0.63.0
       '@effect/vitest':
-        specifier: 4.1.0
+        specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)(vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)))
       '@oxlint/plugins':
         specifier: 1.89.0
@@ -93,6 +120,9 @@ importers:
       '@fontsource/geist-mono':
         specifier: 5.3.0
         version: 5.3.0
+      recording-requests:
+        specifier: workspace:*
+        version: link:../../packages/recording-requests
       rxjs:
         specifier: 7.8.2
         version: 7.8.2
@@ -118,6 +148,21 @@ importers:
       vite:
         specifier: 8.3.4
         version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+
+  packages/recording-requests:
+    devDependencies:
+      '@effect/sql-pglite':
+        specifier: 'catalog:'
+        version: 4.1.0(effect@4.1.0)
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.1.0(effect@4.1.0)(vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)))
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.0
       vitest:
         specifier: 5.0.5
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))

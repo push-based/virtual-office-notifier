@@ -28,6 +28,7 @@ import {
   type VoiceChannelEffect,
   type VoiceState,
 } from "discord.js";
+import type { Occupant } from "recording-requests/RecordingRequest";
 
 import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
 import { DiscordConfig } from "./Config.ts";
@@ -44,7 +45,6 @@ import {
   type VoiceStateUpdate,
 } from "./OfficeEvent.ts";
 import { sentInOffice, type TimedVoiceEffect, type VoiceEffect } from "./VoiceEffect.ts";
-import type { Occupant } from "./Recording.ts";
 import { observe, type VoiceObservation } from "./VoiceObservation.ts";
 
 export const RECORDING_NICKNAME = "🔴 Recording";

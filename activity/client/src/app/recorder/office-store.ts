@@ -18,7 +18,7 @@ import {
   timer,
 } from "rxjs";
 
-import type { HandledRequest, Notice, OfficePhase, RecordingStatus, RequestResult } from "./models";
+import type { HandledRequest, Notice, OfficePhase, RecordingStatus, SubmittedRequest } from "./models";
 import { outcomeNotice, unreachableNotice } from "./notices";
 import { RecorderApi } from "./recorder-api";
 import { RecorderSession } from "./session";
@@ -31,7 +31,7 @@ interface OfficeState {
   readonly now: number;
 }
 
-const isHandled = (result: RequestResult): result is HandledRequest => result.handled;
+const isHandled = (request: SubmittedRequest): request is HandledRequest => request.outcome !== null;
 
 @Service({ autoProvided: false })
 export class OfficeStore {
@@ -99,7 +99,7 @@ export class OfficeStore {
     merge(timer(0, this.timing.statePollMs), this.refreshes)
       .pipe(
         mergeMap(() =>
-          this.api.state().pipe(
+          this.api.status().pipe(
             catchError((error) => {
               this.notices.next(unreachableNotice(error instanceof Error ? error.message : String(error)));
 
@@ -124,7 +124,7 @@ export class OfficeStore {
     this.patch({ busy: true });
 
     this.api
-      .requestRecording(status.recording === null ? "start" : "stop")
+      .submit(status.recording === null ? "start" : "stop")
       .pipe(
         switchMap(({ id }) => this.awaitOutcome(id)),
         map(outcomeNotice),
@@ -140,7 +140,7 @@ export class OfficeStore {
 
   private awaitOutcome(id: number): Observable<HandledRequest | null> {
     return timer(this.timing.requestPollMs).pipe(
-      switchMap(() => this.api.requestResult(id)),
+      switchMap(() => this.api.find(id)),
       repeat(this.timing.requestPollLimit),
       first(isHandled, null),
     );

@@ -1,5 +1,5 @@
 import { PgClient } from "@effect/sql-pg";
-import { Context, DateTime, Duration, Effect, Layer, Match, Option, Redacted, Schema, String } from "effect";
+import { Context, DateTime, Duration, Effect, Layer, Match, Option, Redacted, Schema } from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -10,18 +10,11 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/http";
-import { SqlClient, type SqlError } from "effect/sql";
-
-import {
-  endsAt,
-  ignoredReasonText,
-  RecordingRequestBody,
-  RowId,
-  type RecordingStatus,
-  type RequestResult,
-  type SessionUser,
-  type TokenResponse,
-} from "../../src/Recording.ts";
+import { HttpApiBuilder } from "effect/http-api";
+import { CurrentRequester, RecordingApi, type Requester, SignedIn, Unauthorized } from "recording-requests/RecordingApi";
+import { RecordingHandlers } from "recording-requests/RecordingHandlers";
+import { RecordingRequests, RecordingUnavailable } from "recording-requests/RecordingRequests";
+import { columnNaming } from "recording-requests/SqlNaming";
 
 interface Env {
   readonly DISCORD_CLIENT_ID: string;
@@ -43,11 +36,21 @@ class Settings extends Context.Service<
   }
 >()("virtual-office-recorder/Settings") {}
 
-class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {}) {}
-
 class DiscordRefused extends Schema.TaggedError<DiscordRefused>()("DiscordRefused", {
   status: Schema.Finite,
 }) {}
+
+interface SessionUser {
+  readonly id: string;
+  readonly name: string;
+  readonly avatarUrl: string | null;
+}
+
+interface TokenResponse {
+  readonly accessToken: string;
+  readonly session: string;
+  readonly user: SessionUser;
+}
 
 const SessionPayload = Schema.Struct({
   sub: Schema.String,
@@ -105,11 +108,8 @@ const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   return difference === 0;
 };
 
-const currentUser = Effect.gen(function* () {
-  const request = yield* HttpServerRequest.HttpServerRequest;
-  const { sessionSecret } = yield* Settings;
-  const header = request.headers["authorization"] ?? "";
-  const [payload, signature] = header.replace(/^Bearer /, "").split(".");
+const requesterOf = Effect.fnUntraced(function* (sessionSecret: Redacted.Redacted<string>, session: string) {
+  const [payload, signature] = session.split(".");
 
   if (payload === undefined || signature === undefined) return yield* new Unauthorized();
 
@@ -117,15 +117,29 @@ const currentUser = Effect.gen(function* () {
 
   if (!sameBytes(expected, fromBase64url(signature))) return yield* new Unauthorized();
 
-  const session = decodeSession(decoder.decode(fromBase64url(payload)));
+  const decoded = decodeSession(decoder.decode(fromBase64url(payload)));
   const now = yield* DateTime.now;
 
-  if (Option.isNone(session) || session.value.exp < DateTime.toEpochMillis(now)) return yield* new Unauthorized();
+  if (Option.isNone(decoded) || decoded.value.exp < DateTime.toEpochMillis(now)) return yield* new Unauthorized();
 
-  const user: SessionUser = { id: session.value.sub, name: session.value.name, avatarUrl: session.value.avatarUrl };
+  const requester: Requester = { id: decoded.value.sub, name: decoded.value.name };
 
-  return user;
+  return requester;
 });
+
+const SignedInLayer = Layer.effect(
+  SignedIn,
+  Effect.gen(function* () {
+    const { sessionSecret } = yield* Settings;
+
+    return SignedIn.of({
+      session: (httpEffect, { credential }) =>
+        requesterOf(sessionSecret, Redacted.value(credential)).pipe(
+          Effect.flatMap((requester) => Effect.provideService(httpEffect, CurrentRequester, requester)),
+        ),
+    });
+  }),
+);
 
 const TokenBody = Schema.Struct({ code: Schema.NonEmptyString });
 
@@ -186,136 +200,55 @@ const exchangeCode = Effect.fnUntraced(function* (code: string) {
   return { accessToken: access_token, user: sessionUser };
 });
 
-const StatusRow = Schema.Struct({
-  botInOffice: Schema.Boolean,
-  occupants: Schema.Array(
-    Schema.Struct({ userId: Schema.String, displayName: Schema.String, avatarUrl: Schema.NullOr(Schema.String) }),
-  ),
-  updatedAt: Schema.DateTimeUtcFromDate,
-  recordingId: Schema.NullOr(Schema.String),
-  startedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
-  startedBy: Schema.NullOr(Schema.String),
-  startedByName: Schema.NullOr(Schema.String),
-});
-
-const decodeStatusRows = Schema.decodeUnknownEffect(Schema.Array(StatusRow));
-
-const readStatus = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-
-  const [row] = yield* sql`
-    SELECT s.bot_in_office, s.occupants, s.updated_at, r.id AS recording_id, r.started_at, r.started_by,
-           coalesce(m.real_name, m.display_name) AS started_by_name
-    FROM office.recording_status s
-    LEFT JOIN office.recordings r ON r.id = s.recording_id AND r.stopped_at IS NULL
-    LEFT JOIN office.members m ON m.user_id = r.started_by
-  `.pipe(Effect.flatMap(decodeStatusRows));
-
-  if (row === undefined) return yield* Effect.die("The recording status row is missing");
-
-  const recording =
-    row.recordingId === null || row.startedAt === null || row.startedBy === null
-      ? null
-      : {
-          id: row.recordingId,
-          startedAt: DateTime.formatIso(row.startedAt),
-          startedByName: row.startedByName ?? row.startedBy,
-          endsAt: DateTime.formatIso(endsAt({ id: row.recordingId, startedAt: row.startedAt, startedBy: row.startedBy })),
-        };
-
-  const status: RecordingStatus = {
-    botInOffice: row.botInOffice,
-    occupants: row.occupants,
-    recording,
-    updatedAt: DateTime.formatIso(row.updatedAt),
-  };
-
-  return status;
-});
-
-const RequestRow = Schema.Struct({
-  id: RowId,
-  handledAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
-  outcome: Schema.NullOr(Schema.Literals(["started", "stopped", "ignored"])),
-  reason: Schema.NullOr(Schema.String),
-});
-
-const decodeRequestRows = Schema.decodeUnknownEffect(Schema.Array(RequestRow));
-
-const toResult = (row: typeof RequestRow.Type): RequestResult => ({
-  id: row.id,
-  handled: row.handledAt !== null,
-  outcome: row.outcome,
-  reason: row.reason,
-  reasonText: row.reason === null ? null : ignoredReasonText(row.reason),
-});
-
-const insertRequest = (user: SessionUser, action: "start" | "stop") =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-
-    const rows = yield* sql`
-      INSERT INTO office.recording_requests ${sql.insert({ requestedBy: user.id, requestedByName: user.name, action })}
-      RETURNING id, handled_at, outcome, reason
-    `.pipe(Effect.flatMap(decodeRequestRows));
-
-    return rows[0] === undefined ? yield* Effect.die("The request wasn't inserted") : toResult(rows[0]);
-  });
-
-const findRequest = (user: SessionUser, id: number) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-
-    const rows = yield* sql`
-      SELECT id, handled_at, outcome, reason FROM office.recording_requests
-      WHERE id = ${id} AND requested_by = ${user.id}
-    `.pipe(Effect.flatMap(decodeRequestRows));
-
-    return Option.map(Option.fromUndefinedOr(rows[0]), toResult);
-  });
-
-const json = (body: RecordingStatus | RequestResult | TokenResponse | { readonly clientId: string } | { readonly error: string }, status = 200) =>
+const json = (body: TokenResponse | { readonly clientId: string } | { readonly error: string }, status = 200) =>
   HttpServerResponse.jsonUnsafe(body, { status });
 
-const databaseLayer = (url: string) =>
-  PgClient.layer({
-    url: Redacted.make(url),
-    ssl: false,
-    maxConnections: 1,
-    applicationName: "virtual-office-recorder",
-    transformQueryNames: String.camelToSnake,
-    transformResultNames: String.snakeToCamel,
-  });
+type SignInFailure = DiscordRefused | Schema.SchemaError | HttpServerError.HttpServerError;
 
-const withDatabase =
-  (env: Env) =>
-  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    effect.pipe(Effect.provide(databaseLayer(env.DATABASE.connectionString)), Effect.scoped);
-
-const RequestId = Schema.Struct({ id: Schema.FiniteFromString });
-
-type RouteFailure =
-  | Unauthorized
-  | DiscordRefused
-  | Schema.SchemaError
-  | SqlError.SqlError
-  | HttpServerError.HttpServerError;
-
-const responseFor = (failure: RouteFailure) =>
+const responseFor = (failure: SignInFailure) =>
   Match.valueTags(failure, {
-    Unauthorized: () => json({ error: "unauthorized" }, 401),
     DiscordRefused: ({ status }) => json({ error: `discord_${status}` }, 502),
     SchemaError: () => json({ error: "bad_request" }, 400),
-    SqlError: () => json({ error: "database_unavailable" }, 503),
     HttpServerError: () => json({ error: "bad_request" }, 400),
   });
 
-const answered = <E extends RouteFailure, R>(handler: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
+const answered = <E extends SignInFailure, R>(handler: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
   handler.pipe(Effect.catch((failure) => Effect.succeed(responseFor(failure))));
 
-const routes = (env: Env) => {
-  const inDatabase = withDatabase(env);
+const connectionTo = (env: Env) =>
+  PgClient.layer({
+    url: Redacted.make(env.DATABASE.connectionString),
+    ssl: false,
+    maxConnections: 1,
+    applicationName: "virtual-office-recorder",
+    ...columnNaming,
+  });
 
+const recordingRequestsFor = (env: Env) => {
+  const perCall = <A, E, R>(use: (requests: RecordingRequests["Service"]) => Effect.Effect<A, E, R>) =>
+    Effect.gen(function* () {
+      const connection = yield* Layer.build(connectionTo(env)).pipe(
+        Effect.mapError((error) => new RecordingUnavailable({ reason: error.message })),
+      );
+
+      const requests = yield* RecordingRequests.make(Effect.void).pipe(Effect.provideContext(connection));
+
+      return yield* use(requests);
+    }).pipe(Effect.scoped);
+
+  return Layer.succeed(
+    RecordingRequests,
+    RecordingRequests.of({
+      submit: (requester, action) => perCall((requests) => requests.submit(requester, action)),
+      find: (requester, id) => perCall((requests) => requests.find(requester, id)),
+      status: perCall((requests) => requests.status),
+      handlePending: (handler) => perCall((requests) => requests.handlePending(handler)),
+      publishStatus: (update) => perCall((requests) => requests.publishStatus(update)),
+    }),
+  );
+};
+
+const routes = (env: Env) => {
   const settings = Layer.succeed(
     Settings,
     Settings.of({
@@ -325,7 +258,7 @@ const routes = (env: Env) => {
     }),
   );
 
-  const api = Layer.mergeAll(
+  const signIn = Layer.mergeAll(
     HttpRouter.add("GET", "/api/config", json({ clientId: env.DISCORD_CLIENT_ID })),
     HttpRouter.add(
       "POST",
@@ -340,49 +273,16 @@ const routes = (env: Env) => {
         }),
       ),
     ),
-    HttpRouter.add(
-      "GET",
-      "/api/state",
-      answered(
-        Effect.gen(function* () {
-          yield* currentUser;
-
-          return json(yield* inDatabase(readStatus));
-        }),
-      ),
-    ),
-    HttpRouter.add(
-      "POST",
-      "/api/recording",
-      answered(
-        Effect.gen(function* () {
-          const user = yield* currentUser;
-          const { action } = yield* HttpServerRequest.schemaBodyJson(RecordingRequestBody);
-
-          return json(yield* inDatabase(insertRequest(user, action)), 202);
-        }),
-      ),
-    ),
-    HttpRouter.add(
-      "GET",
-      "/api/requests/:id",
-      answered(
-        Effect.gen(function* () {
-          const user = yield* currentUser;
-          const { id } = yield* HttpRouter.schemaPathParams(RequestId);
-          const found = yield* inDatabase(findRequest(user, id));
-
-          return Option.match(found, {
-            onNone: () => json({ error: "not_found" }, 404),
-            onSome: (result) => json(result),
-          });
-        }),
-      ),
-    ),
-    HttpRouter.add("*", "/api/*", json({ error: "not_found" }, 404)),
   );
 
-  return api.pipe(
+  const recording = HttpApiBuilder.layer(RecordingApi).pipe(
+    Layer.provide(RecordingHandlers.pipe(Layer.provide(recordingRequestsFor(env)))),
+    Layer.provideMerge(SignedInLayer),
+  );
+
+  const notFound = HttpRouter.add("*", "/api/*", json({ error: "not_found" }, 404));
+
+  return Layer.mergeAll(signIn, recording, notFound).pipe(
     Layer.provideMerge(Layer.mergeAll(settings, FetchHttpClient.layer)),
     Layer.provide(HttpServer.layerServices),
   );

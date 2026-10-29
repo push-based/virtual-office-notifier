@@ -1,0 +1,19 @@
+{
+  "name": "recording-requests",
+  "private": true,
+  "description": "Recording requests and the recording status, shared by the bot, the Office Recorder's Worker and its page",
+  "type": "module",
+  "exports": {
+    "./wire": "./src/Wire.ts",
+    "./*": "./src/*.ts"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/sql-pglite": "catalog:",
+    "@effect/vitest": "catalog:",
+    "effect": "catalog:",
+    "vitest": "5.0.5"
+  }
+}
