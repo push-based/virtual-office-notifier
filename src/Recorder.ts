@@ -13,9 +13,17 @@ import {
   Queue,
   Ref,
   Schedule,
+  type Scope,
   Semaphore,
   Stream,
 } from "effect";
+import { type ActiveRecording, CHECK_INTERVAL, isOverLimit } from "recording-requests/RecordingRequest";
+import {
+  type RecordingUnavailable,
+  type RequestHandler,
+  RecordingRequests,
+  type StatusUpdate,
+} from "recording-requests/RecordingRequests";
 
 import type { BotPresence } from "./BotPresence.ts";
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
@@ -24,15 +32,8 @@ import { reconnectDelay } from "./Database.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
 import { oggOpusFile, opusPacketsDuration } from "./OggOpus.ts";
-import {
-  type ActiveRecording,
-  decideRequest,
-  isOverLimit,
-  MIN_CLIP_DURATION,
-  type RecordingRequest,
-  type StopReason,
-} from "./Recording.ts";
-import { type PendingClip, RecordingStore, type StatusUpdate, type StoreUnavailable } from "./RecordingStore.ts";
+import { MIN_CLIP_DURATION, type StopReason } from "./Recording.ts";
+import { type PendingClip, RecordingStore, type StoreUnavailable } from "./RecordingStore.ts";
 import { SlackClient } from "./SlackClient.ts";
 import { SlackHistory } from "./SlackHistory.ts";
 import { summaryMessage } from "./SlackMessage.ts";
@@ -40,7 +41,7 @@ import { hasSpeech, speakersOf, SummaryWriter, transcriptText } from "./SummaryW
 import { Transcriber } from "./Transcriber.ts";
 import { type CaptureError, type Clip, VoiceCapture } from "./VoiceCapture.ts";
 
-export const POLL_INTERVAL = Duration.seconds(2);
+export const POLL_INTERVAL = CHECK_INTERVAL;
 
 export const FINISH_POLL = Duration.seconds(15);
 
@@ -107,6 +108,7 @@ export class Recorder extends Context.Service<
     Effect.gen(function* () {
       const gateway = yield* DiscordGateway;
       const store = yield* RecordingStore;
+      const requests = yield* RecordingRequests;
       const voice = yield* VoiceCapture;
       const archive = yield* ClipArchive;
       const transcriber = yield* Transcriber;
@@ -127,7 +129,7 @@ export class Recorder extends Context.Service<
           const unavailableAttempts = yield* Ref.make(0);
           const mutex = yield* Semaphore.make(1);
 
-          const storeIssue = (what: string) => (error: StoreUnavailable) =>
+          const storeIssue = (what: string) => (error: StoreUnavailable | RecordingUnavailable) =>
             Ref.getAndSet(storeHealthy, false).pipe(
               Effect.flatMap((wasHealthy) =>
                 wasHealthy
@@ -153,9 +155,9 @@ export class Recorder extends Context.Service<
 
             if (key === (yield* Ref.get(lastStatus))) return;
 
-            yield* store.updateStatus(status).pipe(
+            yield* requests.publishStatus(status).pipe(
               Effect.andThen(Ref.set(lastStatus, key)),
-              Effect.catchTag("StoreUnavailable", storeIssue("Couldn't update the recording status")),
+              Effect.catchTag("RecordingUnavailable", storeIssue("Couldn't update the recording status")),
             );
           });
 
@@ -331,65 +333,67 @@ export class Recorder extends Context.Service<
             (effect, id) => Effect.annotateLogs(effect, { recordingId: id }),
           );
 
+          const endCapture = Effect.gen(function* () {
+            const current = yield* Ref.getAndSet(session, Option.none());
+
+            if (Option.isNone(current)) return;
+
+            yield* Fiber.interrupt(current.value.capture);
+            yield* gateway.setRecording(false);
+          });
+
+          const stopped = (recordingId: string, reason: StopReason) =>
+            Effect.logInfo("Stopped recording").pipe(
+              Effect.annotateLogs({ recordingId, reason }),
+              Effect.andThen(finish(recordingId).pipe(Effect.forkScoped)),
+            );
+
           const stopRecording = (reason: StopReason, by: string | null) =>
             Effect.gen(function* () {
-              const current = yield* Ref.getAndSet(session, Option.none());
+              const current = yield* Ref.get(session);
 
               if (Option.isNone(current)) return;
 
-              const { recording, capture } = current.value;
+              const { recording } = current.value;
 
-              yield* Fiber.interrupt(capture);
-              yield* gateway.setRecording(false);
-
-              const at = yield* DateTime.now;
-
-              yield* store.stopRecording(recording.id, at, reason, by);
-              yield* Effect.logInfo("Stopped recording").pipe(Effect.annotateLogs({ recordingId: recording.id, reason }));
-              yield* finish(recording.id).pipe(Effect.forkScoped);
+              yield* endCapture;
+              yield* store.stopRecording(recording.id, yield* DateTime.now, reason, by);
+              yield* stopped(recording.id, reason);
             });
 
-          const startRecording = (request: RecordingRequest) =>
-            Effect.gen(function* () {
-              const startedAt = yield* DateTime.now;
-              const recording: ActiveRecording = { id: crypto.randomUUID(), startedAt, startedBy: request.requestedBy };
-
-              yield* store.startRecording({
-                ...recording,
-                guildId: office.guildId,
-                channelId: office.channelId,
-                startedByName: request.requestedByName,
-              });
-              yield* beginCapture(recording);
-              yield* Effect.logInfo("Started recording").pipe(Effect.annotateLogs({ recordingId: recording.id }));
-
-              return recording;
-            });
-
-          const handleRequest = (request: RecordingRequest) =>
-            Effect.gen(function* () {
+          const requestHandler: RequestHandler<StoreUnavailable, Scope.Scope> = {
+            situation: Effect.gen(function* () {
               const occupants = new Set((yield* gateway.occupants).map((occupant) => occupant.userId));
-              const current = yield* Ref.get(session);
-              const active = Option.map(current, ({ recording }) => recording);
-              const at = yield* DateTime.now;
+              const active = Option.map(yield* Ref.get(session), ({ recording }) => recording);
 
-              yield* Match.valueTags(decideRequest(request, occupants, active, at), {
-                Start: () =>
-                  startRecording(request).pipe(
-                    Effect.flatMap((recording) => store.resolveRequest(request.id, at, "started", null, recording.id)),
+              return { occupants, active };
+            }),
+            start: (request) =>
+              Effect.gen(function* () {
+                const startedAt = yield* DateTime.now;
+                const recording: ActiveRecording = { id: crypto.randomUUID(), startedAt, startedBy: request.requestedBy };
+
+                yield* store.startRecording({
+                  ...recording,
+                  guildId: office.guildId,
+                  channelId: office.channelId,
+                  startedByName: request.requestedByName,
+                });
+
+                return {
+                  recordingId: recording.id,
+                  afterCommit: beginCapture(recording).pipe(
+                    Effect.andThen(Effect.logInfo("Started recording").pipe(Effect.annotateLogs({ recordingId: recording.id }))),
                   ),
-                Stop: () =>
-                  stopRecording("requested", request.requestedBy).pipe(
-                    Effect.andThen(
-                      store.resolveRequest(request.id, at, "stopped", null, Option.getOrNull(Option.map(active, ({ id }) => id))),
-                    ),
-                  ),
-                Ignore: ({ reason }) =>
-                  store
-                    .resolveRequest(request.id, at, "ignored", reason, null)
-                    .pipe(Effect.andThen(Effect.logInfo("Ignored a recording request").pipe(Effect.annotateLogs({ reason })))),
-              });
-            }).pipe(Effect.annotateLogs({ request: request.id, action: request.action }));
+                };
+              }),
+            stop: (request, recording) =>
+              Effect.gen(function* () {
+                yield* store.stopRecording(recording.id, yield* DateTime.now, "requested", request.requestedBy);
+
+                return { recordingId: recording.id, afterCommit: endCapture.pipe(Effect.andThen(stopped(recording.id, "requested"))) };
+              }),
+          };
 
           const tick = mutex.withPermits(1)(
             Effect.gen(function* () {
@@ -398,14 +402,10 @@ export class Recorder extends Context.Service<
 
               if (Option.isSome(current) && isOverLimit(current.value.recording, now)) yield* stopRecording("time_limit", null);
 
-              const requests = yield* store.pendingRequests;
-
+              yield* requests.handlePending(requestHandler);
               yield* storeOk;
-
-              for (const request of requests) yield* handleRequest(request);
-
               yield* writeStatus;
-            }).pipe(Effect.catchTag("StoreUnavailable", storeIssue("Couldn't handle recording requests"))),
+            }).pipe(Effect.catchTag(["StoreUnavailable", "RecordingUnavailable"], storeIssue("Couldn't handle recording requests"))),
           );
 
           const reconcileStartup = (current: BotPresence) =>

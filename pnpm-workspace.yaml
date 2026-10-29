@@ -1,2 +1,12 @@
 packages:
   - activity/client
+  - packages/*
+
+catalog:
+  effect: 4.1.0
+  "@effect/ai-openai-compat": 4.1.0
+  "@effect/ai-openrouter": 4.1.0
+  "@effect/platform-node": 4.1.0
+  "@effect/sql-pg": 4.1.0
+  "@effect/sql-pglite": 4.1.0
+  "@effect/vitest": 4.1.0

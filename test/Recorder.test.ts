@@ -3,13 +3,14 @@ import { assert, describe, it } from "@effect/vitest";
 import { type Cause, DateTime, Effect, Fiber, Layer, Option, Queue } from "effect";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
+import { RECORDING_LIMIT } from "recording-requests/RecordingRequest";
+import { RecordingRequests } from "recording-requests/RecordingRequests";
 
 import { ClipArchive } from "../src/ClipArchive.ts";
 import { columnNaming, Database } from "../src/Database.ts";
 import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import { FINISH_POLL, POLL_INTERVAL, Recorder } from "../src/Recorder.ts";
-import { RECORDING_LIMIT } from "../src/Recording.ts";
 import { RecordingStore, type StoreUnavailable } from "../src/RecordingStore.ts";
 import { SummaryWriter, type WrittenSummary } from "../src/SummaryWriter.ts";
 import { type Transcript, Transcriber, TranscriptionError } from "../src/Transcriber.ts";
@@ -86,6 +87,16 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
       }),
     ),
     Layer.provideMerge(RecordingStore.layer),
+    Layer.provideMerge(
+      Layer.effect(
+        RecordingRequests,
+        Effect.gen(function* () {
+          const database = yield* Database;
+
+          return yield* RecordingRequests.make(database.ready);
+        }),
+      ),
+    ),
     Layer.provideMerge(Database.layerNoDeps()),
     Layer.provideMerge(PgliteClient.layer(columnNaming)),
   );
@@ -94,6 +105,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const sql = yield* Effect.service(SqlClient.SqlClient).pipe(Effect.provideContext(context));
   const database = yield* Effect.service(Database).pipe(Effect.provideContext(context));
   const recorder = yield* Effect.service(Recorder).pipe(Effect.provideContext(context));
+  const requests = yield* Effect.service(RecordingRequests).pipe(Effect.provideContext(context));
 
   yield* database.ready;
   yield* (options.before ?? Effect.void).pipe(Effect.orDie, Effect.provideContext(context));
@@ -101,9 +113,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const fiber = yield* recorder.run.pipe(withEnv(env), Effect.forkScoped);
 
   const request = (requestedBy: string, action: "start" | "stop") =>
-    sql`INSERT INTO office.recording_requests ${sql.insert({ requestedBy, requestedByName: requestedBy.toUpperCase(), action })}`.pipe(
-      Effect.asVoid,
-    );
+    requests.submit({ id: requestedBy, name: requestedBy.toUpperCase() }, action).pipe(Effect.asVoid);
 
   const realSleep = Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
 

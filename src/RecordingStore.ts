@@ -1,19 +1,10 @@
 import { Array, Context, DateTime, Duration, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { type ActiveRecording, RowId } from "recording-requests/RecordingRequest";
 
 import { memberUpsert } from "./ActivityLog.ts";
 import { Database, describeError } from "./Database.ts";
-import {
-  type ActiveRecording,
-  type IgnoredReason,
-  MAX_TRANSCRIPTION_ATTEMPTS,
-  type Occupant,
-  type RecordingRequest,
-  type RequestOutcome,
-  RowId,
-  type StopReason,
-  type TranscriptionStatus,
-} from "./Recording.ts";
+import { MAX_TRANSCRIPTION_ATTEMPTS, StopReason, TranscriptionStatus } from "./Recording.ts";
 
 const QUERY_TIMEOUT = Duration.seconds(10);
 
@@ -76,26 +67,8 @@ export interface FinishedRecording {
   readonly finishedAt: DateTime.Utc;
 }
 
-export interface StatusUpdate {
-  readonly recordingId: string | null;
-  readonly botInOffice: boolean;
-  readonly occupants: ReadonlyArray<Occupant>;
-}
-
 const decodeActive = Schema.decodeUnknownEffect(
   Schema.Array(Schema.Struct({ id: Schema.String, startedAt: Schema.DateTimeUtcFromDate, startedBy: Schema.String })),
-);
-
-const decodeRequests = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({
-      id: RowId,
-      requestedAt: Schema.DateTimeUtcFromDate,
-      requestedBy: Schema.String,
-      requestedByName: Schema.String,
-      action: Schema.Literals(["start", "stop"]),
-    }),
-  ),
 );
 
 const decodePending = Schema.decodeUnknownEffect(
@@ -116,7 +89,7 @@ const decodeClipLines = Schema.decodeUnknownEffect(
       who: Schema.String,
       startedAt: Schema.DateTimeUtcFromDate,
       durationMs: Schema.Number,
-      transcription: Schema.Literals(["pending", "done", "skipped", "failed"]),
+      transcription: TranscriptionStatus,
       transcript: Schema.NullOr(Schema.String),
     }),
   ),
@@ -131,7 +104,7 @@ const decodeDetails = Schema.decodeUnknownEffect(
       startedAt: Schema.DateTimeUtcFromDate,
       stoppedAt: Schema.DateTimeUtcFromDate,
       startedByName: Schema.String,
-      stopReason: Schema.Literals(["requested", "office_emptied", "time_limit", "bot_restarted"]),
+      stopReason: StopReason,
     }),
   ),
 );
@@ -150,14 +123,6 @@ export class RecordingStore extends Context.Service<
     startRecording(recording: NewRecording): Effect.Effect<void, StoreUnavailable>;
     resumeRecording(id: string, at: DateTime.Utc): Effect.Effect<void, StoreUnavailable>;
     stopRecording(id: string, at: DateTime.Utc, reason: StopReason, by: string | null): Effect.Effect<void, StoreUnavailable>;
-    readonly pendingRequests: Effect.Effect<ReadonlyArray<RecordingRequest>, StoreUnavailable>;
-    resolveRequest(
-      id: number,
-      at: DateTime.Utc,
-      outcome: RequestOutcome,
-      reason: IgnoredReason | null,
-      recordingId: string | null,
-    ): Effect.Effect<void, StoreUnavailable>;
     addClip(clip: NewClip): Effect.Effect<number, StoreUnavailable>;
     readonly nextPendingClip: Effect.Effect<Option.Option<PendingClip>, StoreUnavailable>;
     clipTranscribed(id: number, at: DateTime.Utc, transcript: string, model: string): Effect.Effect<void, StoreUnavailable>;
@@ -166,7 +131,6 @@ export class RecordingStore extends Context.Service<
     clipsOf(recordingId: string): Effect.Effect<ReadonlyArray<ClipLine>, StoreUnavailable>;
     recordingDetails(id: string): Effect.Effect<Option.Option<RecordingDetails>, StoreUnavailable>;
     finishRecording(id: string, finished: FinishedRecording): Effect.Effect<void, StoreUnavailable>;
-    updateStatus(status: StatusUpdate): Effect.Effect<void, StoreUnavailable>;
   }
 >()("virtual-office-notifier/RecordingStore") {
   static readonly layer = Layer.effect(
@@ -246,27 +210,6 @@ export class RecordingStore extends Context.Service<
                 event(id, at, "stopped", reason, by),
               ]),
             ),
-          ),
-        Effect.asVoid,
-      );
-
-      const pendingRequests = onceReady(
-        sql`
-          SELECT id, requested_at, requested_by, requested_by_name, action
-          FROM office.recording_requests
-          WHERE handled_at IS NULL
-          ORDER BY id
-        `.pipe(Effect.flatMap(decodeRequests)),
-      ).pipe(Effect.withSpan("RecordingStore.pendingRequests"));
-
-      const resolveRequest = Effect.fn("RecordingStore.resolveRequest")(
-        (id: number, at: DateTime.Utc, outcome: RequestOutcome, reason: IgnoredReason | null, recordingId: string | null) =>
-          onceReady(
-            sql`
-              UPDATE office.recording_requests
-              SET handled_at = ${DateTime.toDate(at)}, outcome = ${outcome}, reason = ${reason}, recording_id = ${recordingId}
-              WHERE id = ${id}
-            `,
           ),
         Effect.asVoid,
       );
@@ -386,26 +329,12 @@ export class RecordingStore extends Context.Service<
         Effect.asVoid,
       );
 
-      const updateStatus = Effect.fn("RecordingStore.updateStatus")(
-        (status: StatusUpdate) =>
-          onceReady(
-            sql`
-              UPDATE office.recording_status
-              SET recording_id = ${status.recordingId}, bot_in_office = ${status.botInOffice},
-                  occupants = ${JSON.stringify(status.occupants)}::jsonb, updated_at = now()
-            `,
-          ),
-        Effect.asVoid,
-      );
-
       return RecordingStore.of({
         activeRecording,
         unfinishedRecordings,
         startRecording,
         resumeRecording,
         stopRecording,
-        pendingRequests,
-        resolveRequest,
         addClip,
         nextPendingClip,
         clipTranscribed,
@@ -414,7 +343,6 @@ export class RecordingStore extends Context.Service<
         clipsOf,
         recordingDetails,
         finishRecording,
-        updateStatus,
       });
     }),
   );
@@ -427,8 +355,6 @@ export class RecordingStore extends Context.Service<
       startRecording: notRecording,
       resumeRecording: notRecording,
       stopRecording: notRecording,
-      pendingRequests: notRecording(),
-      resolveRequest: notRecording,
       addClip: notRecording,
       nextPendingClip: notRecording(),
       clipTranscribed: notRecording,
@@ -437,7 +363,6 @@ export class RecordingStore extends Context.Service<
       clipsOf: notRecording,
       recordingDetails: notRecording,
       finishRecording: notRecording,
-      updateStatus: () => Effect.void,
     }),
   );
 }

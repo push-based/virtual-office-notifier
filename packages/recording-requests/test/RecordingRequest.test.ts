@@ -1,18 +1,21 @@
-import { assert, describe, it } from "@effect/vitest";
+import { assert, describe, expectTypeOf, it } from "@effect/vitest";
 import { DateTime, Duration, Option, Schema } from "effect";
 
 import {
   type ActiveRecording,
   decideRequest,
   endsAt,
-  ignoredReasonText,
+  explain,
   isOverLimit,
   RECORDING_LIMIT,
   REQUEST_EXPIRY,
+  RecordingStatus,
   RequestDecision,
   type RecordingRequest,
   RowId,
-} from "../src/Recording.ts";
+  SubmittedRequest,
+} from "../src/RecordingRequest.ts";
+import type * as Wire from "../src/Wire.ts";
 
 const request = (overrides: Partial<RecordingRequest> = {}): RecordingRequest => ({
   id: 1,
@@ -32,10 +35,10 @@ describe("decideRequest", () => {
     assert.deepStrictEqual(decideRequest(request(), new Set(["u1", "u2"]), Option.none(), soon), RequestDecision.Start());
   });
 
-  it("stops when someone in the office asks and a recording is on", () => {
+  it("stops the running recording when someone in the office asks", () => {
     assert.deepStrictEqual(
       decideRequest(request({ action: "stop", requestedBy: "u2" }), new Set(["u1", "u2"]), Option.some(active), soon),
-      RequestDecision.Stop(),
+      RequestDecision.Stop({ recording: active }),
     );
   });
 
@@ -107,13 +110,31 @@ describe("time limit", () => {
   });
 });
 
-describe("ignoredReasonText", () => {
-  it("explains each reason to the person who pressed the button", () => {
-    assert.include(ignoredReasonText("expired"), "again");
-    assert.include(ignoredReasonText("not_in_office"), "office voice channel");
-    assert.include(ignoredReasonText("already_recording"), "already");
-    assert.include(ignoredReasonText("not_recording"), "no recording");
-    assert.include(ignoredReasonText("office_empty"), "empty");
-    assert.include(ignoredReasonText("something_else"), "couldn't");
+describe("explain", () => {
+  it("explains each ignore reason to the person who pressed the button", () => {
+    assert.include(explain("expired"), "again");
+    assert.include(explain("not_in_office"), "office voice channel");
+    assert.include(explain("already_recording"), "already");
+    assert.include(explain("not_recording"), "no recording");
+    assert.include(explain("office_empty"), "empty");
+  });
+});
+
+describe("the page's types", () => {
+  it("match what the Worker sends", () => {
+    expectTypeOf<typeof RecordingStatus.Encoded>().toEqualTypeOf<Wire.RecordingStatus>();
+    expectTypeOf<typeof SubmittedRequest.Encoded>().toEqualTypeOf<Wire.SubmittedRequest>();
+  });
+
+  it("send times as ISO strings", () => {
+    const encoded = Schema.encodeSync(RecordingStatus)({
+      botInOffice: true,
+      occupants: [],
+      recording: { id: "r1", startedAt: DateTime.makeUnsafe(0), startedByName: "Ada", endsAt: endsAt(active) },
+      updatedAt: DateTime.makeUnsafe(0),
+    });
+
+    assert.strictEqual(encoded.recording?.endsAt, "1970-01-01T04:00:00.000Z");
+    assert.strictEqual(encoded.updatedAt, "1970-01-01T00:00:00.000Z");
   });
 });

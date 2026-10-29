@@ -1,26 +1,27 @@
 import { TestBed } from "@angular/core/testing";
+import { CHECK_INTERVAL_MS, REQUEST_EXPIRY_MS } from "recording-requests/wire";
 import { type Observable, of, throwError } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { RecordingAction, RecordingStatus, RequestResult } from "./models";
+import type { RecordingStatus, RequestAction, SubmittedRequest } from "./models";
 import { OfficeStore } from "./office-store";
 import { RecorderApi } from "./recorder-api";
 import { RecorderSession } from "./session";
 import { RECORDER_TIMING } from "./timing";
 
-const idle: RecordingStatus = { botInOffice: true, occupants: [], recording: null };
+const idle: RecordingStatus = { botInOffice: true, occupants: [], recording: null, updatedAt: "2026-10-27T12:00:00Z" };
 
 const recording: RecordingStatus = {
   ...idle,
-  recording: { id: "1", startedAt: "2026-10-27T12:00:00Z", startedByName: "Chris", endsAt: "2026-10-27T13:00:00Z" },
+  recording: { id: "1", startedAt: "2026-10-27T12:00:00Z", startedByName: "Chris", endsAt: "2026-10-27T16:00:00Z" },
 };
 
-const pending: RequestResult = { id: 7, handled: false };
+const pending: SubmittedRequest = { id: 7, outcome: null };
 
 const fakeApi = () => ({
-  state: vi.fn<() => Observable<RecordingStatus>>(() => of(idle)),
-  requestRecording: vi.fn<(action: RecordingAction) => Observable<RequestResult>>(() => of(pending)),
-  requestResult: vi.fn<(id: number) => Observable<RequestResult>>(() => of(pending)),
+  status: vi.fn<() => Observable<RecordingStatus>>(() => of(idle)),
+  submit: vi.fn<(action: RequestAction) => Observable<SubmittedRequest>>(() => of(pending)),
+  find: vi.fn<(id: number) => Observable<SubmittedRequest>>(() => of(pending)),
 });
 
 type FakeApi = ReturnType<typeof fakeApi>;
@@ -66,7 +67,7 @@ describe("OfficeStore", () => {
     await vi.advanceTimersByTimeAsync(10_000);
 
     expect(store.phase()).toEqual({ kind: "failed", reason: "/api/config answered 502" });
-    expect(api.state).not.toHaveBeenCalled();
+    expect(api.status).not.toHaveBeenCalled();
   });
 
   it("loads the status after sign-in and keeps polling it", async () => {
@@ -77,7 +78,7 @@ describe("OfficeStore", () => {
     expect(store.canPress()).toBe(true);
     expect(store.recording()).toBe(false);
 
-    api.state.mockReturnValue(of(recording));
+    api.status.mockReturnValue(of(recording));
     await vi.advanceTimersByTimeAsync(timing.statePollMs);
 
     expect(store.phase()).toEqual({ kind: "recording", recording: recording.recording });
@@ -86,7 +87,7 @@ describe("OfficeStore", () => {
 
   it("reports when the bot is away", async () => {
     const api = fakeApi();
-    api.state.mockReturnValue(of({ ...idle, botInOffice: false }));
+    api.status.mockReturnValue(of({ ...idle, botInOffice: false }));
     const { store } = await started(api);
 
     expect(store.phase()).toEqual({ kind: "away" });
@@ -97,11 +98,11 @@ describe("OfficeStore", () => {
     const api = fakeApi();
     const { store, timing } = await started(api);
 
-    api.state.mockReturnValue(throwError(() => new Error("/api/state answered 500")));
+    api.status.mockReturnValue(throwError(() => new Error("/api/status answered 500")));
     await vi.advanceTimersByTimeAsync(timing.statePollMs);
 
     expect(store.status()).toEqual(idle);
-    expect(store.notice()).toEqual({ kind: "error", text: "Couldn't reach the bot: /api/state answered 500" });
+    expect(store.notice()).toEqual({ kind: "error", text: "Couldn't reach the bot: /api/status answered 500" });
   });
 
   it("ticks the clock", async () => {
@@ -115,9 +116,9 @@ describe("OfficeStore", () => {
 
   it("asks to start, waits for the bot, confirms and refreshes", async () => {
     const api = fakeApi();
-    api.requestResult.mockReturnValue(of({ id: 7, handled: true, outcome: "started" }));
+    api.find.mockReturnValue(of({ id: 7, outcome: "started" }));
     const { store, timing } = await started(api);
-    const polls = api.state.mock.calls.length;
+    const polls = api.status.mock.calls.length;
 
     store.press();
 
@@ -126,23 +127,23 @@ describe("OfficeStore", () => {
 
     await vi.advanceTimersByTimeAsync(timing.requestPollMs);
 
-    expect(api.requestRecording).toHaveBeenCalledWith("start");
-    expect(api.requestResult).toHaveBeenCalledWith(7);
+    expect(api.submit).toHaveBeenCalledWith("start");
+    expect(api.find).toHaveBeenCalledWith(7);
     expect(store.busy()).toBe(false);
     expect(store.notice()).toEqual({ kind: "info", text: "Recording started." });
-    expect(api.state).toHaveBeenCalledTimes(polls + 1);
+    expect(api.status).toHaveBeenCalledTimes(polls + 1);
   });
 
   it("asks to stop while a recording runs", async () => {
     const api = fakeApi();
-    api.state.mockReturnValue(of(recording));
-    api.requestResult.mockReturnValue(of({ id: 7, handled: true, outcome: "stopped" }));
+    api.status.mockReturnValue(of(recording));
+    api.find.mockReturnValue(of({ id: 7, outcome: "stopped" }));
     const { store, timing } = await started(api);
 
     store.press();
     await vi.advanceTimersByTimeAsync(timing.requestPollMs);
 
-    expect(api.requestRecording).toHaveBeenCalledWith("stop");
+    expect(api.submit).toHaveBeenCalledWith("stop");
   });
 
   it("ignores a second press while the first is in flight", async () => {
@@ -152,40 +153,42 @@ describe("OfficeStore", () => {
     store.press();
     store.press();
 
-    expect(api.requestRecording).toHaveBeenCalledTimes(1);
+    expect(api.submit).toHaveBeenCalledTimes(1);
   });
 
-  it("polls the request once a second and gives up when the bot never answers", async () => {
+  it("polls the request once a second and gives up only after the bot would have ignored it", async () => {
     const api = fakeApi();
     const { store, timing } = await started(api);
+
+    expect(timing.requestPollMs * timing.requestPollLimit).toBeGreaterThan(REQUEST_EXPIRY_MS + CHECK_INTERVAL_MS);
 
     store.press();
     await vi.advanceTimersByTimeAsync(timing.requestPollMs * (timing.requestPollLimit - 1));
 
-    expect(api.requestResult).toHaveBeenCalledTimes(timing.requestPollLimit - 1);
+    expect(api.find).toHaveBeenCalledTimes(timing.requestPollLimit - 1);
     expect(store.busy()).toBe(true);
 
     await vi.advanceTimersByTimeAsync(timing.requestPollMs);
 
-    expect(api.requestResult).toHaveBeenCalledTimes(timing.requestPollLimit);
+    expect(api.find).toHaveBeenCalledTimes(timing.requestPollLimit);
     expect(store.busy()).toBe(false);
     expect(store.notice()?.text).toBe("The bot hasn't answered yet. Try again in a moment.");
   });
 
   it("reports a request that couldn't be sent", async () => {
     const api = fakeApi();
-    api.requestRecording.mockReturnValue(throwError(() => new Error("/api/recording answered 503")));
+    api.submit.mockReturnValue(throwError(() => new Error("/api/requests answered 503")));
     const { store } = await started(api);
 
     store.press();
 
     expect(store.busy()).toBe(false);
-    expect(store.notice()?.text).toBe("Couldn't reach the bot: /api/recording answered 503");
+    expect(store.notice()?.text).toBe("Couldn't reach the bot: /api/requests answered 503");
   });
 
   it("clears a notice after a while, counting from the latest one", async () => {
     const api = fakeApi();
-    api.requestRecording.mockReturnValue(throwError(() => new Error("/api/recording answered 503")));
+    api.submit.mockReturnValue(throwError(() => new Error("/api/requests answered 503")));
     const { store, timing } = await started(api);
 
     store.press();
@@ -203,11 +206,11 @@ describe("OfficeStore", () => {
   it("stops polling once destroyed", async () => {
     const api = fakeApi();
     const { timing } = await started(api);
-    const polls = api.state.mock.calls.length;
+    const polls = api.status.mock.calls.length;
 
     TestBed.resetTestingModule();
     await vi.advanceTimersByTimeAsync(timing.statePollMs * 3);
 
-    expect(api.state).toHaveBeenCalledTimes(polls);
+    expect(api.status).toHaveBeenCalledTimes(polls);
   });
 });

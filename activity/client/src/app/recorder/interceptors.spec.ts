@@ -32,28 +32,28 @@ describe("sessionInterceptor", () => {
   it("sends the session as a bearer token after sign-in", () => {
     const { http, backend } = setup("session-1");
 
-    void firstValueFrom(http.get("/api/state"));
+    void firstValueFrom(http.get("/api/status"));
 
-    expect(backend.expectOne("/api/state").request.headers.get("authorization")).toBe("Bearer session-1");
+    expect(backend.expectOne("/api/status").request.headers.get("authorization")).toBe("Bearer session-1");
   });
 });
 
 describe("apiErrorInterceptor", () => {
   it("names the endpoint and the status it answered with", async () => {
     const { http, backend } = setup(null);
-    const response = firstValueFrom(http.get("/api/state"));
+    const response = firstValueFrom(http.get("/api/status"));
 
-    backend.expectOne("/api/state").flush(null, { status: 502, statusText: "Bad Gateway" });
+    backend.expectOne("/api/status").flush(null, { status: 502, statusText: "Bad Gateway" });
 
-    await expect(response).rejects.toThrow("/api/state answered 502");
+    await expect(response).rejects.toThrow("/api/status answered 502");
   });
 
   it("says when the endpoint didn't answer at all", async () => {
     const { http, backend } = setup(null);
-    const response = firstValueFrom(http.get("/api/state"));
+    const response = firstValueFrom(http.get("/api/status"));
 
-    backend.expectOne("/api/state").error(new ProgressEvent("error"));
+    backend.expectOne("/api/status").error(new ProgressEvent("error"));
 
-    await expect(response).rejects.toThrow("/api/state didn't answer");
+    await expect(response).rejects.toThrow("/api/status didn't answer");
   });
 });

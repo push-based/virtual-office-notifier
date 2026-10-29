@@ -11,9 +11,9 @@ import {
   type Redacted,
   Schedule,
   Schema,
-  String,
 } from "effect";
 import { Migrator, SqlClient, type SqlError } from "effect/sql";
+import { columnNaming } from "recording-requests/SqlNaming";
 
 import { migrations } from "./migrations.ts";
 import { SUPABASE_ROOT_CA } from "./SupabaseCa.ts";
@@ -75,11 +75,7 @@ const retryLogged = reconnectSchedule.pipe(
   ),
 );
 
-// camelCase in TypeScript, snake_case in Postgres.
-export const columnNaming = {
-  transformQueryNames: String.camelToSnake,
-  transformResultNames: String.snakeToCamel,
-};
+export { columnNaming };
 
 const runMigrations = Migrator.make({});
 

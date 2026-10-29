@@ -9,7 +9,7 @@ export const outcomeNotice = (result: HandledRequest | null): Notice => {
     case "stopped":
       return { kind: "info", text: "Recording stopped. The summary lands in Slack once it's transcribed." };
     case "ignored":
-      return { kind: "error", text: result.reasonText ?? "The bot couldn't do that right now." };
+      return { kind: "error", text: result.explanation };
   }
 };
 
