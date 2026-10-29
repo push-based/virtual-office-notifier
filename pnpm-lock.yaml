@@ -12,20 +12,20 @@ importers:
         specifier: 0.19.2
         version: 0.19.2(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
       '@effect/ai-openai-compat':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.0
+        version: 4.1.0(effect@4.1.0)
       '@effect/ai-openrouter':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.0
+        version: 4.1.0(effect@4.1.0)
       '@effect/platform-node':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)(redis@6.2.1(@opentelemetry/api@1.9.1))
+        specifier: 4.1.0
+        version: 4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/sql-pg':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.0
+        version: 4.1.0(effect@4.1.0)
       '@sentry/effect':
         specifier: 11.8.0
-        version: 11.8.0(effect@4.0.5)
+        version: 11.8.0(effect@4.1.0)
       '@snazzah/davey':
         specifier: 0.1.12
         version: 0.1.12(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
@@ -33,21 +33,21 @@ importers:
         specifier: 14.27.0
         version: 14.27.0
       effect:
-        specifier: 4.0.5
-        version: 4.0.5
+        specifier: 4.1.0
+        version: 4.1.0
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20261024.1
         version: 5.20261024.1
       '@effect/sql-pglite':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)
+        specifier: 4.1.0
+        version: 4.1.0(effect@4.1.0)
       '@effect/tsgo':
-        specifier: 0.54.0
-        version: 0.54.0
+        specifier: 0.63.0
+        version: 0.63.0
       '@effect/vitest':
-        specifier: 4.0.5
-        version: 4.0.5(effect@4.0.5)(vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)))
+        specifier: 4.1.0
+        version: 4.1.0(effect@4.1.0)(vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)))
       '@oxlint/plugins':
         specifier: 1.89.0
         version: 1.89.0
@@ -360,82 +360,82 @@ packages:
     resolution: {integrity: sha512-wPlQDxEmlDg5IxhJPuxXr3Vy9AjYq5xCvFWGJyD7w7Np8ZGu+Mc+97LCoEc/+AYCo2IDpKioiH0/c/mj5ZR9Uw==}
     engines: {node: '>=16.11.0'}
 
-  '@effect/ai-openai-compat@4.0.5':
-    resolution: {integrity: sha512-UuIXsrmMafHw9VSgER+Fql3GbUxpoiQ5tjsZmcRd+2DyjH/RXRYtamWwkXJquPwo7M7imXlq0hYbDjBwoAx2Aw==}
+  '@effect/ai-openai-compat@4.1.0':
+    resolution: {integrity: sha512-PD9z2CD1zdLel8qEQUG4NAw+HHvXhy5yRF2pwSN44YiB5iGohrRe5AOTb1VYflJVUjlqyjFzTU3g5JtvAKyLMQ==}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.0
 
-  '@effect/ai-openrouter@4.0.5':
-    resolution: {integrity: sha512-kyOL7mFFuYWiU4igg2eA8ySQ5wS9wxvEYHna9UpjNKZSPCCn8RgkGuFpRQzAHpqbV8C2p2Lrh/aJOu7eskU64Q==}
+  '@effect/ai-openrouter@4.1.0':
+    resolution: {integrity: sha512-nukERW2MOXbaEtQIBQPsEHlbEdSiDP8aOhx7IS+jBZiNofTj1sn9rrquW9PANbb1G6fLMN5bt1IQws/T3KjE3g==}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.0
 
-  '@effect/platform-node-shared@4.0.5':
-    resolution: {integrity: sha512-a8rCdEkfZBGe9C6bsIjxVZuRp73svIyK5IHwHdDAVsvZXjrbkxusfI+rZ8WlX31RP1mKizwI/E72GQTNfdMWHw==}
-    engines: {node: '>=18.0.0'}
+  '@effect/platform-node-shared@4.1.0':
+    resolution: {integrity: sha512-uYQfFRoxWLo8fIhiSeBcmz/R1ooOfE3HF3cWHFgxz82tZMk2Wn02BGABcdLmaAch9VpDLbtWnuhSxNyBsGMUFg==}
+    engines: {node: '>=22.19.0'}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.0
 
-  '@effect/platform-node@4.0.5':
-    resolution: {integrity: sha512-v4KD5fWvEUa4QmWFpZFbBsRhmfnTP6ETCME2r9ifyXVDPjhfpxpTZl41prjgQFMqZBHdWWCl7YC5ImbXv5ui5g==}
-    engines: {node: '>=18.0.0'}
+  '@effect/platform-node@4.1.0':
+    resolution: {integrity: sha512-v+X7moGVF9k5oMVvz0slA+NgtEod+W+oygeI285MDJgSlUCW3JcqElj+cD3rlijFZtpKhC7RLkU1GuCxjGHTpA==}
+    engines: {node: '>=22.19.0'}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.0
       redis: '>=5.0.0 <7.0.0'
 
-  '@effect/sql-pg@4.0.5':
-    resolution: {integrity: sha512-F9tG76H+aryhYcp5pvgd+MwWrNltv3XAuLcZSBsOOX6q+PEl+IM4zkQKzx0TF9OsEMH/SQ+3gZRdYWOsDF+vJQ==}
+  '@effect/sql-pg@4.1.0':
+    resolution: {integrity: sha512-/Q1M2PEuk8eSLEmgjfvix1/WZTuRBxu75ZENbKkIh2J3c50dQb8NMFOGMPocMFlPFh5k4WUOUKZQcgXzBljTFA==}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.0
 
-  '@effect/sql-pglite@4.0.5':
-    resolution: {integrity: sha512-1kwizzeOqX3l/+YSTG+LWZq07xuKY+jYOziOEumqOCLGjfxr3S5m61jWrAGDFejQLK1zUQtBYNe6FpcFSynzaQ==}
+  '@effect/sql-pglite@4.1.0':
+    resolution: {integrity: sha512-A96DVuabAR+reNjltGr5OoE06sSXVp7Uth4wHtcffv0vsIyODDBbwkdyAA7Jtgdq8rYYdnKyjrtKd8iPVZcJzw==}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.0
 
-  '@effect/tsgo-darwin-arm64@0.54.0':
-    resolution: {integrity: sha512-JYPGqyA1UOa0GxbVWzEebuW8wSeXTEjkJt6SrZY827TcMam+effcqGrbEOvmTfZEdVzzsdnGNnRvVKmRrlcoQg==}
+  '@effect/tsgo-darwin-arm64@0.63.0':
+    resolution: {integrity: sha512-KBvYatuEol71+i+BERWuDRU9XE+4sTK78N83Ko6VNF5gy6yXiujj/bgtWs2P3cDGXsevAV6L+HtpuAWjAQKC6Q==}
     cpu: [arm64]
     os: [darwin]
 
-  '@effect/tsgo-darwin-x64@0.54.0':
-    resolution: {integrity: sha512-fnXXG/IrFuyrJQmW4HDiX+mO8kx+Qgn6bxe41W7bbTIKMf76pQAuF4/btG6WQvftn5qQJSwOPRsPDVnSrVfYFA==}
+  '@effect/tsgo-darwin-x64@0.63.0':
+    resolution: {integrity: sha512-Qxp51/OFaHx5D+z5f1FtRKAiUH5rkMzaqjv/4ppUGNS0ppdqlcQ5rwQqbY6CiZOxqUlcnmKRirtWpmuxUgHP7w==}
     cpu: [x64]
     os: [darwin]
 
-  '@effect/tsgo-linux-arm64@0.54.0':
-    resolution: {integrity: sha512-MjttNBqw1Sk1u9kBbl2+qUpMp9bVFDbbXUS4e9T3oyHFRnqYOAVIbjSXk1iIdkAr513/swaaNYqAT53RU7SjrQ==}
+  '@effect/tsgo-linux-arm64@0.63.0':
+    resolution: {integrity: sha512-uwnM3kSwaHDKPeU1WSMxijdZaM1NxpDREgJtyyIx2qdqB6HnRYhEZB8RrhWvYYPw1QDKaWHd+byzq5p49+o7+Q==}
     cpu: [arm64]
     os: [linux]
 
-  '@effect/tsgo-linux-arm@0.54.0':
-    resolution: {integrity: sha512-Ne8FIzKJwVWHSCwsqnzFaOO+9xMG7eJZyKWVTNto0rrHM3UMcLVjr2hd2l4gSvIm+UBKpj+vIOtkhIs6NRB3yQ==}
+  '@effect/tsgo-linux-arm@0.63.0':
+    resolution: {integrity: sha512-tVwlTyAqmDVPvDrr0oogCnlRVs96X19Ny9OD/XJ/6QQSp/1hIjXAvKjo9HAyncF2sAUQyVdF1E7Q7X3wFXvSnQ==}
     cpu: [arm]
     os: [linux]
 
-  '@effect/tsgo-linux-x64@0.54.0':
-    resolution: {integrity: sha512-Tu/bVoDP9Lq63IbB8AuD7XmJ0hY5zeKtY9ik2i3e0VGy0XQWlm1yy5sQ0t2EOJ4DT907CXWIgJ0Mxeqff4mwyg==}
+  '@effect/tsgo-linux-x64@0.63.0':
+    resolution: {integrity: sha512-fM3pJIhAZEX8LMbd/pN9iYNxkdVEkx68vMtILYGT4qazwxWelvouD/5fNV0SHDmY13Mv04NJ/550vTLC2hU8VA==}
     cpu: [x64]
     os: [linux]
 
-  '@effect/tsgo-win32-arm64@0.54.0':
-    resolution: {integrity: sha512-B9lKebAH999kTf3ZMU5L+AtTc99Q93ESSFu1HPvO4lGoVxCeso4oiTGmp/KAmnCf8v0mPoI8FaA52z/MoAahdw==}
+  '@effect/tsgo-win32-arm64@0.63.0':
+    resolution: {integrity: sha512-LTS0CrEqZmQO0AJAIfFaETjIN/3d/Nda1Mi5zl90y/9BKZr4yyFfClCkz+DMl6/P/+TOuEQ5Wi8LvRiEdwWT4g==}
     cpu: [arm64]
     os: [win32]
 
-  '@effect/tsgo-win32-x64@0.54.0':
-    resolution: {integrity: sha512-1xylSboEYx2AnAif65GMovYOUkQPcYfWk3jqFjMDRy5gqfxh5ELKtwzTeMo8kPoyMNYkqiRHTmjXgTRbcFMmzA==}
+  '@effect/tsgo-win32-x64@0.63.0':
+    resolution: {integrity: sha512-28s5YrwL26/7EUnUOu81IOJGJZLkPf2lPkiSIsd4EnFhimeBqP279bhAoDAEwLW1gv45GKM/49JKduXmdLyT1g==}
     cpu: [x64]
     os: [win32]
 
-  '@effect/tsgo@0.54.0':
-    resolution: {integrity: sha512-N04IZmYNXD5SQhCGDRp1creYOMzp2q5H79dkU8WPSLjYHOoIcxArq60qk393Hl0hMSijWENDME+q2Bl+bichwg==}
+  '@effect/tsgo@0.63.0':
+    resolution: {integrity: sha512-bRbvVj+YLE/nBmcBWGAwsul3mjEYlqqOmWMxvwSVKq/oNnJEuZYgi2OFDeUf7q49E2g3w+oMHMWyN2QayZ77RQ==}
     hasBin: true
 
-  '@effect/vitest@4.0.5':
-    resolution: {integrity: sha512-q64paZ/i4V2NiRhTyqCmT2KiDbFjlxc2EZrZca8GGt+Nf8844946HyJM5bPk/q+YeRkFSxIrlCs+J+LSfky/wA==}
+  '@effect/vitest@4.1.0':
+    resolution: {integrity: sha512-+APF69oTYgGj5WCewowk1/udepH74xz4ONyH7d+UfcK0SrF3osiSwsWEyODUpJvWd6MIk5F5PcFJiE4evMuG2A==}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.1.0
       vitest: '>=5.0.0 <6.0.0'
 
   '@electric-sql/pglite@0.5.10':
@@ -1677,8 +1677,8 @@ packages:
     resolution: {integrity: sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==}
     engines: {node: '>=12'}
 
-  effect@4.0.5:
-    resolution: {integrity: sha512-BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q==}
+  effect@4.1.0:
+    resolution: {integrity: sha512-lGx2MJJyrXA8RZb2UpQ/0Nkb5Utaimby7oD92+18noBxLPE85IFOvptdzau8dvcxAOwfwHo9iqapbKeFzqQM/Q==}
 
   electron-to-chromium@1.5.465:
     resolution: {integrity: sha512-zg4iUpbeGw7YNZsswc2xKr2uiBex2d8dELAXo92Icw3but1ULbrvK8USe6wVLaWjgJnKBARv0pchx9Owktx6wQ==}
@@ -2577,76 +2577,76 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@effect/ai-openai-compat@4.0.5(effect@4.0.5)':
+  '@effect/ai-openai-compat@4.1.0(effect@4.1.0)':
     dependencies:
-      effect: 4.0.5
+      effect: 4.1.0
 
-  '@effect/ai-openrouter@4.0.5(effect@4.0.5)':
+  '@effect/ai-openrouter@4.1.0(effect@4.1.0)':
     dependencies:
-      effect: 4.0.5
+      effect: 4.1.0
 
-  '@effect/platform-node-shared@4.0.5(effect@4.0.5)':
+  '@effect/platform-node-shared@4.1.0(effect@4.1.0)':
     dependencies:
       '@types/ws': 8.18.2
-      effect: 4.0.5
+      effect: 4.1.0
       ws: 8.22.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/platform-node@4.0.5(effect@4.0.5)(redis@6.2.1(@opentelemetry/api@1.9.1))':
+  '@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1))':
     dependencies:
-      '@effect/platform-node-shared': 4.0.5(effect@4.0.5)
-      effect: 4.0.5
+      '@effect/platform-node-shared': 4.1.0(effect@4.1.0)
+      effect: 4.1.0
       redis: 6.2.1(@opentelemetry/api@1.9.1)
       undici: 8.12.3
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@effect/sql-pg@4.0.5(effect@4.0.5)':
+  '@effect/sql-pg@4.1.0(effect@4.1.0)':
     dependencies:
-      effect: 4.0.5
+      effect: 4.1.0
 
-  '@effect/sql-pglite@4.0.5(effect@4.0.5)':
+  '@effect/sql-pglite@4.1.0(effect@4.1.0)':
     dependencies:
       '@electric-sql/pglite': 0.5.10
-      effect: 4.0.5
+      effect: 4.1.0
 
-  '@effect/tsgo-darwin-arm64@0.54.0':
+  '@effect/tsgo-darwin-arm64@0.63.0':
     optional: true
 
-  '@effect/tsgo-darwin-x64@0.54.0':
+  '@effect/tsgo-darwin-x64@0.63.0':
     optional: true
 
-  '@effect/tsgo-linux-arm64@0.54.0':
+  '@effect/tsgo-linux-arm64@0.63.0':
     optional: true
 
-  '@effect/tsgo-linux-arm@0.54.0':
+  '@effect/tsgo-linux-arm@0.63.0':
     optional: true
 
-  '@effect/tsgo-linux-x64@0.54.0':
+  '@effect/tsgo-linux-x64@0.63.0':
     optional: true
 
-  '@effect/tsgo-win32-arm64@0.54.0':
+  '@effect/tsgo-win32-arm64@0.63.0':
     optional: true
 
-  '@effect/tsgo-win32-x64@0.54.0':
+  '@effect/tsgo-win32-x64@0.63.0':
     optional: true
 
-  '@effect/tsgo@0.54.0':
+  '@effect/tsgo@0.63.0':
     optionalDependencies:
-      '@effect/tsgo-darwin-arm64': 0.54.0
-      '@effect/tsgo-darwin-x64': 0.54.0
-      '@effect/tsgo-linux-arm': 0.54.0
-      '@effect/tsgo-linux-arm64': 0.54.0
-      '@effect/tsgo-linux-x64': 0.54.0
-      '@effect/tsgo-win32-arm64': 0.54.0
-      '@effect/tsgo-win32-x64': 0.54.0
+      '@effect/tsgo-darwin-arm64': 0.63.0
+      '@effect/tsgo-darwin-x64': 0.63.0
+      '@effect/tsgo-linux-arm': 0.63.0
+      '@effect/tsgo-linux-arm64': 0.63.0
+      '@effect/tsgo-linux-x64': 0.63.0
+      '@effect/tsgo-win32-arm64': 0.63.0
+      '@effect/tsgo-win32-x64': 0.63.0
 
-  '@effect/vitest@4.0.5(effect@4.0.5)(vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)))':
+  '@effect/vitest@4.1.0(effect@4.1.0)(vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)))':
     dependencies:
-      effect: 4.0.5
+      effect: 4.1.0
       vitest: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
 
   '@electric-sql/pglite@0.5.10': {}
@@ -3150,13 +3150,13 @@ snapshots:
     dependencies:
       '@sentry/conventions': 0.27.0
 
-  '@sentry/effect@11.8.0(effect@4.0.5)':
+  '@sentry/effect@11.8.0(effect@4.1.0)':
     dependencies:
       '@sentry/browser': 11.8.0
       '@sentry/conventions': 0.27.0
       '@sentry/core': 11.8.0
       '@sentry/node': 11.8.0
-      effect: 4.0.5
+      effect: 4.1.0
     transitivePeerDependencies:
       - '@babel/core'
       - rollup
@@ -3499,7 +3499,7 @@ snapshots:
 
   dotenv@17.4.2: {}
 
-  effect@4.0.5: {}
+  effect@4.1.0: {}
 
   electron-to-chromium@1.5.465: {}
 

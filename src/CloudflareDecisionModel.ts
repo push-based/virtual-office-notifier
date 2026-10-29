@@ -8,6 +8,8 @@ export interface CloudflareDecisionOptions {
   readonly model: string;
 }
 
+type ClefDecision = Exclude<Decision.Any, Decision.Locate>;
+
 export type ClefQuestion =
   | {
       readonly type: "choice";
@@ -30,7 +32,7 @@ export interface ClefRequest {
   readonly questions: { readonly [name: string]: ClefQuestion };
 }
 
-const question = (decision: Decision.Any): ClefQuestion =>
+const question = (decision: ClefDecision): ClefQuestion =>
   Match.valueTags(decision, {
     Classify: ({ instructions, criteria }): ClefQuestion => ({ type: "choice", instructions, criteria }),
     Rate: ({ instructions, criteria }): ClefQuestion => ({
@@ -42,7 +44,7 @@ const question = (decision: Decision.Any): ClefQuestion =>
       criteria === undefined ? { type: "noul", instructions } : { type: "noul", instructions, criteria },
   });
 
-export const clefRequest = (state: Schema.Json, decisions: Readonly<Record<string, Decision.Any>>): ClefRequest => ({
+export const clefRequest = (state: Schema.Json, decisions: Readonly<Record<string, ClefDecision>>): ClefRequest => ({
   state,
   questions: Object.fromEntries(Object.entries(decisions).map(([name, decision]) => [name, question(decision)])),
 });
@@ -86,7 +88,7 @@ const aiError = (reason: AiError.AiErrorReason) =>
 
 const providerAnswer = (
   answer: typeof Answer.Type,
-  decision: Decision.Any | undefined,
+  decision: ClefDecision | undefined,
 ): DecisionModel.ProviderAnswer => {
   switch (answer.type) {
     case "noul":
@@ -115,13 +117,8 @@ const providerAnswer = (
   }
 };
 
-const httpContext = (url: string, body: string) => ({
-  request: { method: "POST" as const, url, urlParams: [], headers: {} },
-  body,
-});
-
-const failureFor = (status: number, url: string, body: string): AiError.AiErrorReason => {
-  const http = httpContext(url, body);
+const failureFor = (status: number, body: string): AiError.AiErrorReason => {
+  const http = { body };
 
   if (status === 429) return new AiError.RateLimitError({ http });
 
@@ -143,7 +140,7 @@ export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOpti
       const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
 
       if (response.status < 200 || response.status >= 300) {
-        return yield* aiError(failureFor(response.status, url, body));
+        return yield* aiError(failureFor(response.status, body));
       }
 
       return yield* decodeRunResponse(body).pipe(
@@ -162,7 +159,8 @@ export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOpti
           aiError(
             new AiError.NetworkError({
               reason: "TransportError",
-              request: httpContext(url, "").request,
+              method: "POST",
+              url,
               description: error.reason._tag,
             }),
           ),

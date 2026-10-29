@@ -156,8 +156,8 @@ const CLOUDFLARE_MODEL_CONFIG = {
   chat_template_kwargs: { enable_thinking: false },
 };
 
-const withClient = Effect.fnUntraced(function* <C>(
-  models: Array.NonEmptyReadonlyArray<Model.Model<"openai", LanguageModel.LanguageModel, C>>,
+const withClient = Effect.fnUntraced(function* <P extends string, C>(
+  models: Array.NonEmptyReadonlyArray<Model.Model<P, LanguageModel.LanguageModel, C>>,
   client: Layer.Layer<C, never, HttpClient.HttpClient>,
 ) {
   const context = yield* Layer.build(client);
