@@ -21,6 +21,8 @@ const UNIT_FILE = `deploy/${SERVICE}.service`;
 
 const ENV_FILE = `${SERVICE}.env`;
 
+const RELEASE_ARCHIVE = "release.tar.gz";
+
 class DeployError extends Schema.TaggedError<DeployError>()("DeployError", {
   step: Schema.String,
   exitCode: Schema.Int,
@@ -32,13 +34,18 @@ const DeployConfig = Config.all({
   project: Config.option(Config.String("DEPLOY_PROJECT")),
 });
 
-const run = Effect.fnUntraced(function* (step: string, command: string, args: ReadonlyArray<string>) {
+const run = Effect.fnUntraced(function* (
+  step: string,
+  command: string,
+  args: ReadonlyArray<string>,
+  stdin: ChildProcess.CommandInput = "inherit",
+) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
   yield* Effect.logInfo(step);
 
   const exitCode = yield* spawner.exitCode(
-    ChildProcess.make(command, args, { stdin: "inherit", stdout: "inherit", stderr: "inherit" }),
+    ChildProcess.make(command, args, { stdin, stdout: "inherit", stderr: "inherit" }),
   );
 
   if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
@@ -122,6 +129,23 @@ const writeEnvFile = Effect.gen(function* () {
   return file;
 });
 
+const packRelease = Effect.fnUntraced(function* (modules: string, envFile: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const dir = yield* fs.makeTempDirectoryScoped({ prefix: `${SERVICE}-release-` });
+  const archive = path.join(dir, RELEASE_ARCHIVE);
+
+  const entries = [path.resolve("dist/main.js"), path.resolve("dist/main.js.map"), modules, path.resolve(UNIT_FILE), envFile];
+
+  yield* run("Packing the release", "tar", [
+    "-czf",
+    archive,
+    ...entries.flatMap((entry) => ["-C", path.dirname(entry), path.basename(entry)]),
+  ]);
+
+  return archive;
+});
+
 const program = Effect.gen(function* () {
   const { instance, zone, project } = yield* DeployConfig;
 
@@ -140,41 +164,41 @@ const program = Effect.gen(function* () {
 
   const modules = yield* packNativeDependencies;
 
-  yield* run("Uploading release", "gcloud", [
-    "compute",
-    "scp",
-    ...target,
-    "dist/main.js",
-    "dist/main.js.map",
-    modules,
-    UNIT_FILE,
-    envFile,
-    `${instance}:~/`,
-  ]);
+  const release = yield* packRelease(modules, envFile);
 
-  yield* run("Installing and restarting service", "gcloud", [
-    "compute",
-    "ssh",
-    instance,
-    ...target,
-    "--command",
+  const fs = yield* FileSystem.FileSystem;
+
+  yield* run(
+    "Uploading, installing and restarting service",
+    "gcloud",
     [
-      "set -eu",
-      `trap 'rm -f main.js main.js.map ${MODULES_ARCHIVE} ${SERVICE}.service ${ENV_FILE}' EXIT`,
-      `sudo install -m 600 -o root -g root ${ENV_FILE} /etc/${ENV_FILE}`,
-      `sudo install -m 644 -o root -g root ${SERVICE}.service /etc/systemd/system/${SERVICE}.service`,
-      `sudo install -m 644 -o root -g root main.js main.js.map ${APP_DIR}/`,
-      `sudo rm -rf ${APP_DIR}/node_modules`,
-      `sudo tar -xzf ${MODULES_ARCHIVE} -C ${APP_DIR} --no-same-owner`,
-      "sudo systemctl daemon-reload",
-      `sudo systemctl enable ${SERVICE}`,
-      `sudo systemctl restart ${SERVICE}`,
-      // A bad token or missing variable crashes on startup; wait long enough
-      // to catch it so the deploy fails instead of silently restart-looping.
-      "sleep 15",
-      `systemctl is-active --quiet ${SERVICE} || { sudo journalctl -u ${SERVICE} -n 50 --no-pager; exit 1; }`,
-    ].join("\n"),
-  ]);
+      "compute",
+      "ssh",
+      instance,
+      ...target,
+      "--command",
+      [
+        "set -eu",
+        "release=$(mktemp -d)",
+        `trap 'rm -rf "$release"' EXIT`,
+        'tar -xzf - -C "$release"',
+        'cd "$release"',
+        `sudo install -m 600 -o root -g root ${ENV_FILE} /etc/${ENV_FILE}`,
+        `sudo install -m 644 -o root -g root ${SERVICE}.service /etc/systemd/system/${SERVICE}.service`,
+        `sudo install -m 644 -o root -g root main.js main.js.map ${APP_DIR}/`,
+        `sudo rm -rf ${APP_DIR}/node_modules`,
+        `sudo tar -xzf ${MODULES_ARCHIVE} -C ${APP_DIR} --no-same-owner`,
+        "sudo systemctl daemon-reload",
+        `sudo systemctl enable ${SERVICE}`,
+        `sudo systemctl restart ${SERVICE}`,
+        // A bad token or missing variable crashes on startup; wait long enough
+        // to catch it so the deploy fails instead of silently restart-looping.
+        "sleep 15",
+        `systemctl is-active --quiet ${SERVICE} || { sudo journalctl -u ${SERVICE} -n 50 --no-pager; exit 1; }`,
+      ].join("\n"),
+    ],
+    fs.stream(release),
+  );
 
   yield* Effect.logInfo(`Deployed. Logs: journalctl -u ${SERVICE} -f`);
 });
