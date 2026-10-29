@@ -455,7 +455,7 @@ Needs the [database](#database), the bot's Cloudflare account for Whisper, and a
 
    Put the new config's ID under `hyperdrive` in [`activity/wrangler.jsonc`](activity/wrangler.jsonc). The pooler host and `<ref>` are the ones in the bot's `DATABASE_URL`. Right after the role's password changes, the pooler can refuse it for a few seconds, so a failed create is worth retrying.
 
-6. **The Worker.** It lives in [`activity/`](activity) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
+6. **The Worker.** It lives in [`activity/`](activity) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Without it, the deploy job fails before shipping anything, so the bot and the Activity always go out together. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
 
    ```bash
    for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SESSION_SECRET; do pnpm wrangler secret put $name --config activity/wrangler.jsonc; done
