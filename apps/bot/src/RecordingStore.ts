@@ -1,4 +1,4 @@
-import { Array, Context, DateTime, Duration, Effect, Layer, Match, Option, Schema } from "effect";
+import { Array, Context, DateTime, Effect, Layer, Match, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { SummaryStyle } from "recording-requests/Recording";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
@@ -11,6 +11,8 @@ import {
   type PulledActionItems,
 } from "./ActionItems.ts";
 import { memberUpsert } from "./ActivityLog.ts";
+import { guardQuery } from "recording-requests/Query";
+
 import { Database, describeError } from "./Database.ts";
 import {
   MAX_TRANSCRIPTION_ATTEMPTS,
@@ -18,8 +20,6 @@ import {
   StopReason,
   TranscriptionStatus,
 } from "./Recording.ts";
-
-const QUERY_TIMEOUT = Duration.seconds(10);
 
 export class StoreUnavailable extends Schema.TaggedError<
   StoreUnavailable,
@@ -337,16 +337,11 @@ export class RecordingStore extends Context.Service<
       const database = yield* Database;
       const upsertMember = memberUpsert(sql);
 
-      const onceReady = <A, E extends Error>(query: Effect.Effect<A, E>) =>
-        database.ready.pipe(
-          Effect.andThen(query),
-          Effect.mapError((error) => StoreUnavailable.make({ reason: describeError(error) })),
-          Effect.timeoutOrElse({
-            duration: QUERY_TIMEOUT,
-            orElse: () =>
-              Effect.fail(StoreUnavailable.make({ reason: "Timed out after 10 seconds" })),
-          }),
-        );
+      const onceReady = guardQuery({
+        ready: database.ready,
+        unavailable: (reason) => StoreUnavailable.make({ reason }),
+        describe: describeError,
+      });
 
       const activeRecording = onceReady(
         sql`

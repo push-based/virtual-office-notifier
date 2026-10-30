@@ -1,12 +1,12 @@
-import { Array, Context, DateTime, Duration, Effect, Layer, pipe, Schema } from "effect";
+import { Array, Context, DateTime, Effect, Layer, pipe, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+
+import { guardQuery } from "recording-requests/Query";
 
 import { Database, describeError } from "./Database.ts";
 import type { ActivityEntry, BanterPeriod } from "./OfficeEvent.ts";
 
 export const MAX_ACTIVITY_ENTRIES = 400;
-
-const READ_TIMEOUT = Duration.seconds(10);
 
 export class HistoryUnavailable extends Schema.TaggedError<
   HistoryUnavailable,
@@ -54,16 +54,11 @@ export class OfficeHistory extends Context.Service<
       const sql = yield* SqlClient.SqlClient;
       const database = yield* Database;
 
-      const onceReady = <A, E extends Error>(query: Effect.Effect<A, E>) =>
-        database.ready.pipe(
-          Effect.andThen(query),
-          Effect.mapError((error) => HistoryUnavailable.make({ reason: describeError(error) })),
-          Effect.timeoutOrElse({
-            duration: READ_TIMEOUT,
-            orElse: () =>
-              Effect.fail(HistoryUnavailable.make({ reason: "Timed out after 10 seconds" })),
-          }),
-        );
+      const onceReady = guardQuery({
+        ready: database.ready,
+        unavailable: (reason) => HistoryUnavailable.make({ reason }),
+        describe: describeError,
+      });
 
       const latestActivityBetween = Effect.fn("OfficeHistory.latestActivityBetween")(function* (
         from: DateTime.Utc,

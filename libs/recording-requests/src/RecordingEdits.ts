@@ -1,4 +1,4 @@
-import { Context, Duration, Effect, Layer, Match, Option, Schema } from "effect";
+import { Context, Effect, Layer, Match, Option, Schema } from "effect";
 import { SqlClient, SqlError, type Statement } from "effect/sql";
 
 import type { Requester } from "./RecordingApi.ts";
@@ -11,9 +11,8 @@ import {
   type SubmittedEdit,
 } from "./RecordingEdit.ts";
 import { RowId } from "./RecordingRequest.ts";
-import { type Connected, RecordingUnavailable } from "./RecordingRequests.ts";
-
-const QUERY_TIMEOUT = Duration.seconds(10);
+import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
+import { recordingUnavailable, RecordingUnavailable } from "./RecordingRequests.ts";
 
 export interface AppliedEdit<E, R> {
   readonly afterCommit: Effect.Effect<void, E, R>;
@@ -103,16 +102,11 @@ export class RecordingEdits extends Context.Service<
     ): Effect.Effect<void, RecordingUnavailable | E, R>;
   }
 >()("recording-requests/RecordingEdits") {
-  static readonly makeWith = (ready: Effect.Effect<void>, connected: Connected) => {
-    const onceReady = <A, E extends Error, R>(query: Effect.Effect<A, E, R>) =>
-      ready.pipe(
-        Effect.andThen(query),
-        Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
-        Effect.timeoutOrElse({
-          duration: QUERY_TIMEOUT,
-          orElse: () => unavailable("Timed out after 10 seconds"),
-        }),
-      );
+  static readonly makeWith = (
+    ready: Effect.Effect<void>,
+    connected: Connected<RecordingUnavailable>,
+  ) => {
+    const onceReady = guardQuery({ ready, unavailable: recordingUnavailable });
 
     const submit = Effect.fn("RecordingEdits.submit")(
       (editor: Requester, recordingId: string, change: RecordingChange) =>
@@ -244,7 +238,7 @@ export class RecordingEdits extends Context.Service<
   static readonly make = Effect.fnUntraced(function* (ready: Effect.Effect<void>) {
     const sql = yield* SqlClient.SqlClient;
 
-    return RecordingEdits.makeWith(ready, (use) => use(sql));
+    return RecordingEdits.makeWith(ready, connectedTo(sql));
   });
 
   static readonly layerPerCall = <E extends Error>(
@@ -252,14 +246,7 @@ export class RecordingEdits extends Context.Service<
   ) =>
     Layer.succeed(
       RecordingEdits,
-      RecordingEdits.makeWith(Effect.void, (use) =>
-        Effect.scopedWith((scope) =>
-          Layer.buildWithScope(Layer.fresh(connection), scope).pipe(
-            Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
-            Effect.flatMap((context) => use(Context.get(context, SqlClient.SqlClient))),
-          ),
-        ),
-      ),
+      RecordingEdits.makeWith(Effect.void, connectedPerCall(connection, recordingUnavailable)),
     );
 
   static readonly layer = Layer.effect(RecordingEdits, RecordingEdits.make(Effect.void));
