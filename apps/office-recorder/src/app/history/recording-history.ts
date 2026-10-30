@@ -36,6 +36,7 @@ import { RecordingRow } from "./recording-row";
             [now]="now()"
             (back)="store.back()"
             (openInSlack)="store.openInSlack($event)"
+            (edited)="store.refresh()"
           />
         } @else {
           <button pbButton variant="tertiary" type="button" class="back" (click)="store.back()">

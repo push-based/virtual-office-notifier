@@ -170,6 +170,23 @@ describe("HistoryStore", () => {
     expect(store.failure()).toBeNull();
   });
 
+  it("fetches the open recording again after an edit, even once it's finished", async () => {
+    const api = fakeApi();
+    const { store } = await signedIn(api);
+
+    store.openRecording("r2");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(api.recording).toHaveBeenCalledTimes(1);
+
+    api.recording.mockReturnValue(of(recordingDetail({ id: "r2", title: "Deploy retro" })));
+    store.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(api.recording).toHaveBeenCalledTimes(2);
+    expect(store.open()?.title).toBe("Deploy retro");
+  });
+
   it("opens the Slack summary outside the Activity", async () => {
     const { store, session } = await signedIn(fakeApi());
 

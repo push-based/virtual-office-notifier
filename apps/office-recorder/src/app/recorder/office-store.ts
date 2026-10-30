@@ -19,15 +19,16 @@ import {
   share,
   startWith,
   switchMap,
+  tap,
   timer,
 } from "rxjs";
 
+import { EMPTY_DRAFT, type Draft, planOf } from "../edits/plan";
 import type {
   HandledRequest,
   Notice,
   OfficePhase,
   RecordingStatus,
-  RequestAction,
   SubmittedRequest,
 } from "./models";
 import { describePresence, samePresence } from "./describe-presence";
@@ -71,6 +72,12 @@ export class OfficeStore {
   });
 
   readonly status = computed(() => this.state().status);
+
+  readonly draftTitle = signal(EMPTY_DRAFT.title);
+
+  readonly draftAgenda = signal(EMPTY_DRAFT.agenda);
+
+  readonly running = computed(() => this.status()?.recording ?? null);
 
   readonly busy = computed(() => this.state().busy);
 
@@ -153,7 +160,19 @@ export class OfficeStore {
 
     if (status === null) return;
 
-    this.submit(status.recording === null ? "start" : "stop");
+    if (status.recording !== null) {
+      this.submit(() => this.api.submit("stop"));
+
+      return;
+    }
+
+    const draft: Draft = { title: this.draftTitle(), agenda: this.draftAgenda() };
+
+    this.submit(() => this.api.submit("start", planOf(draft)));
+  }
+
+  refresh(): void {
+    this.refreshes.next();
   }
 
   pressPause(): void {
@@ -161,18 +180,20 @@ export class OfficeStore {
 
     if (recording === null) return;
 
-    this.submit(recording.pause === null ? "pause" : "resume");
+    this.submit(() => this.api.submit(recording.pause === null ? "pause" : "resume"));
   }
 
-  private submit(action: RequestAction): void {
+  private submit(send: () => Observable<SubmittedRequest>): void {
     if (this.state().busy) return;
 
     this.patch({ busy: true });
 
-    this.api
-      .submit(action)
+    send()
       .pipe(
         switchMap(({ id }) => this.awaitOutcome(id)),
+        tap((handled) => {
+          if (handled?.outcome === "started") this.clearDraft();
+        }),
         map(outcomeNotice),
         catchError((error) => of(unreachableNotice(messageOf(error)))),
         finalize(() => {
@@ -204,6 +225,11 @@ export class OfficeStore {
       repeat(this.timing.requestPollLimit),
       first(isHandled, null),
     );
+  }
+
+  private clearDraft(): void {
+    this.draftTitle.set(EMPTY_DRAFT.title);
+    this.draftAgenda.set(EMPTY_DRAFT.agenda);
   }
 
   private patch(changes: Partial<OfficeState>): void {

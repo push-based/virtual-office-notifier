@@ -28,6 +28,9 @@ export type HeadingLevel = 1 | 2 | 3;
         <h3 pbHeading class="text-tabular"><ng-container [ngTemplateOutlet]="content" /></h3>
       }
     }
+    @if (subheading(); as subheading) {
+      <p class="text-body subheading">{{ subheading }}</p>
+    }
     @if (description(); as description) {
       <p pbDescription>{{ description }}</p>
     }
@@ -39,6 +42,13 @@ export type HeadingLevel = 1 | 2 | 3;
       gap: var(--space-2);
     }
 
+    .subheading {
+      margin: 0;
+      font-weight: 600;
+      color: var(--color-text-heading);
+      overflow-wrap: anywhere;
+    }
+
     pb-live-dot {
       margin-right: var(--space-2-5);
     }
@@ -46,6 +56,8 @@ export type HeadingLevel = 1 | 2 | 3;
 })
 export class PbStatusHeading {
   readonly heading = input.required<string>();
+
+  readonly subheading = input<string | null>(null);
 
   readonly description = input<string | null>(null);
 

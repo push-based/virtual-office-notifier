@@ -7,7 +7,12 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { OfficeStatsReader } from "recording-requests/OfficeStats";
 import { RecordingApi } from "recording-requests/RecordingApi";
-import { HistoryHandlers, RecordingHandlers } from "recording-requests/RecordingHandlers";
+import {
+  EditHandlers,
+  HistoryHandlers,
+  RecordingHandlers,
+} from "recording-requests/RecordingHandlers";
+import { RecordingEdits } from "recording-requests/RecordingEdits";
 import { RecordingHistory } from "recording-requests/RecordingHistory";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 import { SignedInLayer, SignInHandlers } from "recording-requests/SignInHandlers";
@@ -47,6 +52,7 @@ const routes = (env: Env) =>
       RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerPerCall(connectionTo(env)))),
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerPerCall(connectionTo(env)))),
       HistoryHandlers.pipe(Layer.provide(RecordingHistory.layerPerCall(connectionTo(env)))),
+      EditHandlers.pipe(Layer.provide(RecordingEdits.layerPerCall(connectionTo(env)))),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),

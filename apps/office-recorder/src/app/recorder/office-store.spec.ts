@@ -4,6 +4,7 @@ import { type Observable, of, throwError } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { describePresence, type Presence } from "./describe-presence";
+import type { Plan } from "../edits/plan";
 import type { RecordingStatus, RequestAction, RunningRecording, SubmittedRequest } from "./models";
 import { OfficeStore } from "./office-store";
 import { RecorderApi } from "./recorder-api";
@@ -23,6 +24,8 @@ const chris: RunningRecording = {
   startedByName: "Chris",
   endsAt: "2026-10-27T16:00:00Z",
   pause: null,
+  title: null,
+  agenda: null,
 };
 
 const recording: RecordingStatus = { ...idle, recording: chris };
@@ -36,7 +39,9 @@ const pending: SubmittedRequest = { id: 7, outcome: null };
 
 const fakeApi = () => ({
   status: vi.fn<() => Observable<RecordingStatus>>(() => of(idle)),
-  submit: vi.fn<(action: RequestAction) => Observable<SubmittedRequest>>(() => of(pending)),
+  submit: vi.fn<(action: RequestAction, plan?: Plan) => Observable<SubmittedRequest>>(() =>
+    of(pending),
+  ),
   find: vi.fn<(id: number) => Observable<SubmittedRequest>>(() => of(pending)),
 });
 
@@ -215,11 +220,59 @@ describe("OfficeStore", () => {
 
     await vi.advanceTimersByTimeAsync(timing.requestPollMs);
 
-    expect(api.submit).toHaveBeenCalledWith("start");
+    expect(api.submit).toHaveBeenCalledWith("start", { title: null, agenda: null });
     expect(api.find).toHaveBeenCalledWith(7);
     expect(store.busy()).toBe(false);
     expect(store.notice()).toEqual({ kind: "info", text: "Recording started." });
     expect(api.status).toHaveBeenCalledTimes(polls + 1);
+  });
+
+  it("starts with the title and agenda filled in, tidied up, and clears them once it started", async () => {
+    const api = fakeApi();
+    api.find.mockReturnValue(of({ id: 7, outcome: "started" }));
+    const { store, timing } = await started(api);
+
+    store.draftTitle.set("  Deploy   retro ");
+    store.draftAgenda.set("What broke on Friday\n");
+    store.press();
+
+    expect(api.submit).toHaveBeenCalledWith("start", {
+      title: "Deploy retro",
+      agenda: "What broke on Friday",
+    });
+
+    await vi.advanceTimersByTimeAsync(timing.requestPollMs);
+
+    expect(store.draftTitle()).toBe("");
+    expect(store.draftAgenda()).toBe("");
+  });
+
+  it("keeps the title and agenda when the bot didn't start the recording", async () => {
+    const api = fakeApi();
+    api.find.mockReturnValue(
+      of({
+        id: 7,
+        outcome: "ignored",
+        reason: "not_in_office",
+        explanation: "You need to be in the office voice channel to do that.",
+      }),
+    );
+    const { store, timing } = await started(api);
+
+    store.draftTitle.set("Deploy retro");
+    store.press();
+    await vi.advanceTimersByTimeAsync(timing.requestPollMs);
+
+    expect(store.draftTitle()).toBe("Deploy retro");
+  });
+
+  it("shows the running recording, title and all", async () => {
+    const api = fakeApi();
+    const named = { ...chris, title: "Deploy retro", agenda: "What broke" };
+    api.status.mockReturnValue(of({ ...idle, recording: named }));
+    const { store } = await started(api);
+
+    expect(store.running()).toEqual(named);
   });
 
   it("asks to stop while a recording runs", async () => {

@@ -3,14 +3,16 @@ import { Sessions } from "activity-sign-in/Sessions";
 import { SignedInSession } from "activity-sign-in/SignInApi";
 import { SignInSettings } from "activity-sign-in/SignInSettings";
 import { afterAll, assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option, Redacted, Ref, Schema } from "effect";
+import { DateTime, Effect, Layer, Option, pipe, Redacted, Ref, Schema, String } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
 import { OfficeStatsReader } from "../src/OfficeStats.ts";
 import type { ListedRecording, RecordingDetail } from "../src/Recording.ts";
+import type { RecordingChange } from "../src/RecordingEdit.ts";
 import { RecordingApi } from "../src/RecordingApi.ts";
-import { HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
+import { EditHandlers, HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
+import { RecordingEdits } from "../src/RecordingEdits.ts";
 import { RecordingHistory } from "../src/RecordingHistory.ts";
 import { RecordingRequests } from "../src/RecordingRequests.ts";
 import { SignedInLayer, SignInHandlers } from "../src/SignInHandlers.ts";
@@ -28,10 +30,12 @@ const listed: ListedRecording = {
   stoppedAt: DateTime.makeUnsafe("2026-10-29T13:17:00Z"),
   startedBy: ada,
   speakers: [ada],
+  title: "Deploy retro",
 };
 
 const detail: RecordingDetail = {
   ...listed,
+  agenda: "What broke on Friday",
   stopReason: "requested",
   stoppedBy: ada,
   summary: "• Ada said hello",
@@ -50,6 +54,23 @@ const History = Layer.succeed(
         Effect.as({ recordings: [listed], older: listed.startedAt }),
       ),
     find: (id) => Effect.succeed(id === RECORDING ? Option.some(detail) : Option.none()),
+  }),
+);
+
+const submittedEdits = Ref.makeUnsafe<ReadonlyArray<RecordingChange>>([]);
+
+const Edits = Layer.succeed(
+  RecordingEdits,
+  RecordingEdits.of({
+    submit: (_editor, recordingId, change) =>
+      recordingId === RECORDING
+        ? Ref.update(submittedEdits, (all) => [...all, change]).pipe(
+            Effect.as(Option.some({ id: 7, outcome: null })),
+          )
+        : Effect.succeedNone,
+    find: (_editor, id) =>
+      Effect.succeed(id === 7 ? Option.some({ id, outcome: "applied" as const }) : Option.none()),
+    handlePending: () => Effect.void,
   }),
 );
 
@@ -77,6 +98,7 @@ const app = HttpRouter.toWebHandler(
       RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerDisabled)),
       HistoryHandlers.pipe(Layer.provide(History)),
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerDisabled)),
+      EditHandlers.pipe(Layer.provide(Edits)),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),
@@ -106,7 +128,11 @@ const signedIn = Effect.gen(function* () {
 
   const { session } = yield* decodeSignedIn(yield* bodyOf(response));
 
-  return (path: string) => send(path, { headers: { authorization: `Bearer ${session}` } });
+  return (path: string, init: RequestInit = {}) =>
+    send(path, {
+      ...init,
+      headers: { authorization: `Bearer ${session}`, "content-type": "application/json" },
+    });
 });
 
 describe("the recording history API", () => {
@@ -128,6 +154,7 @@ describe("the recording history API", () => {
             stoppedAt: "2026-10-29T13:17:00.000Z",
             startedBy: ada,
             speakers: [ada],
+            title: "Deploy retro",
           },
         ],
         older: "2026-10-29T12:05:00.000Z",
@@ -162,6 +189,8 @@ describe("the recording history API", () => {
       const body = yield* decodeJson(yield* bodyOf(response));
 
       assert.deepInclude(body, {
+        title: "Deploy retro",
+        agenda: "What broke on Friday",
         stopReason: "requested",
         slackPermalink: "https://office.slack.com/archives/C1/p12",
         clips: [{ speaker: ada, startedAt: "2026-10-29T12:06:00.000Z", text: "Hello" }],
@@ -186,6 +215,101 @@ describe("the recording history API", () => {
     Effect.gen(function* () {
       assert.strictEqual((yield* send("/api/recordings")).status, 401);
       assert.strictEqual((yield* send(`/api/recordings/${RECORDING}`)).status, 401);
+    }),
+  );
+});
+
+const xs = (count: number) => pipe("x", String.repeat(count));
+
+describe("the recording edits API", () => {
+  it.effect("takes an edit of a recording, tidied up, and answers 202 with it pending", () =>
+    Effect.gen(function* () {
+      const call = yield* signedIn;
+      yield* Ref.set(submittedEdits, []);
+
+      const response = yield* call(`/api/recordings/${RECORDING}/edits`, {
+        method: "POST",
+        body: '{"kind":"title","title":"  Deploy   retro "}',
+      });
+
+      assert.strictEqual(response.status, 202);
+      assert.deepStrictEqual(yield* decodeJson(yield* bodyOf(response)), { id: 7, outcome: null });
+      assert.deepStrictEqual(yield* Ref.get(submittedEdits), [
+        { kind: "title", title: "Deploy retro" },
+      ]);
+    }),
+  );
+
+  it.effect("clears a title or agenda when it's blank", () =>
+    Effect.gen(function* () {
+      const call = yield* signedIn;
+      yield* Ref.set(submittedEdits, []);
+
+      yield* call(`/api/recordings/${RECORDING}/edits`, {
+        method: "POST",
+        body: '{"kind":"agenda","agenda":"   "}',
+      });
+      yield* call(`/api/recordings/${RECORDING}/edits`, {
+        method: "POST",
+        body: '{"kind":"title","title":null}',
+      });
+
+      assert.deepStrictEqual(yield* Ref.get(submittedEdits), [
+        { kind: "agenda", agenda: null },
+        { kind: "title", title: null },
+      ]);
+    }),
+  );
+
+  it.effect(
+    "refuses a title over 80 characters, an agenda over 500, and a kind it doesn't know",
+    () =>
+      Effect.gen(function* () {
+        const call = yield* signedIn;
+
+        const post = (body: string) =>
+          call(`/api/recordings/${RECORDING}/edits`, { method: "POST", body });
+
+        assert.strictEqual((yield* post(`{"kind":"title","title":"${xs(81)}"}`)).status, 400);
+        assert.strictEqual((yield* post(`{"kind":"title","title":"${xs(80)}"}`)).status, 202);
+        assert.strictEqual((yield* post(`{"kind":"agenda","agenda":"${xs(501)}"}`)).status, 400);
+        assert.strictEqual((yield* post(`{"kind":"summary_style","style":"brief"}`)).status, 400);
+      }),
+  );
+
+  it.effect("checks on an edit, and answers 404 for an edit or recording that doesn't exist", () =>
+    Effect.gen(function* () {
+      const call = yield* signedIn;
+
+      const found = yield* call("/api/edits/7");
+      assert.strictEqual(found.status, 200);
+      assert.deepStrictEqual(yield* decodeJson(yield* bodyOf(found)), {
+        id: 7,
+        outcome: "applied",
+      });
+
+      assert.strictEqual((yield* call("/api/edits/8")).status, 404);
+      assert.strictEqual(
+        (yield* call("/api/recordings/8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10/edits", {
+          method: "POST",
+          body: '{"kind":"title","title":"Retro"}',
+        })).status,
+        404,
+      );
+    }),
+  );
+
+  it.effect("turns away anyone who isn't signed in", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(
+        (yield* send(`/api/recordings/${RECORDING}/edits`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: '{"kind":"title","title":"Retro"}',
+        })).status,
+        401,
+      );
+      assert.strictEqual((yield* send("/api/edits/7")).status, 401);
     }),
   );
 });

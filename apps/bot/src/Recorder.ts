@@ -22,6 +22,7 @@ import {
   String,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
+import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEdits";
 import {
   type ActiveRecording,
   CHECK_INTERVAL,
@@ -52,7 +53,13 @@ import { SlackClient } from "./SlackClient.ts";
 import { SlackHistory } from "./SlackHistory.ts";
 import { summaryMessage } from "./SlackMessage.ts";
 import { noVoices, speakingAt, startedSpeaking, stoppedSpeaking, type Voices } from "./Speaking.ts";
-import { hasSpeech, speakersOf, SummaryWriter, transcriptText } from "./SummaryWriter.ts";
+import {
+  hasSpeech,
+  speakersOf,
+  summaryRequest,
+  SummaryWriter,
+  transcriptText,
+} from "./SummaryWriter.ts";
 import { Transcriber } from "./Transcriber.ts";
 import { type CaptureError, type Clip, Heard, VoiceCapture } from "./VoiceCapture.ts";
 
@@ -142,6 +149,7 @@ export class Recorder extends Context.Service<
       const gateway = yield* DiscordGateway;
       const store = yield* RecordingStore;
       const requests = yield* RecordingRequests;
+      const edits = yield* RecordingEdits;
       const voice = yield* VoiceCapture;
       const archive = yield* ClipArchive;
       const transcriber = yield* Transcriber;
@@ -163,6 +171,7 @@ export class Recorder extends Context.Service<
         const storeHealthy = yield* Ref.make(true);
         const unavailableAttempts = yield* Ref.make(0);
         const mutex = yield* Semaphore.make(1);
+        const retitling = yield* Semaphore.make(1);
 
         const storeIssue = (what: string) => (error: StoreUnavailable | RecordingUnavailable) =>
           Ref.getAndSet(storeHealthy, false).pipe(
@@ -368,6 +377,68 @@ export class Recorder extends Context.Service<
             while ((yield* store.outstandingClips(id)) > 0) yield* Effect.sleep(FINISH_POLL);
           });
 
+        const retitle = (id: string) =>
+          retitling
+            .withPermits(1)(
+              Effect.gen(function* () {
+                const details = yield* store.recordingDetails(id);
+                const post = yield* store.summaryPost(id);
+
+                if (Option.isNone(details) || Option.isNone(post)) return;
+
+                const lines = yield* store.clipsOf(id);
+                const { startedAt, stoppedAt, startedByName, title } = details.value;
+                const { slackChannelId, slackTs, summary, summaryModel } = post.value;
+
+                yield* slack.updateMessage(
+                  slackChannelId,
+                  slackTs,
+                  summaryMessage({
+                    office,
+                    startedAt,
+                    stoppedAt,
+                    startedByName,
+                    title,
+                    speakers: speakersOf(lines),
+                    summary:
+                      summary === null || summaryModel === null
+                        ? Option.none()
+                        : Option.some({ text: summary, model: summaryModel }),
+                  }),
+                );
+
+                yield* Effect.logInfo("Retitled the recording's summary in Slack");
+              }),
+            )
+            .pipe(
+              Effect.catchTags({
+                SlackError: (error) =>
+                  Effect.logWarning("Couldn't retitle the recording's summary in Slack").pipe(
+                    Effect.annotateLogs({ reason: error.reason._tag }),
+                    Effect.andThen(report(error)),
+                  ),
+                StoreUnavailable: (error) =>
+                  Effect.logWarning("Couldn't read the recording to retitle its summary").pipe(
+                    Effect.annotateLogs({ reason: error.reason }),
+                  ),
+              }),
+              Effect.annotateLogs({ recordingId: id }),
+            );
+
+        const retitleIfRenamed = (id: string, postedTitle: string | null) =>
+          store.recordingDetails(id).pipe(
+            Effect.flatMap((latest) =>
+              Option.exists(latest, ({ title }) => title !== postedTitle)
+                ? retitle(id)
+                : Effect.void,
+            ),
+            Effect.catchTag("StoreUnavailable", (error) =>
+              Effect.logWarning("Couldn't check whether the recording was renamed").pipe(
+                Effect.annotateLogs({ reason: error.reason }),
+              ),
+            ),
+          );
+
         const finish = Effect.fn("Recorder.finish")(
           function* (id: string) {
             yield* awaitClips(id);
@@ -400,8 +471,8 @@ export class Recorder extends Context.Service<
               return;
             }
 
-            const summary = yield* summaries.write(transcript);
-            const { startedAt, stoppedAt, startedByName } = details.value;
+            const summary = yield* summaries.write(summaryRequest(details.value, transcript));
+            const { startedAt, stoppedAt, startedByName, title } = details.value;
 
             const posted = yield* slack.postMessage({
               channel: slackChannel,
@@ -410,6 +481,7 @@ export class Recorder extends Context.Service<
                 startedAt,
                 stoppedAt,
                 startedByName,
+                title,
                 speakers: speakersOf(lines),
                 summary,
               }),
@@ -468,6 +540,8 @@ export class Recorder extends Context.Service<
               slackPermalink: Option.getOrNull(permalink),
               finishedAt: at,
             });
+
+            yield* retitleIfRenamed(id, title);
 
             yield* Effect.logInfo("Posted the recording summary").pipe(
               Effect.annotateLogs({
@@ -576,6 +650,8 @@ export class Recorder extends Context.Service<
                 guildId: office.guildId,
                 channelId: office.channelId,
                 startedByName: request.requestedByName,
+                title: request.title,
+                agenda: request.agenda,
               });
 
               return {
@@ -650,6 +726,27 @@ export class Recorder extends Context.Service<
             }),
         };
 
+        const editHandler: EditHandler<StoreUnavailable, Scope.Scope> = {
+          apply: (edit) =>
+            store.applyEdit(edit.recordingId, edit.change).pipe(
+              Effect.as({
+                afterCommit:
+                  edit.change.kind === "title"
+                    ? retitle(edit.recordingId).pipe(Effect.forkScoped, Effect.asVoid)
+                    : Effect.void,
+              }),
+            ),
+        };
+
+        const applyEdits = edits
+          .handlePending(editHandler)
+          .pipe(
+            Effect.catchTag(
+              ["StoreUnavailable", "RecordingUnavailable"],
+              storeIssue("Couldn't apply recording edits"),
+            ),
+          );
+
         const tick = mutex.withPermits(1)(
           Effect.gen(function* () {
             const current = yield* Ref.get(session);
@@ -666,6 +763,7 @@ export class Recorder extends Context.Service<
               ["StoreUnavailable", "RecordingUnavailable"],
               storeIssue("Couldn't handle recording requests"),
             ),
+            Effect.andThen(applyEdits),
           ),
         );
 

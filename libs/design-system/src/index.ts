@@ -39,3 +39,5 @@ export { PbStat } from "./stat";
 export { type HeadingLevel, PbStatusHeading } from "./status-heading";
 
 export { PbTabs, type Tab, type TabsAppearance, tabId, tabPanelId } from "./tabs";
+
+export { PbTextField } from "./text-field";

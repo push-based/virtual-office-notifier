@@ -42,7 +42,9 @@ const createTables = Effect.gen(function* () {
       slack_channel_id text,
       slack_ts text,
       slack_permalink text,
-      finished_at timestamptz
+      finished_at timestamptz,
+      title text,
+      agenda text
     )
   `;
   yield* sql`
@@ -88,6 +90,8 @@ interface RecordingRow {
   readonly slackTs?: string;
   readonly slackPermalink?: string;
   readonly finishedAt?: Date;
+  readonly title?: string;
+  readonly agenda?: string;
 }
 
 const insertRecording = (sql: SqlClient.SqlClient, row: RecordingRow) =>
@@ -139,6 +143,8 @@ const fourStates = Effect.gen(function* () {
     slackTs: "1.2",
     slackPermalink: "https://office.slack.com/archives/C1/p12",
     finishedAt: at(41),
+    title: "Deploy retro",
+    agenda: "What broke on Friday",
   });
   yield* insertRecording(sql, {
     id: TRANSCRIBING,
@@ -217,6 +223,8 @@ describe("RecordingHistory.page", () => {
         ["grace", "Ada"],
       );
       assert.deepStrictEqual(byId.get(SILENT)?.speakers, []);
+      assert.strictEqual(finished?.title, "Deploy retro");
+      assert.isNull(byId.get(RUNNING)?.title);
       assert.deepStrictEqual(byId.get(RUNNING)?.speakers, []);
       assert.isNull(byId.get(RUNNING)?.stoppedAt);
     }).pipe(Effect.provide(TestLayer)),
@@ -276,6 +284,8 @@ describe("RecordingHistory.find", () => {
       assert.strictEqual(detail.state, "finished");
       assert.strictEqual(detail.stopReason, "requested");
       assert.deepStrictEqual(detail.stoppedBy, { userId: "u3", name: "Linus", avatarUrl: null });
+      assert.strictEqual(detail.title, "Deploy retro");
+      assert.strictEqual(detail.agenda, "What broke on Friday");
       assert.strictEqual(detail.summary, "• Ada said hello");
       assert.strictEqual(detail.summaryModel, "model");
       assert.strictEqual(detail.slackPermalink, "https://office.slack.com/archives/C1/p12");
@@ -299,6 +309,8 @@ describe("RecordingHistory.find", () => {
       assert.strictEqual(detail.state, "transcribing");
       assert.strictEqual(detail.stopReason, "time_limit");
       assert.isNull(detail.stoppedBy);
+      assert.isNull(detail.title);
+      assert.isNull(detail.agenda);
       assert.isNull(detail.summary);
       assert.isNull(detail.slackPermalink);
       assert.deepStrictEqual(

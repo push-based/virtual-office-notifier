@@ -261,6 +261,11 @@ interface PostBody extends SlackMessage {
   thread_ts?: string;
 }
 
+interface UpdateBody extends SlackMessage {
+  readonly channel: string;
+  readonly ts: string;
+}
+
 interface ReactionBody {
   readonly channel: string;
   readonly timestamp: string;
@@ -273,7 +278,12 @@ interface CompleteUploadBody {
   readonly thread_ts: string;
 }
 
-type WriteBody = PostBody | ReactionBody | CompleteUploadBody | Readonly<Record<string, never>>;
+type WriteBody =
+  | PostBody
+  | UpdateBody
+  | ReactionBody
+  | CompleteUploadBody
+  | Readonly<Record<string, never>>;
 
 const postBody = (message: OutgoingMessage): PostBody => {
   const body: PostBody = { channel: message.channel, text: message.text, blocks: message.blocks };
@@ -293,6 +303,11 @@ export class SlackClient extends Context.Service<
   SlackClient,
   {
     postMessage(message: OutgoingMessage): Effect.Effect<PostedMessage, SlackError>;
+    updateMessage(
+      channel: string,
+      ts: string,
+      message: SlackMessage,
+    ): Effect.Effect<void, SlackError>;
     addReaction(channel: string, ts: string, emoji: string): Effect.Effect<void, SlackError>;
     uploadFile(upload: FileUpload): Effect.Effect<void, SlackError>;
     threadReplies(
@@ -362,6 +377,13 @@ export class SlackClient extends Context.Service<
         write("chat.postMessage", postBody(message), Posted).pipe(
           Effect.map(({ channel, ts }): PostedMessage => ({ channel, ts })),
         );
+
+      const updateMessage = (channel: string, ts: string, message: SlackMessage) =>
+        write(
+          "chat.update",
+          { channel, ts, text: message.text, blocks: message.blocks },
+          Nothing,
+        ).pipe(Effect.asVoid);
 
       const addReaction = (channel: string, ts: string, emoji: string) =>
         write("reactions.add", { channel, timestamp: ts, name: emoji }, Nothing).pipe(
@@ -452,6 +474,7 @@ export class SlackClient extends Context.Service<
 
       return SlackClient.of({
         postMessage,
+        updateMessage,
         addReaction,
         uploadFile,
         threadReplies,

@@ -13,6 +13,7 @@ const page: RecordingPage = {
   recordings: [
     listedRecording({ id: "r3", state: "running", stoppedAt: null, speakers: [] }),
     listedRecording({ id: "r2" }),
+    listedRecording({ id: "r4", title: "Deploy retro" }),
     listedRecording({ id: "r1", state: "silent", speakers: [] }),
   ],
   older: "2026-10-29T12:05:00.000Z",
@@ -39,7 +40,7 @@ const render = async () => {
 
   await vi.waitFor(async () => {
     await fixture.whenStable();
-    expect(element.querySelectorAll("app-recording-row").length).toBe(3);
+    expect(element.querySelectorAll("app-recording-row").length).toBe(4);
   });
 
   return { fixture, element, api };
@@ -53,15 +54,21 @@ describe("RecordingHistory", () => {
     expect(rows.map((row) => row.querySelector("pb-badge")?.textContent)).toEqual([
       "Running",
       "Finished",
+      "Finished",
       "Silent",
     ]);
     expect(rows.map((row) => row.querySelector("button.row") !== null)).toEqual([
+      true,
       true,
       true,
       false,
     ]);
     expect(rows[1]?.querySelector(".when")?.textContent).toBe("Thu 29 Oct, 14:05");
     expect(rows[1]?.querySelector("[pbDescription]")?.textContent).toBe("1h 12m · Started by Anna");
+    expect(rows[2]?.querySelector(".when")?.textContent).toBe("Deploy retro");
+    expect(rows[2]?.querySelector("[pbDescription]")?.textContent).toBe(
+      "Thu 29 Oct, 14:05 · 1h 12m · Started by Anna",
+    );
     expect(element.textContent).toContain("Show older");
   });
 
@@ -82,7 +89,7 @@ describe("RecordingHistory", () => {
 
     await vi.waitFor(async () => {
       await fixture.whenStable();
-      expect(element.querySelectorAll("app-recording-row").length).toBe(3);
+      expect(element.querySelectorAll("app-recording-row").length).toBe(4);
     });
 
     expect(element.querySelector("app-recording-page")).toBeNull();

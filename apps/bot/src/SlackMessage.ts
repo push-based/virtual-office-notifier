@@ -230,6 +230,7 @@ export interface RecordingSummary {
   readonly startedAt: DateTime.Utc;
   readonly stoppedAt: DateTime.Utc;
   readonly startedByName: string;
+  readonly title: string | null;
   readonly speakers: ReadonlyArray<string>;
   readonly summary: Option.Option<{ readonly text: string; readonly model: string }>;
 }
@@ -242,7 +243,18 @@ const slackDate = (at: DateTime.Utc): string =>
 
 export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
   const duration = formatDuration(DateTime.distance(recording.startedAt, recording.stoppedAt));
-  const text = `📝 *Office recording* from ${slackDate(recording.startedAt)}, ${duration}`;
+  const when = slackDate(recording.startedAt);
+
+  const { heading, notification } =
+    recording.title === null
+      ? {
+          heading: `📝 *Office recording* from ${when}, ${duration}`,
+          notification: `📝 Office recording, ${duration}`,
+        }
+      : {
+          heading: `📝 *${escapeSlackText(recording.title)}* · ${when}, ${duration}`,
+          notification: `📝 ${escapeSlackText(recording.title)}, ${duration}`,
+        };
 
   const body = Option.match(recording.summary, {
     onNone: () => NO_SUMMARY,
@@ -250,9 +262,9 @@ export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
   });
 
   return {
-    text: `📝 Office recording, ${duration}`,
+    text: notification,
     blocks: [
-      headline(text, Option.none()),
+      headline(heading, Option.none()),
       headline(body, Option.none()),
       {
         type: "section",

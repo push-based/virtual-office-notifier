@@ -342,6 +342,7 @@ describe("summaryMessage", () => {
     startedAt: at,
     stoppedAt: DateTime.add(at, { minutes: 95 }),
     startedByName: "Ada <3",
+    title: null,
     speakers: ["Ada <3", "Grace"],
     summary: Option.some({ text: "• Ada & Grace agreed to ship", model: "nvidia/nemotron" }),
   };
@@ -360,6 +361,17 @@ describe("summaryMessage", () => {
     expect(card).toContain("✨ Summary by nvidia/nemotron");
     expect(card).toContain("📄 Full transcript in the thread");
     expect(card).toContain(AI_DISCLAIMER);
+  });
+
+  it("heads the post with the title and notifies with it when the recording has one", () => {
+    const message = summaryMessage({ ...recording, title: "Deploy <retro> & beers" });
+    const card = JSON.stringify(message.blocks);
+
+    expect(message.text).toBe("📝 Deploy &lt;retro&gt; &amp; beers, 1h 35m");
+    expect(card).toContain(
+      "📝 *Deploy &lt;retro&gt; &amp; beers* · <!date^1790345100^{date_short} {time}|2026-09-25 14:05 UTC>, 1h 35m",
+    );
+    expect(card).not.toContain("Office recording");
   });
 
   it("says so when no model could write a summary", () => {

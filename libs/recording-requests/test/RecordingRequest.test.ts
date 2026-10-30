@@ -22,6 +22,8 @@ const request = (overrides: Partial<RecordingRequest> = {}): RecordingRequest =>
   requestedBy: "u1",
   requestedByName: "Ada",
   action: "start",
+  title: null,
+  agenda: null,
   ...overrides,
 });
 
@@ -236,6 +238,8 @@ describe("the page's types", () => {
           startedByName: "Ada",
           endsAt: endsAt(active.startedAt),
           pause: { since: DateTime.makeUnsafe(60_000), byName: "Ben" },
+          title: "Deploy retro",
+          agenda: null,
         },
         updatedAt: DateTime.makeUnsafe(0),
       });
@@ -246,6 +250,7 @@ describe("the page's types", () => {
         byName: "Ben",
       });
       assert.strictEqual(encoded.updatedAt, "1970-01-01T00:00:00.000Z");
+      assert.strictEqual(encoded.recording?.title, "Deploy retro");
     }),
   );
 });

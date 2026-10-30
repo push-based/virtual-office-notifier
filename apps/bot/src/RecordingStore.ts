@@ -1,5 +1,6 @@
 import { Array, Context, DateTime, Duration, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { type ActiveRecording, RowId } from "recording-requests/RecordingRequest";
 
 import { memberUpsert } from "./ActivityLog.ts";
@@ -27,6 +28,8 @@ export interface NewRecording {
   readonly startedAt: DateTime.Utc;
   readonly startedBy: string;
   readonly startedByName: string;
+  readonly title: string | null;
+  readonly agenda: string | null;
 }
 
 export interface NewClip {
@@ -70,6 +73,15 @@ export interface RecordingDetails {
   readonly stoppedAt: DateTime.Utc;
   readonly startedByName: string;
   readonly stopReason: StopReason;
+  readonly title: string | null;
+  readonly agenda: string | null;
+}
+
+export interface SummaryPost {
+  readonly slackChannelId: string;
+  readonly slackTs: string;
+  readonly summary: string | null;
+  readonly summaryModel: string | null;
 }
 
 export interface FinishedRecording {
@@ -152,6 +164,19 @@ const decodeDetails = Schema.decodeUnknownEffect(
       stoppedAt: Schema.DateTimeUtcFromDate,
       startedByName: Schema.String,
       stopReason: StopReason,
+      title: Schema.NullOr(Schema.String),
+      agenda: Schema.NullOr(Schema.String),
+    }),
+  ),
+);
+
+const decodePosts = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      slackChannelId: Schema.String,
+      slackTs: Schema.String,
+      summary: Schema.NullOr(Schema.String),
+      summaryModel: Schema.NullOr(Schema.String),
     }),
   ),
 );
@@ -208,6 +233,8 @@ export class RecordingStore extends Context.Service<
     clipsOf(recordingId: string): Effect.Effect<ReadonlyArray<ClipLine>, StoreUnavailable>;
     pausesOf(recordingId: string): Effect.Effect<ReadonlyArray<PauseLine>, StoreUnavailable>;
     recordingDetails(id: string): Effect.Effect<Option.Option<RecordingDetails>, StoreUnavailable>;
+    summaryPost(id: string): Effect.Effect<Option.Option<SummaryPost>, StoreUnavailable>;
+    applyEdit(id: string, change: RecordingChange): Effect.Effect<void, StoreUnavailable>;
     finishRecording(id: string, finished: FinishedRecording): Effect.Effect<void, StoreUnavailable>;
     readonly unlinkedPosts: Effect.Effect<ReadonlyArray<UnlinkedPost>, StoreUnavailable>;
     linkPost(id: string, permalink: string): Effect.Effect<void, StoreUnavailable>;
@@ -274,6 +301,8 @@ export class RecordingStore extends Context.Service<
                     channelId: recording.channelId,
                     startedAt: DateTime.toDate(recording.startedAt),
                     startedBy: recording.startedBy,
+                    title: recording.title,
+                    agenda: recording.agenda,
                   })}
                 `,
                 event(recording.id, recording.startedAt, "started", null, recording.startedBy),
@@ -456,12 +485,32 @@ export class RecordingStore extends Context.Service<
         onceReady(
           sql`
             SELECT r.id, r.guild_id, r.channel_id, r.started_at, r.stopped_at,
-                   coalesce(m.real_name, m.display_name) AS started_by_name, r.stop_reason
+                   coalesce(m.real_name, m.display_name) AS started_by_name, r.stop_reason,
+                   r.title, r.agenda
             FROM office.recordings r
             JOIN office.members m ON m.user_id = r.started_by
             WHERE r.id = ${id} AND r.stopped_at IS NOT NULL
           `.pipe(Effect.flatMap(decodeDetails), Effect.map(Array.head)),
         ),
+      );
+
+      const summaryPost = Effect.fn("RecordingStore.summaryPost")((id: string) =>
+        onceReady(
+          sql`
+            SELECT slack_channel_id, slack_ts, summary, summary_model FROM office.recordings
+            WHERE id = ${id} AND slack_channel_id IS NOT NULL AND slack_ts IS NOT NULL
+          `.pipe(Effect.flatMap(decodePosts), Effect.map(Array.head)),
+        ),
+      );
+
+      const applyEdit = Effect.fn("RecordingStore.applyEdit")(
+        (id: string, change: RecordingChange) =>
+          onceReady(
+            change.kind === "title"
+              ? sql`UPDATE office.recordings SET title = ${change.title} WHERE id = ${id}`
+              : sql`UPDATE office.recordings SET agenda = ${change.agenda} WHERE id = ${id}`,
+          ),
+        Effect.asVoid,
       );
 
       const finishRecording = Effect.fn("RecordingStore.finishRecording")(
@@ -514,6 +563,8 @@ export class RecordingStore extends Context.Service<
         clipsOf,
         pausesOf,
         recordingDetails,
+        summaryPost,
+        applyEdit,
         finishRecording,
         unlinkedPosts,
         linkPost,
@@ -539,6 +590,8 @@ export class RecordingStore extends Context.Service<
       clipsOf: notRecording,
       pausesOf: notRecording,
       recordingDetails: notRecording,
+      summaryPost: notRecording,
+      applyEdit: notRecording,
       finishRecording: notRecording,
       unlinkedPosts: notRecording(),
       linkPost: notRecording,

@@ -2,6 +2,7 @@ import type * as SignIn from "activity-sign-in/SignInApi";
 
 import type * as Stats from "./OfficeStats.ts";
 import type * as History from "./Recording.ts";
+import type * as Edits from "./RecordingEdit.ts";
 import type * as Schemas from "./RecordingRequest.ts";
 
 export type RequestAction = typeof Schemas.RequestAction.Encoded;
@@ -63,6 +64,24 @@ export type TranscribedClip = typeof History.TranscribedClip.Encoded;
 
 export type RecordingDetail = typeof History.RecordingDetail.Encoded;
 
+export type RecordingChange = typeof Edits.RecordingChange.Encoded;
+
+export type TitleChange = typeof Edits.TitleChange.Encoded;
+
+export type AgendaChange = typeof Edits.AgendaChange.Encoded;
+
+export type EditIgnoreReason = typeof Edits.EditIgnoreReason.Encoded;
+
+export type PendingEdit = typeof Edits.PendingEdit.Encoded;
+
+export type AppliedEdit = typeof Edits.AppliedEdit.Encoded;
+
+export type IgnoredEdit = typeof Edits.IgnoredEdit.Encoded;
+
+export type HandledEdit = AppliedEdit | IgnoredEdit;
+
+export type SubmittedEdit = typeof Edits.SubmittedEdit.Encoded;
+
 export type SignInConfig = typeof SignIn.SignInConfig.Encoded;
 
 export type SignInCode = typeof SignIn.SignInCode.Encoded;
@@ -76,3 +95,7 @@ export const CHECK_INTERVAL_MS = 2_000;
 export const ANSWER_WINDOW_MS = REQUEST_EXPIRY_MS + 2 * CHECK_INTERVAL_MS;
 
 export const RECORDING_LIMIT_MS = 4 * 60 * 60 * 1000;
+
+export const TITLE_MAX_LENGTH = 80;
+
+export const AGENDA_MAX_LENGTH = 500;

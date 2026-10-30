@@ -10,6 +10,7 @@ import {
   PbPeople,
 } from "design-system";
 
+import { RecordingEditor } from "../edits/recording-editor";
 import {
   describeStop,
   formatClock,
@@ -25,20 +26,42 @@ import { personOf } from "./recording-row";
 
 @Component({
   selector: "app-recording-page",
-  imports: [PbAvatar, PbBadge, PbButton, PbDescription, PbDivider, PbEyebrow, PbHeading, PbPeople],
+  imports: [
+    PbAvatar,
+    PbBadge,
+    PbButton,
+    PbDescription,
+    PbDivider,
+    PbEyebrow,
+    PbHeading,
+    PbPeople,
+    RecordingEditor,
+  ],
   template: `
     <button pbButton variant="tertiary" type="button" class="back" (click)="back.emit()">
       ← Back
     </button>
     <header>
       <div class="top">
-        <h2 pbHeading>{{ startedAt() }}</h2>
+        <h2 pbHeading>{{ recording().title ?? startedAt() }}</h2>
         <pb-badge [tone]="badge().tone">{{ badge().label }}</pb-badge>
       </div>
       <p pbDescription>{{ facts() }}</p>
       @if (speakers().length > 0) {
         <pb-people [people]="speakers()" label="Who spoke" />
       }
+      @if (recording().agenda; as agenda) {
+        <section class="agenda" aria-labelledby="agenda-heading">
+          <p pbEyebrow tone="muted" id="agenda-heading">Agenda</p>
+          <p class="text-body agenda-text">{{ agenda }}</p>
+        </section>
+      }
+      <app-recording-editor
+        [recordingId]="recording().id"
+        [currentTitle]="recording().title"
+        [currentAgenda]="recording().agenda"
+        (saved)="edited.emit()"
+      />
     </header>
     @if (recording().state === "finished") {
       <hr pbDivider />
@@ -107,9 +130,14 @@ import { personOf } from "./recording-row";
     }
 
     .summary,
-    .line {
+    .line,
+    .agenda-text {
       margin: 0;
       white-space: pre-line;
+    }
+
+    h2 {
+      overflow-wrap: anywhere;
     }
 
     .footer {
@@ -169,6 +197,8 @@ export class RecordingPage {
 
   readonly openInSlack = output<string>();
 
+  readonly edited = output();
+
   protected readonly noSummary = NO_SUMMARY;
 
   protected readonly clock = formatClock;
@@ -183,6 +213,7 @@ export class RecordingPage {
     const recording = this.recording();
 
     return [
+      ...(recording.title === null ? [] : [this.startedAt()]),
       formatRunTime(recording.startedAt, recording.stoppedAt, this.now()),
       `Started by ${recording.startedBy.name}`,
       describeStop(recording),

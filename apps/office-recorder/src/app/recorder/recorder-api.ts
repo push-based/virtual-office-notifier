@@ -2,6 +2,7 @@ import { HttpClient } from "@angular/common/http";
 import { Service, inject } from "@angular/core";
 import type { Observable } from "rxjs";
 
+import type { Plan } from "../edits/plan";
 import type { RecordingStatus, RequestAction, RequestSubmission, SubmittedRequest } from "./models";
 
 @Service()
@@ -12,8 +13,9 @@ export class RecorderApi {
     return this.http.get<RecordingStatus>("/api/status");
   }
 
-  submit(action: RequestAction): Observable<SubmittedRequest> {
-    const body: RequestSubmission = { action };
+  submit(action: RequestAction, plan?: Plan): Observable<SubmittedRequest> {
+    const body: RequestSubmission =
+      plan === undefined ? { action } : { action, title: plan.title, agenda: plan.agenda };
 
     return this.http.post<SubmittedRequest>("/api/requests", body);
   }

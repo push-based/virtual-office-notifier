@@ -36,6 +36,8 @@ describe("describePhase", () => {
       startedByName: "Chris",
       endsAt: "2026-10-27T12:59:34Z",
       pause: null,
+      title: null,
+      agenda: null,
     };
 
     expect(describePhase({ kind: "recording", recording }, now)).toEqual({
@@ -54,6 +56,8 @@ describe("describePhase", () => {
       startedByName: "Chris",
       endsAt: "2026-10-27T12:59:34Z",
       pause,
+      title: null,
+      agenda: null,
     };
 
     expect(describePhase({ kind: "paused", recording, pause }, now)).toEqual({
