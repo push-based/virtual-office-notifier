@@ -476,25 +476,29 @@ node --env-file=.env apps/bot/scripts/try-recording.ts --seconds 60
 
 ## Development
 
+The workspace runs on [Vite+](https://viteplus.dev). Each package defines its tasks in its `vite.config.ts`, and `vp run` runs them in dependency order and caches the results, so a task whose inputs haven't changed replays instead of running again. `pnpm vp` runs the local copy if you don't have `vp` installed globally.
+
 | Command | What it does |
 |---|---|
-| `pnpm typecheck` | Type-check every package with TypeScript 7 and the Effect diagnostics. |
-| `pnpm lint` | Lint the whole repo with oxlint. `pnpm lint:fix` applies the automatic fixes. |
-| `pnpm test` | Run every package's tests with Vitest. |
-| `pnpm build` | Bundle the bot to `apps/bot/dist/main.js` with a source map, and build the Activity's page with Vite to `apps/office-recorder-page/dist`, type-checking it on the way. |
+| `pnpm vp run -r typecheck` | Type-check every package with TypeScript 7 and the Effect diagnostics. |
+| `pnpm vp run lint` | Lint the whole repo with Oxlint and the rules in the root `vite.config.ts`. `pnpm vp lint --fix` applies the automatic fixes. |
+| `pnpm vp run -r test` | Run every package's tests with Vitest. |
+| `pnpm vp run -r build` | Bundle the bot to `apps/bot/dist/main.js` with a source map, and build the Activity's page to `apps/office-recorder-page/dist`, type-checking it on the way. |
+| `pnpm vp run office-recorder-worker#check` | Build the page and bundle the Activity's Worker without deploying it. |
 | `pnpm --filter bot dev` | Run the bot from source with `.env`. |
 | `pnpm --filter bot start` | Run the bot's bundle with `.env`. |
 | `pnpm --filter office-recorder-page dev` | Serve the Activity's page from Vite with live reload, sending `/api` to the Worker on port 8787. |
 | `pnpm --filter office-recorder-worker dev` | Run the Activity's Worker locally with `wrangler dev`, serving the last built page. |
-| `pnpm --filter office-recorder-worker check` | Bundle the Activity's Worker without deploying it. |
 
-Each app and lib is a workspace package under `apps/` or `libs/`, so `pnpm --filter <name> <script>` runs any of their scripts.
+Run a single package's task with `pnpm vp run <package>#<task>`, for example `pnpm vp run bot#test`. `pnpm vp cache clean` clears the task cache.
 
-CI runs typecheck, lint, test and build on every push and pull request, and bundles the Activity's page and Worker.
+CI runs the same typecheck, lint, test and build tasks on every push and pull request, and bundles the Activity's Worker. It keeps the task cache between runs.
 
 The tests run the program against fakes for Discord, Slack and the AI models, so they need no tokens or network access. `DiscordGateway.layerTest` feeds voice-state updates from a queue through the same occupancy tracking the real gateway uses. The database tests run the real migrations and SQL against an in-process Postgres ([PGlite](https://pglite.dev)), so they need no database either.
 
 TypeScript is pinned to the exact version `@effect/tsgo` supports, so upgrade the two together. The `prepare` script patches it on install.
+
+Vite, Vitest and Oxlint come from Vite+. The catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml) points `vite` at Vite+'s core, and its overrides keep a single copy of Vite and Vitest across the workspace, which `@effect/vitest` needs to register its tests with the runner `vp test` starts. Upgrade them by bumping `vite-plus` and `vitest` there together.
 
 The Activity's page and the design system are compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package is pinned to exactly that version in the `angular` catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml), with the plugin and the TypeScript 6 that Angular's compiler needs. Upgrade them together there.
 
@@ -560,14 +564,15 @@ gh secret set SLACK_BOT_TOKEN
 
 ### What a deploy does
 
-The `deploy` job runs [`apps/bot/scripts/deploy.ts`](apps/bot/scripts/deploy.ts), which:
+The `deploy` job builds the Activity's page first, so nothing ships if it fails. It then runs the bot's `deploy` task, which bundles the bot and runs [`apps/bot/scripts/deploy.ts`](apps/bot/scripts/deploy.ts):
 
 1. Writes the env file from the configuration variables into a temporary directory, so secrets never land in the working tree.
-2. Bundles the app.
-3. Downloads the one dependency that can't be bundled, DAVE's native add-on for Linux x64 (`@snazzah/davey`, which `@discordjs/voice` needs to decrypt [recorded](#recording-the-office) audio), with `npm pack`, and packs it as a small `node_modules` tree.
-4. Copies `apps/bot/dist/main.js`, its source map, that archive, the systemd unit and the env file to the VM.
-5. Installs them under `/opt/virtual-office-notifier` and `/etc`, replacing the previous `node_modules`, reloads systemd and restarts the service.
-6. Waits 15 seconds and fails, printing the last log lines, if the service isn't running.
+2. Downloads the one dependency that can't be bundled, DAVE's native add-on for Linux x64 (`@snazzah/davey`, which `@discordjs/voice` needs to decrypt [recorded](#recording-the-office) audio), with `npm pack`, and packs it as a small `node_modules` tree.
+3. Copies `apps/bot/dist/main.js`, its source map, that archive, the systemd unit and the env file to the VM.
+4. Installs them under `/opt/virtual-office-notifier` and `/etc`, replacing the previous `node_modules`, reloads systemd and restarts the service.
+5. Waits 15 seconds and fails, printing the last log lines, if the service isn't running.
+
+Last, the Worker's `deploy` task runs `wrangler deploy` with the page that was just built.
 
 The [unit](apps/bot/deploy/virtual-office-notifier.service) runs as the unprivileged `notifier` user with systemd's sandboxing turned on. It restarts 30 seconds after a crash and gives up after 5 failed starts in 10 minutes, so a bad token doesn't keep hammering Discord's login.
 

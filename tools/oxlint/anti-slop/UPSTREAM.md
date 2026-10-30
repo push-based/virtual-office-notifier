@@ -6,5 +6,7 @@
 - Installed paths:
   - `tools/oxlint/anti-slop/index.ts` (generic plugin, registered as `anti-slop`)
   - `tools/oxlint/anti-slop/effect/index.ts` (Effect plugin, registered as `anti-slop-effect`)
-- Oxlint: `oxlint@1.85.0`, `@oxlint/plugins@1.85.0` (pinned exactly)
-- Local deviations: none
+- Oxlint: the copy bundled with `vite-plus` (`oxlint@1.89.0`, `@oxlint/plugins@1.89.0`)
+- Local deviations:
+  - Imports `vite-plus/lint/plugins` instead of `@oxlint/plugins`, so the rules use the plugin API of the Oxlint that `vp lint` runs.
+  - `no-module-mocking` also recognises `vi` imported from `vite-plus/test`.

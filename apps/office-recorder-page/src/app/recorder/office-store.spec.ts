@@ -1,7 +1,7 @@
 import { TestBed } from "@angular/core/testing";
 import { CHECK_INTERVAL_MS, REQUEST_EXPIRY_MS } from "recording-requests/wire";
 import { type Observable, of, throwError } from "rxjs";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { RecordingStatus, RequestAction, SubmittedRequest } from "./models";
 import { OfficeStore } from "./office-store";

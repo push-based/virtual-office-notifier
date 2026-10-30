@@ -48,7 +48,7 @@ The app is built on [Effect](https://effect.website) v4. Follow the patterns alr
 - A failure worth an alert is reported to Sentry with `Effect.withErrorReporting` or `ErrorReporter.report`, before it's caught. Set its severity with `[ErrorReporter.severity]`.
 - Comments explain why, not what.
 
-There's no separate formatter. `pnpm lint` runs oxlint with the vendored [anti-slop](tools/oxlint/anti-slop/UPSTREAM.md) rules, and `pnpm lint:fix` applies the fixes it can.
+There's no separate formatter. `pnpm vp run lint` runs Oxlint with the vendored [anti-slop](tools/oxlint/anti-slop/UPSTREAM.md) rules, configured in the root [`vite.config.ts`](vite.config.ts), and `pnpm vp lint --fix` applies the fixes it can.
 
 ### Tests
 
@@ -76,10 +76,10 @@ I add the matching GitHub secret before merging.
 CI runs these on every push and pull request. Run them before you push:
 
 ```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
+pnpm vp run -r typecheck
+pnpm vp run lint
+pnpm vp run -r test
+pnpm vp run -r build
 ```
 
 ## Commits and pull requests

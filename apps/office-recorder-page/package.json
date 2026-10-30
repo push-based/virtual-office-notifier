@@ -4,10 +4,8 @@
   "description": "The Office Recorder Activity's page, an Angular app built by Vite",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "test": "vitest run"
+    "dev": "vp dev",
+    "preview": "vp preview"
   },
   "dependencies": {
     "@angular/common": "catalog:angular",
@@ -28,7 +26,7 @@
     "jsdom": "30.1.2",
     "tsrs": "0.20.0-ts7.1.0-beta",
     "typescript": "catalog:angular",
-    "vite": "8.3.4",
-    "vitest": "5.0.5"
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   }
 }

@@ -160,8 +160,6 @@ const program = Effect.gen(function* () {
 
   const envFile = yield* writeEnvFile;
 
-  yield* run("Bundling", "pnpm", ["build"]);
-
   const modules = yield* packNativeDependencies;
 
   const release = yield* packRelease(modules, envFile);

@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from "@angular/common
 import { signal } from "@angular/core";
 import { TestBed } from "@angular/core/testing";
 import { firstValueFrom } from "rxjs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { apiErrorInterceptor, sessionInterceptor } from "./interceptors";
 import { RecorderSession } from "./session";

@@ -4,12 +4,8 @@
   "description": "Posts to Slack when the Discord virtual office voice channel opens or empties, plus a weekday reminder",
   "type": "module",
   "scripts": {
-    "build": "rolldown -c",
     "dev": "node --env-file=../../.env src/main.ts",
-    "start": "node --env-file=../../.env --enable-source-maps dist/main.js",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "deploy": "node scripts/deploy.ts"
+    "start": "node --env-file=../../.env --enable-source-maps dist/main.js"
   },
   "dependencies": {
     "@discordjs/voice": "0.19.2",
@@ -27,8 +23,9 @@
     "@effect/sql-pglite": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "26.6.5",
-    "rolldown": "1.2.14",
     "typescript": "7.0.2",
-    "vitest": "5.0.5"
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   }
 }

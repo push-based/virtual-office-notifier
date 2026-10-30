@@ -10,6 +10,9 @@ catalog:
   "@effect/sql-pg": 4.1.0
   "@effect/sql-pglite": 4.1.0
   "@effect/vitest": 4.1.0
+  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vite-plus: 1.4.0
+  vitest: 5.0.5
 
 catalogs:
   angular:
@@ -20,3 +23,15 @@ catalogs:
     "@angular/platform-browser": 22.3.0-next.2
     "@push-based/vite-plugin-ngp": 0.2.0
     typescript: 6.0.3
+
+overrides:
+  vite@*: "catalog:"
+  vitest@*: "catalog:"
+
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  allowedVersions:
+    vite: "*"
+    vitest: "*"
