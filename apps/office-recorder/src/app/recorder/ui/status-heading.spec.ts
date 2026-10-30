@@ -24,7 +24,11 @@ const render = async (phase: OfficePhase) => {
   const text = (selector: string) =>
     element.querySelector(selector)?.textContent?.replace(/\s+/g, " ").trim();
 
-  return { headline: text("h1"), detail: text("p"), live: element.querySelector(".live") !== null };
+  return {
+    headline: text("h1"),
+    detail: text("p"),
+    live: element.querySelector("pb-live-dot") !== null,
+  };
 };
 
 describe("StatusHeading", () => {

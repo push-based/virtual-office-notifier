@@ -1,15 +1,14 @@
 import { Component, input } from "@angular/core";
+import { ElapsedPipe, PbDescription, PbHeading, PbLiveDot, TimeLeftPipe } from "design-system";
 
-import { ElapsedPipe } from "../elapsed.pipe";
 import type { OfficePhase } from "../models";
-import { TimeLeftPipe } from "../time-left.pipe";
 
 @Component({
   selector: "app-status-heading",
-  imports: [ElapsedPipe, TimeLeftPipe],
+  imports: [ElapsedPipe, PbDescription, PbHeading, PbLiveDot, TimeLeftPipe],
   template: `
     @let current = phase();
-    <h1 class="text-section-title headline">
+    <h1 pbHeading class="text-tabular">
       @switch (current.kind) {
         @case ("failed") {
           Couldn't start
@@ -24,12 +23,12 @@ import { TimeLeftPipe } from "../time-left.pipe";
           Not recording
         }
         @case ("recording") {
-          <span class="live" aria-hidden="true"></span>
+          <pb-live-dot />
           Recording · {{ current.recording.startedAt | elapsed: now() }}
         }
       }
     </h1>
-    <p class="text-body-sm detail">
+    <p pbDescription>
       @switch (current.kind) {
         @case ("failed") {
           {{ current.reason }}
@@ -45,7 +44,7 @@ import { TimeLeftPipe } from "../time-left.pipe";
         }
         @case ("recording") {
           Started by {{ current.recording.startedByName }} ·
-          {{ current.recording.endsAt | timeLeft: now() }}
+          {{ current.recording.endsAt | timeLeft: now() }} left
         }
       }
     </p>
@@ -57,35 +56,8 @@ import { TimeLeftPipe } from "../time-left.pipe";
       gap: var(--space-2);
     }
 
-    .headline {
-      margin: 0;
-      color: var(--color-text-heading);
-      font-variant-numeric: tabular-nums;
-    }
-
-    .live {
-      display: inline-block;
-      vertical-align: middle;
+    pb-live-dot {
       margin-right: var(--space-2-5);
-      width: var(--space-3);
-      height: var(--space-3);
-      border-radius: var(--radius-full);
-      background: var(--color-error-500);
-      animation: pulse 1.6s ease-out infinite;
-    }
-
-    .detail {
-      margin: 0;
-      color: var(--color-text-muted);
-    }
-
-    @keyframes pulse {
-      0% {
-        box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-error-500) 50%, transparent);
-      }
-      100% {
-        box-shadow: 0 0 0 var(--space-2) transparent;
-      }
     }
   `,
 })
