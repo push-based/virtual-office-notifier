@@ -10,7 +10,7 @@ export { PbDescription } from "./description";
 
 export { PbDivider } from "./divider";
 
-export { ElapsedPipe } from "./elapsed.pipe";
+export { formatElapsed, formatTimeLeft } from "./duration";
 
 export { type EyebrowTone, PbEyebrow } from "./eyebrow";
 
@@ -24,4 +24,8 @@ export { type NoticeKind, PbNotice } from "./notice";
 
 export { PbNoticeRegion } from "./notice-region";
 
-export { TimeLeftPipe } from "./time-left.pipe";
+export { PbPeople, type Person } from "./people";
+
+export { PbRecordButton } from "./record-button";
+
+export { type HeadingLevel, PbStatusHeading } from "./status-heading";

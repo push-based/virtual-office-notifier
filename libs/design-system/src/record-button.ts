@@ -1,8 +1,9 @@
 import { Component, input, output } from "@angular/core";
-import { PbButton } from "design-system";
+
+import { PbButton } from "./button";
 
 @Component({
-  selector: "app-record-button",
+  selector: "pb-record-button",
   imports: [PbButton],
   template: `
     <button
@@ -16,7 +17,7 @@ import { PbButton } from "design-system";
       (click)="pressed.emit()"
     >
       <span class="icon" aria-hidden="true"></span>
-      {{ recording() ? "Stop recording" : "Start recording" }}
+      {{ recording() ? stopLabel() : startLabel() }}
     </button>
   `,
   styles: `
@@ -41,12 +42,16 @@ import { PbButton } from "design-system";
   `,
   host: { "[class.recording]": "recording()" },
 })
-export class RecordButton {
-  readonly recording = input.required<boolean>();
+export class PbRecordButton {
+  readonly recording = input(false);
 
-  readonly busy = input.required<boolean>();
+  readonly busy = input(false);
 
-  readonly disabled = input.required<boolean>();
+  readonly disabled = input(false);
+
+  readonly startLabel = input("Start recording");
+
+  readonly stopLabel = input("Stop recording");
 
   readonly pressed = output();
 }
