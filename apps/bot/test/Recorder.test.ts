@@ -27,6 +27,7 @@ import { RecordingRequests } from "recording-requests/RecordingRequests";
 import { ActionItemWriter, type PulledItem } from "../src/ActionItems.ts";
 import type { Written } from "../src/AiWriting.ts";
 import { ClipArchive } from "../src/ClipArchive.ts";
+import type { Clip } from "../src/ClipCutter.ts";
 import { columnNaming, Database } from "../src/Database.ts";
 import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
@@ -36,7 +37,7 @@ import { InvalidPayload } from "../src/SlackClient.ts";
 import { SummaryWriter, type WrittenSummary } from "../src/SummaryWriter.ts";
 import { type Transcript, Transcriber, TranscriptionError } from "../src/Transcriber.ts";
 import { SPEAKING_HOLD } from "../src/Speaking.ts";
-import { type CaptureError, type Clip, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
+import { type CaptureError, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
 import {
   type FakeSlackClientOptions,
   makeFakeSlackClient,
