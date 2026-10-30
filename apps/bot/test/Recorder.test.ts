@@ -1769,6 +1769,32 @@ describe("Recorder", () => {
       yield* Fiber.interrupt(h.fiber);
     }),
   );
+  it.effect("reports it when the transcription loop dies", () => {
+    const { reports, layer } = captureReports();
+
+    return Effect.gen(function* () {
+      const h = yield* makeHarness({
+        present: [ada],
+        transcribe: () => Effect.die(new Error("The transcriber broke")),
+      });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.speak(clip("u1", 2));
+
+      yield* h.eventually(
+        Effect.sync(() => reports),
+        (found) => found.length > 0,
+      );
+
+      assert.deepStrictEqual(
+        Array.map(reports, ({ name, message }) => ({ name, message })),
+        [{ name: "Error", message: "The transcriber broke" }],
+      );
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("reports a request it can't read once, and again only after it recovered", () => {
     const { reports, layer } = captureReports();
 
