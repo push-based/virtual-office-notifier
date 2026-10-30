@@ -20,7 +20,7 @@ import {
   HttpClient,
   HttpClientRequest,
   type HttpClientError,
-  type HttpClientResponse,
+  HttpClientResponse,
 } from "effect/http";
 
 import { SlackConfig } from "./Config.ts";
@@ -59,6 +59,7 @@ export class InvalidPayload extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()("InvalidPayload", {
   error: Schema.String,
+  issue: Schema.optional(Schema.String),
 }) {}
 
 export const SlackErrorReason = Schema.Union([
@@ -130,46 +131,47 @@ const reasonForError = (error: string, headers: Headers.Headers): SlackErrorReas
 
 const failWith = (reason: SlackErrorReason) => Effect.fail(SlackError.make({ reason }));
 
-const decodeEnvelope = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(
-    Schema.Union([
-      Schema.Struct({ ok: Schema.Literal(true) }),
-      Schema.Struct({ ok: Schema.Literal(false), error: Schema.String }),
-    ]),
-  ),
-);
-
-const checkResponse = <S extends Schema.Decoder<unknown>>(schema: S) =>
-  Effect.fnUntraced(function* (
-    response: HttpClientResponse.HttpClientResponse,
-  ): Effect.fn.Return<S["Type"], SlackError> {
-    const { status, headers } = response;
-
-    if (status === 429)
-      return yield* failWith(RateLimited.make({ retryAfter: retryAfter(headers) }));
-
-    if (status >= 500) return yield* failWith(Unavailable.make({ status }));
-
-    if (status < 200 || status >= 300)
-      return yield* failWith(InvalidPayload.make({ error: `http_${status}` }));
-
-    const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-
-    const envelope = yield* decodeEnvelope(body).pipe(
-      Effect.catch(() => failWith(InvalidPayload.make({ error: "unexpected_response" }))),
-    );
-
-    if (!envelope.ok) return yield* failWith(reasonForError(envelope.error, headers));
-
-    return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(body).pipe(
-      Effect.catch(() => failWith(InvalidPayload.make({ error: "unexpected_response" }))),
-    );
-  });
-
 const describeHttpError = ({ reason }: HttpClientError.HttpClientError): string =>
   reason.description === undefined ? reason._tag : `${reason._tag}: ${reason.description}`;
 
 const transportError = (cause: string) => SlackError.make({ reason: Transport.make({ cause }) });
+
+const SlackFailure = Schema.Struct({ ok: Schema.Literal(false), error: Schema.String });
+
+const slackReply = <const Fields extends Schema.Struct.Fields>(fields: Fields) =>
+  Schema.Union([SlackFailure, Schema.Struct({ ...fields, ok: Schema.Literal(true) })]);
+
+type SlackReply<A extends { readonly ok: true }> = Schema.Union<
+  readonly [typeof SlackFailure, Schema.Decoder<A>]
+>;
+
+const unexpectedResponse = (method: string, issue: string) =>
+  Effect.logWarning("Slack sent a reply that didn't match").pipe(
+    Effect.annotateLogs({ method, issue }),
+    Effect.andThen(failWith(InvalidPayload.make({ error: "unexpected_response", issue }))),
+  );
+
+const checkResponse = <A extends { readonly ok: true }>(method: string, schema: SlackReply<A>) => {
+  const decodeReply = HttpClientResponse.schemaBodyJson(schema);
+
+  return HttpClientResponse.matchStatus({
+    429: (response) => failWith(RateLimited.make({ retryAfter: retryAfter(response.headers) })),
+    "2xx": Effect.fnUntraced(function* (response): Effect.fn.Return<A, SlackError> {
+      const reply = yield* decodeReply(response).pipe(
+        Effect.catchTags({
+          SchemaError: (error) => unexpectedResponse(method, error.message),
+          HttpClientError: (error) => unexpectedResponse(method, describeHttpError(error)),
+        }),
+      );
+
+      if (!reply.ok) return yield* failWith(reasonForError(reply.error, response.headers));
+
+      return reply;
+    }),
+    "5xx": (response) => failWith(Unavailable.make({ status: response.status })),
+    orElse: (response) => failWith(InvalidPayload.make({ error: `http_${response.status}` })),
+  });
+};
 
 const retrySchedule = Schedule.exponential("1 second").pipe(
   Schedule.jittered,
@@ -211,11 +213,11 @@ export interface SlackProfile {
   readonly realName: string;
 }
 
-const Posted = Schema.Struct({ channel: Schema.String, ts: Schema.String });
+const Posted = slackReply({ channel: Schema.String, ts: Schema.String });
 
-const Nothing = Schema.Struct({});
+const Nothing = slackReply({});
 
-const Replies = Schema.Struct({
+const Replies = slackReply({
   messages: Schema.Array(
     Schema.Struct({
       ts: Schema.String,
@@ -226,7 +228,7 @@ const Replies = Schema.Struct({
   ),
 });
 
-const UserInfo = Schema.Struct({
+const UserInfo = slackReply({
   user: Schema.Struct({
     real_name: Schema.optional(Schema.String),
     profile: Schema.optional(
@@ -238,13 +240,13 @@ const UserInfo = Schema.Struct({
   }),
 });
 
-const AuthTest = Schema.Struct({ user_id: Schema.String });
+const AuthTest = slackReply({ user_id: Schema.String });
 
-const Permalink = Schema.Struct({ permalink: Schema.String });
+const Permalink = slackReply({ permalink: Schema.String });
 
-const ConnectionUrl = Schema.Struct({ url: Schema.String });
+const ConnectionUrl = slackReply({ url: Schema.String });
 
-const UploadUrl = Schema.Struct({ upload_url: Schema.String, file_id: Schema.String });
+const UploadUrl = slackReply({ upload_url: Schema.String, file_id: Schema.String });
 
 export interface FileUpload {
   readonly channel: string;
@@ -326,11 +328,11 @@ export class SlackClient extends Context.Service<
       const { botToken, appToken } = yield* SlackConfig;
       const client = yield* HttpClient.HttpClient;
 
-      const send = <S extends Schema.Decoder<unknown>>(
+      const send = <A extends { readonly ok: true }>(
         method: string,
         request: HttpClientRequest.HttpClientRequest,
         token: Redacted.Redacted<string>,
-        schema: S,
+        schema: SlackReply<A>,
       ) =>
         request.pipe(
           HttpClientRequest.bearerToken(Redacted.value(token)),
@@ -340,15 +342,15 @@ export class SlackClient extends Context.Service<
             HttpClientError: (error) => Effect.fail(error.pipe(describeHttpError, transportError)),
             TimeoutError: () => Effect.fail(transportError("Timed out after 10 seconds")),
           }),
-          Effect.flatMap(checkResponse(schema)),
+          Effect.flatMap(checkResponse(method, schema)),
           Effect.retry(retrySchedule),
           Effect.withSpan(`SlackClient.${method}`),
         );
 
-      const write = <S extends Schema.Decoder<unknown>>(
+      const write = <A extends { readonly ok: true }>(
         method: string,
         body: WriteBody,
-        schema: S,
+        schema: SlackReply<A>,
       ) =>
         send(
           method,
@@ -359,10 +361,10 @@ export class SlackClient extends Context.Service<
           schema,
         );
 
-      const read = <S extends Schema.Decoder<unknown>>(
+      const read = <A extends { readonly ok: true }>(
         method: string,
         params: Record<string, string>,
-        schema: S,
+        schema: SlackReply<A>,
       ) =>
         send(
           method,
