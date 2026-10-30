@@ -14,6 +14,7 @@
     "importHelpers": true,
     "target": "ES2022",
     "module": "preserve",
+    "rewriteRelativeImportExtensions": true,
     "types": []
   },
   "angularCompilerOptions": {

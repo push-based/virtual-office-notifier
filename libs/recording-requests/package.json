@@ -7,6 +7,9 @@
     "./wire": "./src/Wire.ts",
     "./*": "./src/*.ts"
   },
+  "dependencies": {
+    "activity-sign-in": "workspace:*"
+  },
   "devDependencies": {
     "@effect/sql-pglite": "catalog:",
     "@effect/vitest": "catalog:",

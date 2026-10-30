@@ -1,57 +1,36 @@
-export type RequestAction = "start" | "stop";
+import type * as SignIn from "activity-sign-in/SignInApi";
 
-export type IgnoreReason =
-  | "expired"
-  | "not_in_office"
-  | "already_recording"
-  | "not_recording"
-  | "office_empty";
+import type * as Schemas from "./RecordingRequest.ts";
 
-export interface Occupant {
-  readonly userId: string;
-  readonly displayName: string;
-  readonly avatarUrl: string | null;
-}
+export type RequestAction = typeof Schemas.RequestAction.Encoded;
 
-export interface RunningRecording {
-  readonly id: string;
-  readonly startedAt: string;
-  readonly startedByName: string;
-  readonly endsAt: string;
-}
+export type RequestSubmission = typeof Schemas.RequestSubmission.Encoded;
 
-export interface RecordingStatus {
-  readonly botInOffice: boolean;
-  readonly occupants: ReadonlyArray<Occupant>;
-  readonly recording: RunningRecording | null;
-  readonly updatedAt: string;
-}
+export type IgnoreReason = typeof Schemas.IgnoreReason.Encoded;
 
-export interface PendingRequest {
-  readonly id: number;
-  readonly outcome: null;
-}
+export type Occupant = typeof Schemas.Occupant.Encoded;
 
-export interface StartedRequest {
-  readonly id: number;
-  readonly outcome: "started";
-}
+export type RunningRecording = typeof Schemas.RunningRecording.Encoded;
 
-export interface StoppedRequest {
-  readonly id: number;
-  readonly outcome: "stopped";
-}
+export type RecordingStatus = typeof Schemas.RecordingStatus.Encoded;
 
-export interface IgnoredRequest {
-  readonly id: number;
-  readonly outcome: "ignored";
-  readonly reason: IgnoreReason;
-  readonly explanation: string;
-}
+export type PendingRequest = typeof Schemas.PendingRequest.Encoded;
+
+export type StartedRequest = typeof Schemas.StartedRequest.Encoded;
+
+export type StoppedRequest = typeof Schemas.StoppedRequest.Encoded;
+
+export type IgnoredRequest = typeof Schemas.IgnoredRequest.Encoded;
 
 export type HandledRequest = StartedRequest | StoppedRequest | IgnoredRequest;
 
-export type SubmittedRequest = PendingRequest | HandledRequest;
+export type SubmittedRequest = typeof Schemas.SubmittedRequest.Encoded;
+
+export type SignInConfig = typeof SignIn.SignInConfig.Encoded;
+
+export type SignInCode = typeof SignIn.SignInCode.Encoded;
+
+export type SignedInSession = typeof SignIn.SignedInSession.Encoded;
 
 export const REQUEST_EXPIRY_MS = 60_000;
 

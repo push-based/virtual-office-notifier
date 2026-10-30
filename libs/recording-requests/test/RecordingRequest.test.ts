@@ -13,7 +13,6 @@ import {
   RequestDecision,
   type RecordingRequest,
   RowId,
-  SubmittedRequest,
 } from "../src/RecordingRequest.ts";
 import type * as Wire from "../src/Wire.ts";
 
@@ -138,9 +137,10 @@ describe("explain", () => {
 });
 
 describe("the page's types", () => {
-  it("match what the Worker sends", () => {
-    expectTypeOf<typeof RecordingStatus.Encoded>().toEqualTypeOf<Wire.RecordingStatus>();
-    expectTypeOf<typeof SubmittedRequest.Encoded>().toEqualTypeOf<Wire.SubmittedRequest>();
+  it("see times as the ISO strings the Worker sends", () => {
+    expectTypeOf<Wire.RecordingStatus["updatedAt"]>().toEqualTypeOf<string>();
+    expectTypeOf<Wire.RunningRecording["startedAt"]>().toEqualTypeOf<string>();
+    expectTypeOf<Wire.RunningRecording["endsAt"]>().toEqualTypeOf<string>();
   });
 
   it.effect("send times as ISO strings", () =>

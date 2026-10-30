@@ -6,6 +6,7 @@ export type {
   Occupant,
   RecordingStatus,
   RequestAction,
+  RequestSubmission,
   RunningRecording,
   SubmittedRequest,
 } from "recording-requests/wire";

@@ -26,6 +26,8 @@ export const RequestAction = Schema.Literals(["start", "stop"]);
 
 export type RequestAction = typeof RequestAction.Type;
 
+export const RequestSubmission = Schema.Struct({ action: RequestAction });
+
 export const RequestOutcome = Schema.Literals(["started", "stopped", "ignored"]);
 
 export type RequestOutcome = typeof RequestOutcome.Type;

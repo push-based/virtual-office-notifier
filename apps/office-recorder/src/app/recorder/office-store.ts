@@ -40,6 +40,9 @@ interface OfficeState {
 const isHandled = (request: SubmittedRequest): request is HandledRequest =>
   request.outcome !== null;
 
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
 @Service({ autoProvided: false })
 export class OfficeStore {
   private readonly api = inject(RecorderApi);
@@ -101,7 +104,7 @@ export class OfficeStore {
     try {
       await this.session.signIn();
     } catch (error) {
-      this.patch({ failure: error instanceof Error ? error.message : String(error) });
+      this.patch({ failure: messageOf(error) });
 
       return;
     }
@@ -113,9 +116,7 @@ export class OfficeStore {
         mergeMap(() =>
           this.api.status().pipe(
             catchError((error) => {
-              this.notices.next(
-                unreachableNotice(error instanceof Error ? error.message : String(error)),
-              );
+              this.notices.next(unreachableNotice(messageOf(error)));
 
               return EMPTY;
             }),
@@ -142,9 +143,7 @@ export class OfficeStore {
       .pipe(
         switchMap(({ id }) => this.awaitOutcome(id)),
         map(outcomeNotice),
-        catchError((error) =>
-          of(unreachableNotice(error instanceof Error ? error.message : String(error))),
-        ),
+        catchError((error) => of(unreachableNotice(messageOf(error)))),
         finalize(() => {
           this.patch({ busy: false });
           this.refreshes.next();
