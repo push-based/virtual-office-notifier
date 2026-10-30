@@ -7,12 +7,14 @@ import { DateTime, Effect, Layer, Option, Redacted, Ref, Schema } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
+import { OfficeStatsReader } from "../src/OfficeStats.ts";
 import type { ListedRecording, RecordingDetail } from "../src/Recording.ts";
 import { RecordingApi } from "../src/RecordingApi.ts";
 import { HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
 import { RecordingHistory } from "../src/RecordingHistory.ts";
 import { RecordingRequests } from "../src/RecordingRequests.ts";
 import { SignedInLayer, SignInHandlers } from "../src/SignInHandlers.ts";
+import { StatsHandlers } from "../src/StatsHandlers.ts";
 import type * as Wire from "../src/Wire.ts";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
@@ -74,6 +76,7 @@ const app = HttpRouter.toWebHandler(
       SignInHandlers.pipe(Layer.provide(Discord)),
       RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerDisabled)),
       HistoryHandlers.pipe(Layer.provide(History)),
+      StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerDisabled)),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),
