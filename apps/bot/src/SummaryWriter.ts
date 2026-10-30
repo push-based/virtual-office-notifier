@@ -1,7 +1,5 @@
-import { NodeHttpClient } from "@effect/platform-node";
 import {
   Array,
-  Cause,
   Context,
   DateTime,
   Effect,
@@ -20,10 +18,10 @@ import {
 import type { SummaryStyle } from "recording-requests/Recording";
 
 import {
-  configuredProviders,
-  failureReason,
   type Brief,
+  orReportedNone,
   type Providers,
+  writerLayer,
   writeWithProviders,
 } from "./AiWriting.ts";
 import { officeClock } from "./Banter.ts";
@@ -214,16 +212,7 @@ export class SummaryWriter extends Context.Service<
 
             return { text: value, model, style };
           },
-          Effect.tapError((error) =>
-            Effect.logWarning("No AI model could summarize the recording").pipe(
-              Effect.andThen(
-                ErrorReporter.report(
-                  Cause.fail(NoAiSummary.make({ reason: failureReason(error) })),
-                ),
-              ),
-            ),
-          ),
-          Effect.option,
+          orReportedNone("summarize the recording", (reason) => NoAiSummary.make({ reason })),
         ),
       }),
     );
@@ -233,17 +222,9 @@ export class SummaryWriter extends Context.Service<
     SummaryWriter.of({ write: () => Effect.succeedNone }),
   );
 
-  static readonly layer = Layer.unwrap(
-    Effect.gen(function* () {
-      const providers = yield* configuredProviders((config) => config.openRouter.banterModels);
-
-      return Array.match(providers, {
-        onEmpty: () =>
-          Layer.effectDiscard(
-            Effect.logInfo("No AI provider configured, so recordings get no summary"),
-          ).pipe(Layer.provideMerge(SummaryWriter.layerNone)),
-        onNonEmpty: SummaryWriter.layerProviders,
-      });
-    }),
-  ).pipe(Layer.provide(NodeHttpClient.layerUndici));
+  static readonly layer = writerLayer({
+    withProviders: ({ banter }) => SummaryWriter.layerProviders(banter),
+    withoutProviders: SummaryWriter.layerNone,
+    withoutProvidersNote: "No AI provider configured, so recordings get no summary",
+  });
 }

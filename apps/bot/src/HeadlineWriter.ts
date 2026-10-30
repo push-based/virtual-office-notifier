@@ -1,7 +1,5 @@
-import { NodeHttpClient } from "@effect/platform-node";
 import {
   Array,
-  Cause,
   Context,
   Effect,
   ErrorReporter,
@@ -18,9 +16,9 @@ import {
 
 import {
   type Brief,
-  configuredProviders,
-  failureReason,
+  orReportedNone,
   type Providers,
+  writerLayer,
   writeWithProviders,
 } from "./AiWriting.ts";
 import { banterLog } from "./Banter.ts";
@@ -195,16 +193,7 @@ export class HeadlineWriter extends Context.Service<
 
             return { template, button, model };
           },
-          Effect.tapError((error) =>
-            Effect.logWarning("No AI model could write a headline").pipe(
-              Effect.andThen(
-                ErrorReporter.report(
-                  Cause.fail(NoAiHeadline.make({ reason: failureReason(error) })),
-                ),
-              ),
-            ),
-          ),
-          Effect.option,
+          orReportedNone("write a headline", (reason) => NoAiHeadline.make({ reason })),
           (effect, event) => Effect.annotateLogs(effect, { headline: event._tag }),
         ),
       }),
@@ -215,25 +204,9 @@ export class HeadlineWriter extends Context.Service<
     HeadlineWriter.of({ write: () => Effect.succeedNone }),
   );
 
-  static readonly layer = Layer.unwrap(
-    Effect.gen(function* () {
-      const providers = yield* configuredProviders((config) => config.openRouter.models);
-
-      const banterProviders = yield* configuredProviders(
-        (config) => config.openRouter.banterModels,
-      );
-
-      return Array.match(providers, {
-        onEmpty: () =>
-          Layer.effectDiscard(
-            Effect.logInfo("No AI provider configured, so using the fixed headlines"),
-          ).pipe(Layer.provideMerge(HeadlineWriter.layerFixed)),
-        onNonEmpty: (headlineProviders) =>
-          HeadlineWriter.layerProviders(
-            headlineProviders,
-            Array.isReadonlyArrayNonEmpty(banterProviders) ? banterProviders : headlineProviders,
-          ),
-      });
-    }),
-  ).pipe(Layer.provide(NodeHttpClient.layerUndici));
+  static readonly layer = writerLayer({
+    withProviders: ({ headlines, banter }) => HeadlineWriter.layerProviders(headlines, banter),
+    withoutProviders: HeadlineWriter.layerFixed,
+    withoutProvidersNote: "No AI provider configured, so using the fixed headlines",
+  });
 }

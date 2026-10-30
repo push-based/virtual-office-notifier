@@ -1,10 +1,12 @@
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai-compat";
 import { OpenRouterClient, OpenRouterLanguageModel } from "@effect/ai-openrouter";
+import { NodeHttpClient } from "@effect/platform-node";
 import {
   Array,
-  type Cause,
-  type Config,
+  Cause,
+  Context,
   Effect,
+  ErrorReporter,
   ExecutionPlan,
   Layer,
   Match,
@@ -14,7 +16,6 @@ import {
   Schema,
 } from "effect";
 import { AiError, LanguageModel, Model, type Response } from "effect/ai";
-import type { HttpClient } from "effect/http";
 
 import { AiConfig } from "./Config.ts";
 
@@ -183,58 +184,131 @@ const CLOUDFLARE_MODEL_CONFIG = {
   chat_template_kwargs: { enable_thinking: false },
 };
 
-const withClient = Effect.fnUntraced(function* <P extends string, C>(
+const captureModels = <P extends string, C>(
+  client: Context.Context<C>,
   models: Array.NonEmptyReadonlyArray<Model.Model<P, LanguageModel.LanguageModel, C>>,
-  client: Layer.Layer<C, never, HttpClient.HttpClient>,
-) {
-  const context = yield* Layer.build(client);
-
-  return yield* Effect.all(Array.map(models, (model) => model.captureRequirements)).pipe(
-    Effect.provideContext(context),
+) =>
+  Effect.all(Array.map(models, (model) => model.captureRequirements)).pipe(
+    Effect.provideContext(client),
   );
-});
+
+const openRouterClient = (apiKey: Redacted.Redacted<string>) =>
+  Layer.build(OpenRouterClient.layer({ apiKey, siteTitle: "Virtual Office Notifier" }));
+
+const openRouterModels = (
+  client: Context.Context<OpenRouterClient.OpenRouterClient>,
+  models: Array.NonEmptyReadonlyArray<string>,
+) =>
+  captureModels(
+    client,
+    Array.map(models, (model) => OpenRouterLanguageModel.model(model, { temperature: 1 })),
+  );
 
 export const openRouterProvider = (
   apiKey: Redacted.Redacted<string>,
   models: Array.NonEmptyReadonlyArray<string>,
-) =>
-  withClient(
-    Array.map(models, (model) => OpenRouterLanguageModel.model(model, { temperature: 1 })),
-    OpenRouterClient.layer({ apiKey, siteTitle: "Virtual Office Notifier" }),
-  );
+) => openRouterClient(apiKey).pipe(Effect.flatMap((client) => openRouterModels(client, models)));
 
-export const cloudflareProvider = (
-  accountId: Redacted.Redacted<string>,
-  apiToken: Redacted.Redacted<string>,
+interface CloudflareAccount {
+  readonly accountId: Redacted.Redacted<string>;
+  readonly apiToken: Redacted.Redacted<string>;
+}
+
+const cloudflareProvider = (
+  { accountId, apiToken }: CloudflareAccount,
   models: Array.NonEmptyReadonlyArray<string>,
 ) =>
-  withClient(
-    Array.map(models, (model) => OpenAiLanguageModel.model(model, CLOUDFLARE_MODEL_CONFIG)),
+  Layer.build(
     OpenAiClient.layer({
       apiKey: apiToken,
       apiUrl: `https://api.cloudflare.com/client/v4/accounts/${Redacted.value(accountId)}/ai/v1`,
     }),
+  ).pipe(
+    Effect.flatMap((client) =>
+      captureModels(
+        client,
+        Array.map(models, (model) => OpenAiLanguageModel.model(model, CLOUDFLARE_MODEL_CONFIG)),
+      ),
+    ),
   );
 
-export const configuredProviders = Effect.fnUntraced(function* (
-  openRouterModels: (
-    config: Config.Success<typeof AiConfig>,
-  ) => Array.NonEmptyReadonlyArray<string>,
-) {
-  const config = yield* AiConfig;
-  const { openRouter, cloudflare } = config;
+export interface ConfiguredProviders {
+  readonly headlines: Providers;
+  readonly banter: Providers;
+}
 
-  return yield* Effect.all([
-    ...Option.toArray(
-      Option.map(openRouter.apiKey, (apiKey) =>
-        openRouterProvider(apiKey, openRouterModels(config)),
+export class AiProviders extends Context.Service<
+  AiProviders,
+  {
+    readonly configured: Option.Option<ConfiguredProviders>;
+  }
+>()("bot/AiWriting/AiProviders") {
+  static readonly layer = Layer.effect(
+    AiProviders,
+    Effect.gen(function* () {
+      const { openRouter, cloudflare } = yield* AiConfig;
+
+      const openRouterContext = yield* Effect.transposeOption(
+        Option.map(openRouter.apiKey, openRouterClient),
+      );
+
+      const cloudflareModels = yield* Effect.transposeOption(
+        Option.map(
+          Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }),
+          (account) => cloudflareProvider(account, cloudflare.models),
+        ),
+      );
+
+      const providersWith = Effect.fnUntraced(function* (
+        models: Array.NonEmptyReadonlyArray<string>,
+      ) {
+        const openRouterProviderModels = yield* Effect.transposeOption(
+          Option.map(openRouterContext, (client) => openRouterModels(client, models)),
+        );
+
+        return Array.match(
+          [...Option.toArray(openRouterProviderModels), ...Option.toArray(cloudflareModels)],
+          { onEmpty: Option.none<Providers>, onNonEmpty: Option.some },
+        );
+      });
+
+      return AiProviders.of({
+        configured: Option.all({
+          headlines: yield* providersWith(openRouter.models),
+          banter: yield* providersWith(openRouter.banterModels),
+        }),
+      });
+    }),
+  ).pipe(Layer.provide(NodeHttpClient.layerUndici));
+}
+
+export const orReportedNone =
+  (task: string, noAi: (reason: string) => Cause.YieldableError) =>
+  <A, R>(written: Effect.Effect<A, WritingError, R>): Effect.Effect<Option.Option<A>, never, R> =>
+    written.pipe(
+      Effect.tapError((error) =>
+        Effect.logWarning(`No AI model could ${task}`).pipe(
+          Effect.andThen(ErrorReporter.report(Cause.fail(noAi(failureReason(error))))),
+        ),
       ),
-    ),
-    ...Option.toArray(
-      Option.map(
-        Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }),
-        ({ accountId, apiToken }) => cloudflareProvider(accountId, apiToken, cloudflare.models),
-      ),
-    ),
-  ]);
-});
+      Effect.option,
+    );
+
+export const writerLayer = <I>(options: {
+  readonly withProviders: (providers: ConfiguredProviders) => Layer.Layer<I>;
+  readonly withoutProviders: Layer.Layer<I>;
+  readonly withoutProvidersNote: string;
+}): Layer.Layer<I, never, AiProviders> =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      const { configured } = yield* AiProviders;
+
+      return Option.match(configured, {
+        onNone: () =>
+          Layer.effectDiscard(Effect.logInfo(options.withoutProvidersNote)).pipe(
+            Layer.provideMerge(options.withoutProviders),
+          ),
+        onSome: options.withProviders,
+      });
+    }),
+  );
