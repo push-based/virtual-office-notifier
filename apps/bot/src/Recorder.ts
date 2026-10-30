@@ -107,6 +107,14 @@ const found = (bytes: Uint8Array): Audio => Audio.Found({ bytes });
 
 const report = (error: Error) => ErrorReporter.report(Cause.fail(error));
 
+const HANDLING_REQUESTS = "Couldn't handle recording requests";
+
+const APPLYING_EDITS = "Couldn't apply recording edits";
+
+const PUBLISHING_STATUS = "Couldn't update the recording status";
+
+const READING_CLIPS = "Couldn't read the clips to transcribe";
+
 const uploadRetry = Schedule.exponential("1 second").pipe(
   Schedule.upTo({ times: UPLOAD_ATTEMPTS - 1 }),
 );
@@ -180,7 +188,7 @@ export class Recorder extends Context.Service<
       const { channelId: slackChannel } = yield* SlackConfig;
       const random = yield* SecureRandom.SecureRandom;
 
-      const runFor = Effect.fn("Recorder.run")(function* (office: OfficeLocation) {
+      const runFor = Effect.fnUntraced(function* (office: OfficeLocation) {
         const audio = yield* ClipAudio.make;
         const wake = yield* Queue.dropping<void>(1);
         const session = yield* Ref.make(Option.none<Session>());
@@ -219,10 +227,8 @@ export class Recorder extends Context.Service<
               .publishStatus(status)
               .pipe(
                 Effect.andThen(Ref.set(lastStatus, key)),
-                Effect.catchTag(
-                  "RecordingUnavailable",
-                  storeHealth.issue("Couldn't update the recording status"),
-                ),
+                Effect.andThen(storeHealth.ok(PUBLISHING_STATUS)),
+                Effect.catchTag("RecordingUnavailable", storeHealth.issue(PUBLISHING_STATUS)),
               );
 
           return speaking.size > 0;
@@ -895,9 +901,10 @@ export class Recorder extends Context.Service<
         const applyEdits = edits
           .handlePending(editHandler)
           .pipe(
+            Effect.andThen(storeHealth.ok(APPLYING_EDITS)),
             Effect.catchTag(
               ["StoreUnavailable", "RecordingUnavailable"],
-              storeHealth.issue("Couldn't apply recording edits"),
+              storeHealth.issue(APPLYING_EDITS),
             ),
           );
 
@@ -910,12 +917,12 @@ export class Recorder extends Context.Service<
               yield* stopRecording("time_limit", null);
 
             yield* requests.handlePending(requestHandler);
-            yield* storeHealth.ok;
+            yield* storeHealth.ok(HANDLING_REQUESTS);
             yield* statusChange;
           }).pipe(
             Effect.catchTag(
               ["StoreUnavailable", "RecordingUnavailable"],
-              storeHealth.issue("Couldn't handle recording requests"),
+              storeHealth.issue(HANDLING_REQUESTS),
             ),
             Effect.andThen(applyEdits),
           ),
@@ -957,7 +964,7 @@ export class Recorder extends Context.Service<
           },
           Effect.catchTag(
             "StoreUnavailable",
-            storeHealth.issue("Couldn't check for a recording in progress"),
+            StoreHealth.report("Couldn't check for a recording in progress"),
           ),
         );
 
@@ -974,7 +981,7 @@ export class Recorder extends Context.Service<
                 yield* stopRecording("office_emptied", null).pipe(
                   Effect.catchTag(
                     "StoreUnavailable",
-                    storeHealth.issue("Couldn't record the end of the recording"),
+                    StoreHealth.report("Couldn't record the end of the recording"),
                   ),
                 );
               }
@@ -1052,7 +1059,7 @@ export class Recorder extends Context.Service<
         const transcribeNext = Effect.gen(function* () {
           const next = yield* store.nextPendingClip;
 
-          yield* storeHealth.ok;
+          yield* storeHealth.ok(READING_CLIPS);
 
           if (Option.isNone(next)) {
             yield* Queue.take(wake).pipe(Effect.timeoutOption(TRANSCRIPTION_IDLE));
@@ -1062,19 +1069,24 @@ export class Recorder extends Context.Service<
 
           const clip = next.value;
 
-          yield* Match.valueTags(yield* audioFor(clip), {
-            Found: ({ bytes }) => transcribeClip(clip, bytes),
-            Missing: () =>
-              store
-                .clipFailed(clip.id, "No audio is available for this clip", true)
-                .pipe(Effect.andThen(Effect.logWarning("A clip has no audio to transcribe"))),
-            Unavailable: () => Effect.sleep(TRANSCRIPTION_IDLE),
-          });
+          yield* audioFor(clip).pipe(
+            Effect.flatMap(
+              Match.valueTags({
+                Found: ({ bytes }) => transcribeClip(clip, bytes),
+                Missing: () =>
+                  store
+                    .clipFailed(clip.id, "No audio is available for this clip", true)
+                    .pipe(Effect.andThen(Effect.logWarning("A clip has no audio to transcribe"))),
+                Unavailable: () => Effect.sleep(TRANSCRIPTION_IDLE),
+              }),
+            ),
+            Effect.withSpan("Recorder.transcribe"),
+          );
         }).pipe(
           Effect.annotateLogs({ worker: "transcription" }),
           Effect.catchTag("StoreUnavailable", (error) =>
             storeHealth
-              .issue("Couldn't read the clips to transcribe")(error)
+              .issue(READING_CLIPS)(error)
               .pipe(Effect.andThen(Effect.sleep(TRANSCRIPTION_IDLE))),
           ),
         );

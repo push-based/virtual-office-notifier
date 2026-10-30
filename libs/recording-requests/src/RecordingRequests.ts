@@ -1,4 +1,13 @@
-import { Context, Effect, Layer, Match, Option, Schema } from "effect";
+import {
+  Context,
+  Effect,
+  ErrorReporter,
+  Layer,
+  type LogLevel,
+  Match,
+  Option,
+  Schema,
+} from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 
 import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
@@ -26,7 +35,20 @@ export class RecordingUnavailable extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()("RecordingUnavailable", {
   reason: Schema.String,
-}) {}
+  unreadable: Schema.Boolean.pipe(Schema.withConstructorDefault(Effect.succeed(false))),
+}) {
+  override get message(): string {
+    return this.reason;
+  }
+
+  override get [ErrorReporter.severity](): LogLevel.Severity {
+    return this.unreadable ? "Error" : "Warn";
+  }
+
+  override get [ErrorReporter.attributes]() {
+    return { reason: this.reason };
+  }
+}
 
 export interface Situation {
   readonly occupants: ReadonlySet<string>;
@@ -176,6 +198,9 @@ const writeStatus = (sql: SqlClient.SqlClient) =>
 
 export const recordingUnavailable = (reason: string) => RecordingUnavailable.make({ reason });
 
+export const recordingUnreadable = (reason: string) =>
+  RecordingUnavailable.make({ reason, unreadable: true });
+
 const unavailable = (reason: string) => Effect.fail(recordingUnavailable(reason));
 
 export class RecordingRequests extends Context.Service<
@@ -201,7 +226,11 @@ export class RecordingRequests extends Context.Service<
     ready: Effect.Effect<void>,
     connected: Connected<RecordingUnavailable>,
   ) => {
-    const onceReady = guardQuery({ ready, unavailable: recordingUnavailable });
+    const onceReady = guardQuery({
+      ready,
+      unavailable: recordingUnavailable,
+      unreadable: recordingUnreadable,
+    });
 
     const submit = Effect.fn("RecordingRequests.submit")(
       (requester: Requester, action: RequestAction, plan: RecordingPlan = NO_PLAN) =>
@@ -307,12 +336,16 @@ export class RecordingRequests extends Context.Service<
       yield* committed.afterCommit;
     });
 
-    const handlePending = Effect.fn("RecordingRequests.handlePending")(
-      <E, R>(handler: RequestHandler<E, R>) =>
-        connected(
-          Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
-            const pending = yield* onceReady(findPending(sql)());
+    const handlePending = <E, R>(handler: RequestHandler<E, R>) =>
+      connected(
+        Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+          const pending = yield* onceReady(findPending(sql)()).pipe(
+            Effect.withTracerEnabled(false),
+          );
 
+          if (pending.length === 0) return;
+
+          yield* Effect.gen(function* () {
             for (const request of pending) {
               const { occupants, active } = yield* handler.situation;
 
@@ -334,9 +367,9 @@ export class RecordingRequests extends Context.Service<
                   ),
               }).pipe(Effect.annotateLogs({ request: request.id, action: request.action }));
             }
-          }),
-        ),
-    );
+          }).pipe(Effect.withSpan("RecordingRequests.handlePending"));
+        }),
+      );
 
     const publishStatus = Effect.fn("RecordingRequests.publishStatus")((update: StatusUpdate) =>
       connected((sql) => onceReady(writeStatus(sql)(update))),

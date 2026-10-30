@@ -1,4 +1,15 @@
-import { Array, Context, DateTime, Effect, Layer, Match, Option, Schema } from "effect";
+import {
+  Array,
+  Context,
+  DateTime,
+  Effect,
+  ErrorReporter,
+  Layer,
+  type LogLevel,
+  Match,
+  Option,
+  Schema,
+} from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 import { SummaryStyle } from "recording-requests/Recording";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
@@ -27,7 +38,20 @@ export class StoreUnavailable extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()("StoreUnavailable", {
   reason: Schema.String,
-}) {}
+  unreadable: Schema.Boolean.pipe(Schema.withConstructorDefault(Effect.succeed(false))),
+}) {
+  override get message(): string {
+    return this.reason;
+  }
+
+  override get [ErrorReporter.severity](): LogLevel.Severity {
+    return this.unreadable ? "Error" : "Warn";
+  }
+
+  override get [ErrorReporter.attributes]() {
+    return { reason: this.reason };
+  }
+}
 
 export interface NewRecording {
   readonly id: string;
@@ -313,6 +337,7 @@ export class RecordingStore extends Context.Service<
       const onceReady = guardQuery({
         ready: database.ready,
         unavailable: (reason) => StoreUnavailable.make({ reason }),
+        unreadable: (reason) => StoreUnavailable.make({ reason, unreadable: true }),
         describe: describeError,
       });
 
@@ -684,9 +709,7 @@ export class RecordingStore extends Context.Service<
         Effect.map(({ id }) => id),
       );
 
-      const nextPendingClip = onceReady(findPendingClip()).pipe(
-        Effect.withSpan("RecordingStore.nextPendingClip"),
-      );
+      const nextPendingClip = onceReady(findPendingClip()).pipe(Effect.withTracerEnabled(false));
 
       const clipTranscribed = Effect.fn("RecordingStore.clipTranscribed")(
         (id: number, at: DateTime.Utc, transcript: string, model: string) =>
