@@ -22,6 +22,8 @@ const emptyOffice: RequestHandler<never, never> = {
   situation: Effect.succeed({ occupants: new Set<string>(), active: Option.none() }),
   start: () => Effect.die("The office is empty"),
   stop: () => Effect.die("The office is empty"),
+  pause: () => Effect.die("The office is empty"),
+  resume: () => Effect.die("The office is empty"),
 };
 
 const createTables = Effect.gen(function* () {
@@ -33,7 +35,8 @@ const createTables = Effect.gen(function* () {
   `;
   yield* sql`
     CREATE TABLE office.recordings (
-      id uuid PRIMARY KEY, started_at timestamptz NOT NULL, started_by text NOT NULL, stopped_at timestamptz
+      id uuid PRIMARY KEY, started_at timestamptz NOT NULL, started_by text NOT NULL, stopped_at timestamptz,
+      paused_at timestamptz, paused_by text
     )
   `;
   yield* sql`

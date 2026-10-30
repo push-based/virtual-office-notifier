@@ -1,9 +1,10 @@
 import type { NoticeKind } from "design-system";
-import type { RunningRecording } from "recording-requests/wire";
+import type { RecordingPause, RunningRecording } from "recording-requests/wire";
 
 export type {
   HandledRequest,
   Occupant,
+  RecordingPause,
   RecordingStatus,
   RequestAction,
   RequestSubmission,
@@ -21,4 +22,9 @@ export type OfficePhase =
   | { readonly kind: "connecting" }
   | { readonly kind: "away" }
   | { readonly kind: "idle" }
-  | { readonly kind: "recording"; readonly recording: RunningRecording };
+  | { readonly kind: "recording"; readonly recording: RunningRecording }
+  | {
+      readonly kind: "paused";
+      readonly recording: RunningRecording;
+      readonly pause: RecordingPause;
+    };

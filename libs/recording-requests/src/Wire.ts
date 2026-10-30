@@ -11,6 +11,8 @@ export type IgnoreReason = typeof Schemas.IgnoreReason.Encoded;
 
 export type Occupant = typeof Schemas.Occupant.Encoded;
 
+export type RecordingPause = typeof Schemas.RecordingPause.Encoded;
+
 export type RunningRecording = typeof Schemas.RunningRecording.Encoded;
 
 export type RecordingStatus = typeof Schemas.RecordingStatus.Encoded;
@@ -21,9 +23,18 @@ export type StartedRequest = typeof Schemas.StartedRequest.Encoded;
 
 export type StoppedRequest = typeof Schemas.StoppedRequest.Encoded;
 
+export type PausedRequest = typeof Schemas.PausedRequest.Encoded;
+
+export type ResumedRequest = typeof Schemas.ResumedRequest.Encoded;
+
 export type IgnoredRequest = typeof Schemas.IgnoredRequest.Encoded;
 
-export type HandledRequest = StartedRequest | StoppedRequest | IgnoredRequest;
+export type HandledRequest =
+  | StartedRequest
+  | StoppedRequest
+  | PausedRequest
+  | ResumedRequest
+  | IgnoredRequest;
 
 export type SubmittedRequest = typeof Schemas.SubmittedRequest.Encoded;
 

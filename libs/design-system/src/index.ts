@@ -12,7 +12,7 @@ export { PbDescription } from "./description";
 
 export { PbDivider } from "./divider";
 
-export { formatElapsed, formatTimeLeft } from "./duration";
+export { formatElapsed, formatTimeLeft, formatTimeSince } from "./duration";
 
 export { type EyebrowTone, PbEyebrow } from "./eyebrow";
 

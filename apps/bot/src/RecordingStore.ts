@@ -4,7 +4,12 @@ import { type ActiveRecording, RowId } from "recording-requests/RecordingRequest
 
 import { memberUpsert } from "./ActivityLog.ts";
 import { Database, describeError } from "./Database.ts";
-import { MAX_TRANSCRIPTION_ATTEMPTS, StopReason, TranscriptionStatus } from "./Recording.ts";
+import {
+  MAX_TRANSCRIPTION_ATTEMPTS,
+  type ResumeReason,
+  StopReason,
+  TranscriptionStatus,
+} from "./Recording.ts";
 
 const QUERY_TIMEOUT = Duration.seconds(10);
 
@@ -51,6 +56,12 @@ export interface ClipLine {
   readonly transcript: string | null;
 }
 
+export interface PauseLine {
+  readonly pausedAt: DateTime.Utc;
+  readonly resumedAt: DateTime.Utc | null;
+  readonly who: string;
+}
+
 export interface RecordingDetails {
   readonly id: string;
   readonly guildId: string;
@@ -77,12 +88,32 @@ export interface UnlinkedPost {
   readonly slackTs: string;
 }
 
-const decodeActive = Schema.decodeUnknownEffect(
+const ActiveRow = Schema.Struct({
+  id: Schema.String,
+  startedAt: Schema.DateTimeUtcFromDate,
+  startedBy: Schema.String,
+  pausedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
+  pausedBy: Schema.NullOr(Schema.String),
+});
+
+const decodeActive = Schema.decodeUnknownEffect(Schema.Array(ActiveRow));
+
+const toActive = (row: typeof ActiveRow.Type): ActiveRecording => ({
+  id: row.id,
+  startedAt: row.startedAt,
+  startedBy: row.startedBy,
+  pause:
+    row.pausedAt === null || row.pausedBy === null
+      ? Option.none()
+      : Option.some({ pausedAt: row.pausedAt, pausedBy: row.pausedBy }),
+});
+
+const decodePauses = Schema.decodeUnknownEffect(
   Schema.Array(
     Schema.Struct({
-      id: Schema.String,
-      startedAt: Schema.DateTimeUtcFromDate,
-      startedBy: Schema.String,
+      pausedAt: Schema.DateTimeUtcFromDate,
+      resumedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
+      who: Schema.String,
     }),
   ),
 );
@@ -145,7 +176,19 @@ export class RecordingStore extends Context.Service<
     readonly activeRecording: Effect.Effect<Option.Option<ActiveRecording>, StoreUnavailable>;
     readonly unfinishedRecordings: Effect.Effect<ReadonlyArray<string>, StoreUnavailable>;
     startRecording(recording: NewRecording): Effect.Effect<void, StoreUnavailable>;
-    resumeRecording(id: string, at: DateTime.Utc): Effect.Effect<void, StoreUnavailable>;
+    recoverRecording(id: string, at: DateTime.Utc): Effect.Effect<void, StoreUnavailable>;
+    pauseRecording(
+      id: string,
+      at: DateTime.Utc,
+      by: string,
+      byName: string,
+    ): Effect.Effect<void, StoreUnavailable>;
+    resumeRecording(
+      id: string,
+      at: DateTime.Utc,
+      by: string,
+      byName: string,
+    ): Effect.Effect<void, StoreUnavailable>;
     stopRecording(
       id: string,
       at: DateTime.Utc,
@@ -163,6 +206,7 @@ export class RecordingStore extends Context.Service<
     clipFailed(id: number, error: string, final: boolean): Effect.Effect<void, StoreUnavailable>;
     outstandingClips(recordingId: string): Effect.Effect<number, StoreUnavailable>;
     clipsOf(recordingId: string): Effect.Effect<ReadonlyArray<ClipLine>, StoreUnavailable>;
+    pausesOf(recordingId: string): Effect.Effect<ReadonlyArray<PauseLine>, StoreUnavailable>;
     recordingDetails(id: string): Effect.Effect<Option.Option<RecordingDetails>, StoreUnavailable>;
     finishRecording(id: string, finished: FinishedRecording): Effect.Effect<void, StoreUnavailable>;
     readonly unlinkedPosts: Effect.Effect<ReadonlyArray<UnlinkedPost>, StoreUnavailable>;
@@ -188,10 +232,14 @@ export class RecordingStore extends Context.Service<
         );
 
       const activeRecording = onceReady(
-        sql`SELECT id, started_at, started_by FROM office.recordings WHERE stopped_at IS NULL LIMIT 1`.pipe(
-          Effect.flatMap(decodeActive),
-        ),
-      ).pipe(Effect.map(Array.head), Effect.withSpan("RecordingStore.activeRecording"));
+        sql`
+          SELECT id, started_at, started_by, paused_at, paused_by
+          FROM office.recordings WHERE stopped_at IS NULL LIMIT 1
+        `.pipe(Effect.flatMap(decodeActive)),
+      ).pipe(
+        Effect.map((rows) => Option.map(Array.head(rows), toActive)),
+        Effect.withSpan("RecordingStore.activeRecording"),
+      );
 
       const unfinishedRecordings = onceReady(
         sql`SELECT id FROM office.recordings WHERE stopped_at IS NOT NULL AND finished_at IS NULL ORDER BY started_at`.pipe(
@@ -235,8 +283,45 @@ export class RecordingStore extends Context.Service<
         Effect.asVoid,
       );
 
+      const recoverRecording = Effect.fn("RecordingStore.recoverRecording")(
+        (id: string, at: DateTime.Utc) =>
+          onceReady(event(id, at, "resumed", "bot_restarted" satisfies ResumeReason, null)),
+        Effect.asVoid,
+      );
+
+      const pauseRecording = Effect.fn("RecordingStore.pauseRecording")(
+        (id: string, at: DateTime.Utc, by: string, byName: string) =>
+          onceReady(
+            sql.withTransaction(
+              Effect.all([
+                upsertMember(by, byName, at),
+                sql`
+                  UPDATE office.recordings
+                  SET paused_at = ${DateTime.toDate(at)}, paused_by = ${by}
+                  WHERE id = ${id} AND stopped_at IS NULL
+                `,
+                event(id, at, "paused", null, by),
+              ]),
+            ),
+          ),
+        Effect.asVoid,
+      );
+
       const resumeRecording = Effect.fn("RecordingStore.resumeRecording")(
-        (id: string, at: DateTime.Utc) => onceReady(event(id, at, "resumed", null, null)),
+        (id: string, at: DateTime.Utc, by: string, byName: string) =>
+          onceReady(
+            sql.withTransaction(
+              Effect.all([
+                upsertMember(by, byName, at),
+                sql`
+                  UPDATE office.recordings
+                  SET paused_at = NULL, paused_by = NULL
+                  WHERE id = ${id} AND stopped_at IS NULL
+                `,
+                event(id, at, "resumed", "requested" satisfies ResumeReason, by),
+              ]),
+            ),
+          ),
         Effect.asVoid,
       );
 
@@ -348,6 +433,25 @@ export class RecordingStore extends Context.Service<
         ),
       );
 
+      const pausesOf = Effect.fn("RecordingStore.pausesOf")((recordingId: string) =>
+        onceReady(
+          sql`
+            SELECT p.at AS paused_at, coalesce(m.real_name, m.display_name, p.user_id) AS who,
+                   (
+                     SELECT e.at FROM office.recording_events e
+                     WHERE e.recording_id = p.recording_id AND e.id > p.id
+                       AND (e.event = 'stopped' OR (e.event = 'resumed' AND e.reason = 'requested'))
+                     ORDER BY e.id
+                     LIMIT 1
+                   ) AS resumed_at
+            FROM office.recording_events p
+            LEFT JOIN office.members m ON m.user_id = p.user_id
+            WHERE p.recording_id = ${recordingId} AND p.event = 'paused'
+            ORDER BY p.id
+          `.pipe(Effect.flatMap(decodePauses)),
+        ),
+      );
+
       const recordingDetails = Effect.fn("RecordingStore.recordingDetails")((id: string) =>
         onceReady(
           sql`
@@ -398,6 +502,8 @@ export class RecordingStore extends Context.Service<
         activeRecording,
         unfinishedRecordings,
         startRecording,
+        recoverRecording,
+        pauseRecording,
         resumeRecording,
         stopRecording,
         addClip,
@@ -406,6 +512,7 @@ export class RecordingStore extends Context.Service<
         clipFailed,
         outstandingClips,
         clipsOf,
+        pausesOf,
         recordingDetails,
         finishRecording,
         unlinkedPosts,
@@ -420,6 +527,8 @@ export class RecordingStore extends Context.Service<
       activeRecording: notRecording(),
       unfinishedRecordings: notRecording(),
       startRecording: notRecording,
+      recoverRecording: notRecording,
+      pauseRecording: notRecording,
       resumeRecording: notRecording,
       stopRecording: notRecording,
       addClip: notRecording,
@@ -428,6 +537,7 @@ export class RecordingStore extends Context.Service<
       clipFailed: notRecording,
       outstandingClips: notRecording,
       clipsOf: notRecording,
+      pausesOf: notRecording,
       recordingDetails: notRecording,
       finishRecording: notRecording,
       unlinkedPosts: notRecording(),

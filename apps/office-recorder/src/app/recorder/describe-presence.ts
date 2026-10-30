@@ -7,12 +7,20 @@ export interface Presence {
 }
 
 export const describePresence = (status: RecordingStatus): Presence => {
-  if (status.recording !== null)
-    return {
-      details: "Recording the office",
-      state: `Started by ${status.recording.startedByName}`,
-      timestamps: { start: Date.parse(status.recording.startedAt) },
-    };
+  const { recording } = status;
+
+  if (recording !== null)
+    return recording.pause === null
+      ? {
+          details: "Recording the office",
+          state: `Started by ${recording.startedByName}`,
+          timestamps: { start: Date.parse(recording.startedAt) },
+        }
+      : {
+          details: "Recording paused",
+          state: `Paused by ${recording.pause.byName}`,
+          timestamps: { start: Date.parse(recording.startedAt) },
+        };
 
   return status.botInOffice
     ? { details: "In the office", state: "Not recording", timestamps: null }
