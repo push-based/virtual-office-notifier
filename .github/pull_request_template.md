@@ -8,7 +8,7 @@
 
 ## Checklist
 
-- [ ] `vp run -r typecheck`, `vp run check`, `vp run -r test` and `vp run -r build` pass
+- [ ] `vp run ci` passes
 - [ ] Tests cover the change
 - [ ] README updated if what gets posted, the configuration or the deploy changed
 - [ ] New environment variables are wired through (see [CONTRIBUTING.md](https://github.com/push-based/virtual-office-notifier/blob/main/CONTRIBUTING.md#adding-a-configuration-variable))

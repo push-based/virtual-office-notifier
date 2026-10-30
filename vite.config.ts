@@ -73,6 +73,13 @@ export default defineConfig({
     tasks: {
       typecheck: "tsc --noEmit",
       check: "vp check",
+      ci: [
+        "vp run -r typecheck",
+        "vp run check",
+        "vp run -r test",
+        "vp run -r build",
+        "vp run office-recorder#check",
+      ],
     },
   },
 });

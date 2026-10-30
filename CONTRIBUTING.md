@@ -75,15 +75,13 @@ I add the matching GitHub secret before merging.
 
 ## Checks
 
-CI runs these on every push and pull request. Run them before you push:
+CI runs one task on every pull request and every push to `main`. Run it before you push:
 
 ```bash
-pnpm vp run -r typecheck
-pnpm vp run check
-pnpm vp run -r test
-pnpm vp run -r build
-pnpm vp run office-recorder#check
+pnpm vp run ci
 ```
+
+It typechecks, checks formatting and lint, tests and builds every package, and dry-runs the Activity's deploy. It's defined in the root [`vite.config.ts`](vite.config.ts), and tasks whose inputs haven't changed replay from the cache.
 
 ## Commits and pull requests
 
