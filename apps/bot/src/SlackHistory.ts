@@ -2,10 +2,10 @@ import { Array, Context, DateTime, Duration, Effect, Layer, Option, Schema } fro
 import { SqlClient } from "effect/sql";
 
 import type { ClefRequest } from "./CloudflareDecisionModel.ts";
+import { guardQuery } from "recording-requests/Query";
+
 import { Database, describeError } from "./Database.ts";
 import { HistoryUnavailable } from "./OfficeHistory.ts";
-
-const READ_TIMEOUT = Duration.seconds(10);
 
 export interface ResponderSettings {
   readonly enabled: boolean;
@@ -141,16 +141,11 @@ export class SlackHistory extends Context.Service<
       const sql = yield* SqlClient.SqlClient;
       const database = yield* Database;
 
-      const onceReady = <A, E extends Error>(query: Effect.Effect<A, E>) =>
-        database.ready.pipe(
-          Effect.andThen(query),
-          Effect.mapError((error) => HistoryUnavailable.make({ reason: describeError(error) })),
-          Effect.timeoutOrElse({
-            duration: READ_TIMEOUT,
-            orElse: () =>
-              Effect.fail(HistoryUnavailable.make({ reason: "Timed out after 10 seconds" })),
-          }),
-        );
+      const onceReady = guardQuery({
+        ready: database.ready,
+        unavailable: (reason) => HistoryUnavailable.make({ reason }),
+        describe: describeError,
+      });
 
       const count = (query: Effect.Effect<ReadonlyArray<{ readonly total: number }>, Error>) =>
         onceReady(query).pipe(Effect.map(([row]) => row?.total ?? 0));

@@ -1,7 +1,7 @@
-import { Context, DateTime, Duration, Effect, Layer, Schema } from "effect";
+import { Context, DateTime, Effect, Layer, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 
-const QUERY_TIMEOUT = Duration.seconds(10);
+import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
 
 export const OFFICE_TIME_ZONE = DateTime.zoneMakeOffset(2 * 60 * 60 * 1000);
 
@@ -85,7 +85,9 @@ export class StatsUnavailable extends Schema.TaggedError<
   reason: Schema.String,
 }) {}
 
-const unavailable = (reason: string) => Effect.fail(StatsUnavailable.make({ reason }));
+const statsUnavailable = (reason: string) => StatsUnavailable.make({ reason });
+
+const unavailable = (reason: string) => Effect.fail(statsUnavailable(reason));
 
 const decodeRows = <S extends Schema.Top>(row: S) => Schema.decodeUnknownEffect(Schema.Array(row));
 
@@ -295,31 +297,19 @@ const queries = (sql: SqlClient.SqlClient, window: StatsWindow) => {
   });
 };
 
-export interface Connected {
-  <A, E, R>(
-    use: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E | StatsUnavailable, R>;
-}
-
 export class OfficeStatsReader extends Context.Service<
   OfficeStatsReader,
   {
     stats(range: StatsRange): Effect.Effect<OfficeStats, StatsUnavailable>;
   }
 >()("recording-requests/OfficeStats/OfficeStatsReader") {
-  static readonly makeWith = (connected: Connected) => {
+  static readonly makeWith = (connected: Connected<StatsUnavailable>) => {
+    const timed = guardQuery({ ready: Effect.void, unavailable: statsUnavailable });
+
     const stats = Effect.fn("OfficeStatsReader.stats")(function* (range: StatsRange) {
       const window = statsWindow(range, yield* DateTime.now);
 
-      const totals = yield* connected((sql) =>
-        queries(sql, window).pipe(
-          Effect.mapError((error) => StatsUnavailable.make({ reason: error.message })),
-          Effect.timeoutOrElse({
-            duration: QUERY_TIMEOUT,
-            orElse: () => unavailable("Timed out after 10 seconds"),
-          }),
-        ),
-      );
+      const totals = yield* connected((sql) => timed(queries(sql, window)));
 
       const result: OfficeStats = { range, ...window, ...totals };
 
@@ -334,7 +324,7 @@ export class OfficeStatsReader extends Context.Service<
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      return OfficeStatsReader.makeWith((use) => use(sql));
+      return OfficeStatsReader.makeWith(connectedTo(sql));
     }),
   );
 
@@ -343,14 +333,7 @@ export class OfficeStatsReader extends Context.Service<
   ) =>
     Layer.succeed(
       OfficeStatsReader,
-      OfficeStatsReader.makeWith((use) =>
-        Effect.scopedWith((scope) =>
-          Layer.buildWithScope(Layer.fresh(connection), scope).pipe(
-            Effect.mapError((error) => StatsUnavailable.make({ reason: error.message })),
-            Effect.flatMap((context) => use(Context.get(context, SqlClient.SqlClient))),
-          ),
-        ),
-      ),
+      OfficeStatsReader.makeWith(connectedPerCall(connection, statsUnavailable)),
     );
 
   static readonly layerDisabled = Layer.succeed(

@@ -41,6 +41,7 @@ import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 import { ActionItemList, ActionItemWriter, actionItemsRequest, ownedBy } from "./ActionItems.ts";
 import type { BotPresence } from "./BotPresence.ts";
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
+import type { Clip } from "./ClipCutter.ts";
 import { SlackConfig } from "./Config.ts";
 import { reconnectDelay } from "./Database.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
@@ -65,7 +66,7 @@ import {
   transcriptText,
 } from "./SummaryWriter.ts";
 import { Transcriber } from "./Transcriber.ts";
-import { type CaptureError, type Clip, Heard, VoiceCapture } from "./VoiceCapture.ts";
+import { type CaptureError, Heard, VoiceCapture } from "./VoiceCapture.ts";
 
 export const POLL_INTERVAL = CHECK_INTERVAL;
 
@@ -326,8 +327,8 @@ export class Recorder extends Context.Service<
         const updateVoices = (change: (current: Voices) => Voices) =>
           Ref.update(voices, change).pipe(Effect.andThen(statusChange));
 
-        const runCapture = (recordingId: string) =>
-          Effect.gen(function* () {
+        const runCapture = Effect.fn("Recorder.runCapture")(
+          function* (recordingId: string) {
             const clips = yield* Queue.unbounded<Clip, Cause.Done>();
 
             const saving = yield* Stream.fromQueue(clips).pipe(
@@ -360,7 +361,10 @@ export class Recorder extends Context.Service<
 
             yield* Queue.end(clips);
             yield* Fiber.join(saving);
-          }).pipe(Effect.scoped, Effect.annotateLogs({ recordingId }));
+          },
+          Effect.scoped,
+          (effect, recordingId) => Effect.annotateLogs(effect, { recordingId }),
+        );
 
         const interruptCapture = (current: Option.Option<Session>) =>
           Option.match(
@@ -371,65 +375,63 @@ export class Recorder extends Context.Service<
             },
           );
 
-        const beginCapture = (recording: ActiveRecording) =>
-          Effect.gen(function* () {
-            yield* gateway.setRecording("Capturing");
+        const beginCapture = Effect.fn("Recorder.beginCapture")(function* (
+          recording: ActiveRecording,
+        ) {
+          yield* gateway.setRecording("Capturing");
 
-            const capture = yield* runCapture(recording.id).pipe(Effect.forkScoped);
+          const capture = yield* runCapture(recording.id).pipe(Effect.forkScoped);
 
-            yield* Ref.set(session, Option.some({ recording, capture: Option.some(capture) }));
+          yield* Ref.set(session, Option.some({ recording, capture: Option.some(capture) }));
+        });
+
+        const holdPaused = Effect.fn("Recorder.holdPaused")(function* (recording: ActiveRecording) {
+          const current = yield* Ref.getAndSet(
+            session,
+            Option.some({ recording, capture: Option.none() }),
+          );
+
+          yield* interruptCapture(current);
+          yield* gateway.setRecording("Paused");
+        });
+
+        const awaitClips = Effect.fn("Recorder.awaitClips")(function* (id: string) {
+          while ((yield* store.outstandingClips(id)) > 0) yield* Effect.sleep(FINISH_POLL);
+        });
+
+        const postedMessage = Effect.fn("Recorder.postedMessage")(function* (id: string) {
+          const details = yield* store.recordingDetails(id);
+          const post = yield* store.summaryPost(id);
+
+          if (Option.isNone(details) || Option.isNone(post)) return Option.none();
+
+          const lines = yield* store.clipsOf(id);
+          const actionItems = yield* store.actionItemsOf(id);
+          const { startedAt, stoppedAt, startedByName, title } = details.value;
+          const { slackChannelId, slackTs, summary, summaryModel, summaryStyle } = post.value;
+
+          return Option.some({
+            channel: slackChannelId,
+            ts: slackTs,
+            message: summaryMessage({
+              office,
+              startedAt,
+              stoppedAt,
+              startedByName,
+              title,
+              speakers: speakersOf(lines),
+              summary:
+                summary === null || summaryModel === null
+                  ? Option.none()
+                  : Option.some({
+                      text: summary,
+                      model: summaryModel,
+                      style: summaryStyle ?? DEFAULT_SUMMARY_STYLE,
+                    }),
+              actionItems,
+            }),
           });
-
-        const holdPaused = (recording: ActiveRecording) =>
-          Effect.gen(function* () {
-            const current = yield* Ref.getAndSet(
-              session,
-              Option.some({ recording, capture: Option.none() }),
-            );
-
-            yield* interruptCapture(current);
-            yield* gateway.setRecording("Paused");
-          });
-
-        const awaitClips = (id: string) =>
-          Effect.gen(function* () {
-            while ((yield* store.outstandingClips(id)) > 0) yield* Effect.sleep(FINISH_POLL);
-          });
-
-        const postedMessage = (id: string) =>
-          Effect.gen(function* () {
-            const details = yield* store.recordingDetails(id);
-            const post = yield* store.summaryPost(id);
-
-            if (Option.isNone(details) || Option.isNone(post)) return Option.none();
-
-            const lines = yield* store.clipsOf(id);
-            const actionItems = yield* store.actionItemsOf(id);
-            const { startedAt, stoppedAt, startedByName, title } = details.value;
-            const { slackChannelId, slackTs, summary, summaryModel, summaryStyle } = post.value;
-
-            return Option.some({
-              channel: slackChannelId,
-              ts: slackTs,
-              message: summaryMessage({
-                office,
-                startedAt,
-                stoppedAt,
-                startedByName,
-                title,
-                speakers: speakersOf(lines),
-                summary:
-                  summary === null || summaryModel === null
-                    ? Option.none()
-                    : Option.some({
-                        text: summary,
-                        model: summaryModel,
-                        style: summaryStyle ?? DEFAULT_SUMMARY_STYLE,
-                      }),
-                actionItems,
-              }),
-            });
-          });
+        });
 
         const updatePostUnless = (id: string, unchanged: (message: SlackMessage) => boolean) =>
           updatingPost
@@ -465,41 +467,45 @@ export class Recorder extends Context.Service<
         const updatePostIfChanged = (id: string, posted: SlackMessage) =>
           updatePostUnless(id, (current) => Equal.equals(current, posted));
 
-        const pullActionItems = (id: string, request: string) =>
-          Effect.gen(function* () {
-            const known = yield* store.actionItemsOf(id);
+        const pullActionItems = Effect.fn("Recorder.pullActionItems")(function* (
+          id: string,
+          request: string,
+        ) {
+          const known = yield* store.actionItemsOf(id);
 
-            if (!ActionItemList.$is("NotTried")(known)) return known;
+          if (!ActionItemList.$is("NotTried")(known)) return known;
 
-            const members = yield* store.presentDuring(id);
-            const pulled = yield* actionItemWriter.pull(actionItemsRequest(members, request));
+          const members = yield* store.presentDuring(id);
+          const pulled = yield* actionItemWriter.pull(actionItemsRequest(members, request));
 
-            yield* store.recordActionItems(
-              id,
-              Option.map(pulled, ({ value, model }) => ({ model, items: ownedBy(members, value) })),
-              yield* DateTime.now,
-            );
+          yield* store.recordActionItems(
+            id,
+            Option.map(pulled, ({ value, model }) => ({ model, items: ownedBy(members, value) })),
+            yield* DateTime.now,
+          );
 
-            return yield* store.actionItemsOf(id);
-          });
+          return yield* store.actionItemsOf(id);
+        });
 
-        const repullActionItems = (id: string, request: string) =>
-          Effect.gen(function* () {
-            if (yield* store.actionItemsTouched(id)) return;
+        const repullActionItems = Effect.fn("Recorder.repullActionItems")(function* (
+          id: string,
+          request: string,
+        ) {
+          if (yield* store.actionItemsTouched(id)) return;
 
-            const members = yield* store.presentDuring(id);
-            const pulled = yield* actionItemWriter.pull(actionItemsRequest(members, request));
+          const members = yield* store.presentDuring(id);
+          const pulled = yield* actionItemWriter.pull(actionItemsRequest(members, request));
 
-            if (Option.isNone(pulled)) return;
+          if (Option.isNone(pulled)) return;
 
-            const { value, model } = pulled.value;
+          const { value, model } = pulled.value;
 
-            yield* store.replaceActionItems(
-              id,
-              { model, items: ownedBy(members, value) },
-              yield* DateTime.now,
-            );
-          });
+          yield* store.replaceActionItems(
+            id,
+            { model, items: ownedBy(members, value) },
+            yield* DateTime.now,
+          );
+        });
 
         const noteRewrite = (id: string, note: SlackMessage) =>
           store.summaryPost(id).pipe(
@@ -596,12 +602,11 @@ export class Recorder extends Context.Service<
             return [false, next];
           });
 
-        const rewriteWhileAsked = (id: string) =>
-          Effect.gen(function* () {
-            do {
-              yield* rewriteOnce(id);
-            } while (yield* rewriteAgain(id));
-          });
+        const rewriteWhileAsked = Effect.fn("Recorder.rewriteWhileAsked")(function* (id: string) {
+          do {
+            yield* rewriteOnce(id);
+          } while (yield* rewriteAgain(id));
+        });
 
         const rewrite = (id: string) =>
           Ref.modify(rewrites, (all): readonly [boolean, ReadonlyMap<string, boolean>] => [
@@ -796,18 +801,20 @@ export class Recorder extends Context.Service<
             Effect.andThen(finish(recordingId).pipe(Effect.forkScoped)),
           );
 
-        const stopRecording = (reason: StopReason, by: string | null) =>
-          Effect.gen(function* () {
-            const current = yield* Ref.get(session);
+        const stopRecording = Effect.fn("Recorder.stopRecording")(function* (
+          reason: StopReason,
+          by: string | null,
+        ) {
+          const current = yield* Ref.get(session);
 
-            if (Option.isNone(current)) return;
+          if (Option.isNone(current)) return;
 
-            const { recording } = current.value;
+          const { recording } = current.value;
 
-            yield* endCapture;
-            yield* store.stopRecording(recording.id, yield* DateTime.now, reason, by);
-            yield* stopped(recording.id, reason);
-          });
+          yield* endCapture;
+          yield* store.stopRecording(recording.id, yield* DateTime.now, reason, by);
+          yield* stopped(recording.id, reason);
+        });
 
         const requestHandler: RequestHandler<StoreUnavailable, Scope.Scope> = {
           situation: Effect.gen(function* () {
@@ -819,113 +826,108 @@ export class Recorder extends Context.Service<
 
             return { occupants, active };
           }),
-          start: (request) =>
-            Effect.gen(function* () {
-              const startedAt = yield* DateTime.now;
+          start: Effect.fn("Recorder.start")(function* (request) {
+            const startedAt = yield* DateTime.now;
 
-              const recording: ActiveRecording = {
-                id: yield* random.uuidV4(),
-                startedAt,
-                startedBy: request.requestedBy,
-                pause: Option.none(),
-              };
+            const recording: ActiveRecording = {
+              id: yield* random.uuidV4(),
+              startedAt,
+              startedBy: request.requestedBy,
+              pause: Option.none(),
+            };
 
-              yield* store.startRecording({
+            yield* store.startRecording({
+              ...recording,
+              guildId: office.guildId,
+              channelId: office.channelId,
+              startedByName: request.requestedByName,
+              title: request.title,
+              agenda: request.agenda,
+              summaryStyle: request.summaryStyle ?? DEFAULT_SUMMARY_STYLE,
+            });
+
+            return {
+              recordingId: recording.id,
+              afterCommit: beginCapture(recording).pipe(
+                Effect.andThen(
+                  Effect.logInfo("Started recording").pipe(
+                    Effect.annotateLogs({ recordingId: recording.id }),
+                  ),
+                ),
+              ),
+            };
+          }),
+          stop: Effect.fn("Recorder.stop")(function* (request, recording) {
+            yield* store.stopRecording(
+              recording.id,
+              yield* DateTime.now,
+              "requested",
+              request.requestedBy,
+            );
+
+            return {
+              recordingId: recording.id,
+              afterCommit: endCapture.pipe(Effect.andThen(stopped(recording.id, "requested"))),
+            };
+          }),
+          pause: Effect.fn("Recorder.pause")(function* (request, recording) {
+            const pausedAt = yield* DateTime.now;
+
+            yield* store.pauseRecording(
+              recording.id,
+              pausedAt,
+              request.requestedBy,
+              request.requestedByName,
+            );
+
+            return {
+              recordingId: recording.id,
+              afterCommit: holdPaused({
                 ...recording,
-                guildId: office.guildId,
-                channelId: office.channelId,
-                startedByName: request.requestedByName,
-                title: request.title,
-                agenda: request.agenda,
-                summaryStyle: request.summaryStyle ?? DEFAULT_SUMMARY_STYLE,
-              });
-
-              return {
-                recordingId: recording.id,
-                afterCommit: beginCapture(recording).pipe(
-                  Effect.andThen(
-                    Effect.logInfo("Started recording").pipe(
-                      Effect.annotateLogs({ recordingId: recording.id }),
-                    ),
+                pause: Option.some({ pausedAt, pausedBy: request.requestedBy }),
+              }).pipe(
+                Effect.andThen(
+                  Effect.logInfo("Paused recording").pipe(
+                    Effect.annotateLogs({ recordingId: recording.id }),
                   ),
                 ),
-              };
-            }),
-          stop: (request, recording) =>
-            Effect.gen(function* () {
-              yield* store.stopRecording(
-                recording.id,
-                yield* DateTime.now,
-                "requested",
-                request.requestedBy,
-              );
+              ),
+            };
+          }),
+          resume: Effect.fn("Recorder.resume")(function* (request, recording) {
+            yield* store.resumeRecording(
+              recording.id,
+              yield* DateTime.now,
+              request.requestedBy,
+              request.requestedByName,
+            );
 
-              return {
-                recordingId: recording.id,
-                afterCommit: endCapture.pipe(Effect.andThen(stopped(recording.id, "requested"))),
-              };
-            }),
-          pause: (request, recording) =>
-            Effect.gen(function* () {
-              const pausedAt = yield* DateTime.now;
-
-              yield* store.pauseRecording(
-                recording.id,
-                pausedAt,
-                request.requestedBy,
-                request.requestedByName,
-              );
-
-              return {
-                recordingId: recording.id,
-                afterCommit: holdPaused({
-                  ...recording,
-                  pause: Option.some({ pausedAt, pausedBy: request.requestedBy }),
-                }).pipe(
-                  Effect.andThen(
-                    Effect.logInfo("Paused recording").pipe(
-                      Effect.annotateLogs({ recordingId: recording.id }),
-                    ),
+            return {
+              recordingId: recording.id,
+              afterCommit: beginCapture({ ...recording, pause: Option.none() }).pipe(
+                Effect.andThen(
+                  Effect.logInfo("Resumed recording").pipe(
+                    Effect.annotateLogs({ recordingId: recording.id }),
                   ),
                 ),
-              };
-            }),
-          resume: (request, recording) =>
-            Effect.gen(function* () {
-              yield* store.resumeRecording(
-                recording.id,
-                yield* DateTime.now,
-                request.requestedBy,
-                request.requestedByName,
-              );
-
-              return {
-                recordingId: recording.id,
-                afterCommit: beginCapture({ ...recording, pause: Option.none() }).pipe(
-                  Effect.andThen(
-                    Effect.logInfo("Resumed recording").pipe(
-                      Effect.annotateLogs({ recordingId: recording.id }),
-                    ),
-                  ),
-                ),
-              };
-            }),
+              ),
+            };
+          }),
         };
 
         const editHandler: EditHandler<StoreUnavailable, Scope.Scope> = {
-          apply: (edit) =>
-            Effect.gen(function* () {
-              yield* store.applyEdit(edit.recordingId, edit.change);
+          apply: Effect.fn("Recorder.apply")(function* (edit) {
+            yield* store.applyEdit(edit.recordingId, edit.change);
 
-              if (!rewritesSummary(edit.change))
-                return {
-                  afterCommit: updatePost(edit.recordingId).pipe(Effect.forkScoped, Effect.asVoid),
-                };
+            if (!rewritesSummary(edit.change))
+              return {
+                afterCommit: updatePost(edit.recordingId).pipe(Effect.forkScoped, Effect.asVoid),
+              };
 
-              const rewriting = yield* store.requestRewrite(edit.recordingId, edit.id);
+            const rewriting = yield* store.requestRewrite(edit.recordingId, edit.id);
 
-              return { afterCommit: rewriting ? rewrite(edit.recordingId) : Effect.void };
-            }),
+            return { afterCommit: rewriting ? rewrite(edit.recordingId) : Effect.void };
+          }),
         };
 
         const applyEdits = edits
@@ -957,8 +959,8 @@ export class Recorder extends Context.Service<
           ),
         );
 
-        const reconcileStartup = (current: BotPresence) =>
-          Effect.gen(function* () {
+        const reconcileStartup = Effect.fn("Recorder.reconcileStartup")(
+          function* (current: BotPresence) {
             const unfinished = yield* store.unfinishedRecordings;
 
             for (const id of unfinished) yield* finish(id).pipe(Effect.forkScoped);
@@ -990,12 +992,12 @@ export class Recorder extends Context.Service<
               Effect.annotateLogs({ recordingId: active.value.id }),
             );
             yield* finish(active.value.id).pipe(Effect.forkScoped);
-          }).pipe(
-            Effect.catchTag(
-              "StoreUnavailable",
-              storeIssue("Couldn't check for a recording in progress"),
-            ),
-          );
+          },
+          Effect.catchTag(
+            "StoreUnavailable",
+            storeIssue("Couldn't check for a recording in progress"),
+          ),
+        );
 
         const onPresence = (next: BotPresence) =>
           mutex.withPermits(1)(
@@ -1019,24 +1021,23 @@ export class Recorder extends Context.Service<
             }),
           );
 
-        const audioFor = (clip: PendingClip) =>
-          Effect.gen(function* () {
-            const inMemory = (yield* Ref.get(audio)).get(clip.id);
+        const audioFor = Effect.fn("Recorder.audioFor")(function* (clip: PendingClip) {
+          const inMemory = (yield* Ref.get(audio)).get(clip.id);
 
-            if (inMemory !== undefined) return found(inMemory);
+          if (inMemory !== undefined) return found(inMemory);
 
-            if (clip.objectPath === null) return Audio.Missing();
+          if (clip.objectPath === null) return Audio.Missing();
 
-            return yield* archive.download(clip.objectPath).pipe(
-              Effect.map(found),
-              Effect.catchTag("ArchiveError", (error) =>
-                Effect.logWarning("Couldn't fetch a clip from the archive").pipe(
-                  Effect.annotateLogs({ reason: error.reason }),
-                  Effect.as(Audio.Unavailable()),
-                ),
+          return yield* archive.download(clip.objectPath).pipe(
+            Effect.map(found),
+            Effect.catchTag("ArchiveError", (error) =>
+              Effect.logWarning("Couldn't fetch a clip from the archive").pipe(
+                Effect.annotateLogs({ reason: error.reason }),
+                Effect.as(Audio.Unavailable()),
               ),
-            );
-          });
+            ),
+          );
+        });
 
         const transcribeClip = (clip: PendingClip, bytes: Uint8Array) =>
           transcriber.transcribe(bytes).pipe(

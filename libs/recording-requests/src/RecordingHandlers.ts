@@ -27,8 +27,8 @@ export const RecordingHandlers = HttpApiBuilder.group(
     return handlers.handleAll({
       status: () =>
         requests.status.pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
-      submit: ({ payload }) =>
-        Effect.gen(function* () {
+      submit: Effect.fnUntraced(
+        function* ({ payload }) {
           const requester = yield* CurrentRequester;
 
           return yield* requests.submit(requester, payload.action, {
@@ -36,16 +36,20 @@ export const RecordingHandlers = HttpApiBuilder.group(
             agenda: payload.agenda ?? null,
             summaryStyle: payload.summaryStyle ?? null,
           });
-        }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
-      find: ({ params }) =>
-        Effect.gen(function* () {
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+      find: Effect.fnUntraced(
+        function* ({ params }) {
           const requester = yield* CurrentRequester;
           const found = yield* requests.find(requester, params.id);
 
           return yield* Effect.fromOption(found).pipe(
             Effect.mapError(() => RequestNotFound.make()),
           );
-        }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
     });
   }),
 );
@@ -79,22 +83,26 @@ export const EditHandlers = HttpApiBuilder.group(
     const edits = yield* RecordingEdits;
 
     return handlers.handleAll({
-      submit: ({ params, payload }) =>
-        Effect.gen(function* () {
+      submit: Effect.fnUntraced(
+        function* ({ params, payload }) {
           const editor = yield* CurrentRequester;
           const submitted = yield* edits.submit(editor, params.id, payload);
 
           return yield* Effect.fromOption(submitted).pipe(
             Effect.mapError(() => RecordingNotFound.make()),
           );
-        }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
-      find: ({ params }) =>
-        Effect.gen(function* () {
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+      find: Effect.fnUntraced(
+        function* ({ params }) {
           const editor = yield* CurrentRequester;
           const found = yield* edits.find(editor, params.id);
 
           return yield* Effect.fromOption(found).pipe(Effect.mapError(() => EditNotFound.make()));
-        }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
     });
   }),
 );

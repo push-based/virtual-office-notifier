@@ -1,4 +1,4 @@
-import { Array, Context, DateTime, Duration, Effect, Layer, Option, pipe, Schema } from "effect";
+import { Array, Context, DateTime, Effect, Layer, Option, pipe, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 
 import {
@@ -12,11 +12,10 @@ import {
   SummaryStyle,
 } from "./Recording.ts";
 import { PersonInOffice, RowId } from "./RecordingRequest.ts";
-import { type Connected, RecordingUnavailable } from "./RecordingRequests.ts";
+import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
+import { recordingUnavailable, RecordingUnavailable } from "./RecordingRequests.ts";
 
 export const PAGE_SIZE = 20;
-
-const QUERY_TIMEOUT = Duration.seconds(10);
 
 const RecordingRow = Schema.Struct({
   id: Schema.String,
@@ -127,15 +126,8 @@ export class RecordingHistory extends Context.Service<
     find(id: string): Effect.Effect<Option.Option<RecordingDetail>, RecordingUnavailable>;
   }
 >()("recording-requests/RecordingHistory") {
-  static readonly makeWith = (connected: Connected) => {
-    const timed = <A, E extends Error, R>(query: Effect.Effect<A, E, R>) =>
-      query.pipe(
-        Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
-        Effect.timeoutOrElse({
-          duration: QUERY_TIMEOUT,
-          orElse: () => unavailable("Timed out after 10 seconds"),
-        }),
-      );
+  static readonly makeWith = (connected: Connected<RecordingUnavailable>) => {
+    const timed = guardQuery({ ready: Effect.void, unavailable: recordingUnavailable });
 
     const avatarsFrom = (sql: SqlClient.SqlClient) =>
       sql`SELECT occupants FROM office.recording_status`.pipe(
@@ -174,8 +166,8 @@ export class RecordingHistory extends Context.Service<
           )
         : Effect.succeed((_id: string): ReadonlyArray<OfficeMember> => []);
 
-    const actionItemsOf = (sql: SqlClient.SqlClient, id: string, avatars: Avatars) =>
-      Effect.gen(function* () {
+    const actionItemsOf = Effect.fnUntraced(
+      function* (sql: SqlClient.SqlClient, id: string, avatars: Avatars) {
         const [pulled] = yield* sql`
           SELECT action_items_model IS NOT NULL AS pulled FROM office.recordings WHERE id = ${id}
         `.pipe(Effect.flatMap(decodePulled));
@@ -196,14 +188,14 @@ export class RecordingHistory extends Context.Service<
           owner: item.owner === null ? null : memberOf(avatars, item.owner, item.ownerName),
           done: item.done,
         }));
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Couldn't read the recording's action items").pipe(
-            Effect.annotateLogs({ reason: error.message }),
-            Effect.as(null),
-          ),
+      },
+      Effect.catch((error) =>
+        Effect.logWarning("Couldn't read the recording's action items").pipe(
+          Effect.annotateLogs({ reason: error.message }),
+          Effect.as(null),
         ),
-      );
+      ),
+    );
 
     const page = Effect.fn("RecordingHistory.page")((before: Option.Option<DateTime.Utc>) =>
       connected((sql) =>
@@ -328,7 +320,7 @@ export class RecordingHistory extends Context.Service<
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      return RecordingHistory.makeWith((use) => use(sql));
+      return RecordingHistory.makeWith(connectedTo(sql));
     }),
   );
 
@@ -337,14 +329,7 @@ export class RecordingHistory extends Context.Service<
   ) =>
     Layer.succeed(
       RecordingHistory,
-      RecordingHistory.makeWith((use) =>
-        Effect.scopedWith((scope) =>
-          Layer.buildWithScope(Layer.fresh(connection), scope).pipe(
-            Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
-            Effect.flatMap((context) => use(Context.get(context, SqlClient.SqlClient))),
-          ),
-        ),
-      ),
+      RecordingHistory.makeWith(connectedPerCall(connection, recordingUnavailable)),
     );
 
   static readonly layerDisabled = Layer.succeed(

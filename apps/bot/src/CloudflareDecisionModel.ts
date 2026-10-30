@@ -151,22 +151,21 @@ export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOpti
   const client = yield* HttpClient.HttpClient;
   const url = `https://api.cloudflare.com/client/v4/accounts/${Redacted.value(options.accountId)}/ai/run/${options.model}`;
 
-  const readResponse = (response: HttpClientResponse.HttpClientResponse) =>
-    Effect.gen(function* () {
-      const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+  const readResponse = Effect.fnUntraced(function* (
+    response: HttpClientResponse.HttpClientResponse,
+  ) {
+    const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
 
-      if (response.status < 200 || response.status >= 300) {
-        return yield* aiError(failureFor(response.status, body));
-      }
+    if (response.status < 200 || response.status >= 300) {
+      return yield* aiError(failureFor(response.status, body));
+    }
 
-      return yield* decodeRunResponse(body).pipe(
-        Effect.mapError(() =>
-          aiError(
-            AiError.InvalidOutputError.make({ description: "Clef's reply couldn't be read" }),
-          ),
-        ),
-      );
-    });
+    return yield* decodeRunResponse(body).pipe(
+      Effect.mapError(() =>
+        aiError(AiError.InvalidOutputError.make({ description: "Clef's reply couldn't be read" })),
+      ),
+    );
+  });
 
   return yield* DecisionModel.make({
     probabilityPrecision: 4,
