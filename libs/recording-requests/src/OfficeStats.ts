@@ -1,5 +1,5 @@
-import { Context, DateTime, Effect, Layer, Schema } from "effect";
-import { SqlClient } from "effect/sql";
+import { Context, DateTime, Effect, Layer, Option, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/sql";
 
 import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
 
@@ -89,27 +89,15 @@ const statsUnavailable = (reason: string) => StatsUnavailable.make({ reason });
 
 const unavailable = (reason: string) => Effect.fail(statsUnavailable(reason));
 
-const decodeRows = <S extends Schema.Top>(row: S) => Schema.decodeUnknownEffect(Schema.Array(row));
+const Window = Schema.Struct({
+  since: Schema.NullOr(Schema.DateTimeUtcFromDate),
+  until: Schema.DateTimeUtcFromDate,
+});
 
-const decodeTimeInOffice = decodeRows(PersonTime);
+type Bounds = typeof Window.Encoded;
 
-const decodePersonDays = decodeRows(PersonDays);
-
-const decodeBusyHours = decodeRows(BusyHour);
-
-const decodeSounds = decodeRows(SoundPlays);
-
-const decodePlayers = decodeRows(PlayerPlays);
-
-const decodeReactions = decodeRows(EmojiReactions);
-
-const decodeRecordings = decodeRows(RecordingTotals);
-
-const queries = (sql: SqlClient.SqlClient, window: StatsWindow) => {
-  const since = window.since === null ? null : DateTime.toDateUtc(window.since);
-  const until = DateTime.toDateUtc(window.until);
-
-  const stays = sql`
+const queries = (sql: SqlClient.SqlClient) => {
+  const stays = ({ since, until }: Bounds) => sql`
     bounds AS (
       SELECT coalesce(${since}::timestamptz, '-infinity'::timestamptz) AS since,
              ${until}::timestamptz AS until
@@ -160,79 +148,95 @@ const queries = (sql: SqlClient.SqlClient, window: StatsWindow) => {
   const officeDate = (column: string) =>
     sql.literal(`((${column} AT TIME ZONE 'UTC') + interval '2 hours')::date`);
 
-  const timeInOffice = sql`
-    WITH ${stays}
-    SELECT user_id, name,
-           sum(extract(epoch FROM counted_to - counted_from))::float8 AS seconds,
-           count(DISTINCT ${officeDate("counted_from")})::int AS days
-    FROM stays
-    GROUP BY user_id, name
-    ORDER BY seconds DESC, name
-  `.pipe(Effect.flatMap(decodeTimeInOffice));
+  const timeInOffice = SqlSchema.findAll({
+    Request: Window,
+    Result: PersonTime,
+    execute: (bounds) => sql`
+      WITH ${stays(bounds)}
+      SELECT user_id, name,
+             sum(extract(epoch FROM counted_to - counted_from))::float8 AS seconds,
+             count(DISTINCT ${officeDate("counted_from")})::int AS days
+      FROM stays
+      GROUP BY user_id, name
+      ORDER BY seconds DESC, name
+    `,
+  });
 
-  const firstIn = sql`
-    WITH ${stays},
-    arrivals AS (
-      SELECT DISTINCT ON (${officeDate("started_at")}) user_id, name
-      FROM stays, bounds
-      WHERE started_at >= bounds.since
-      ORDER BY ${officeDate("started_at")}, started_at
-    )
-    SELECT user_id, name, count(*)::int AS days
-    FROM arrivals
-    GROUP BY user_id, name
-    ORDER BY days DESC, name
-  `.pipe(Effect.flatMap(decodePersonDays));
+  const firstIn = SqlSchema.findAll({
+    Request: Window,
+    Result: PersonDays,
+    execute: (bounds) => sql`
+      WITH ${stays(bounds)},
+      arrivals AS (
+        SELECT DISTINCT ON (${officeDate("started_at")}) user_id, name
+        FROM stays, bounds
+        WHERE started_at >= bounds.since
+        ORDER BY ${officeDate("started_at")}, started_at
+      )
+      SELECT user_id, name, count(*)::int AS days
+      FROM arrivals
+      GROUP BY user_id, name
+      ORDER BY days DESC, name
+    `,
+  });
 
-  const lastOut = sql`
-    WITH ${stays},
-    departures AS (
-      SELECT DISTINCT ON (${officeDate("ended_at")}) user_id, name, still_in
-      FROM stays, bounds
-      WHERE ended_at <= bounds.until
-      ORDER BY ${officeDate("ended_at")}, ended_at DESC, still_in DESC
-    )
-    SELECT user_id, name, count(*)::int AS days
-    FROM departures
-    WHERE NOT still_in
-    GROUP BY user_id, name
-    ORDER BY days DESC, name
-  `.pipe(Effect.flatMap(decodePersonDays));
+  const lastOut = SqlSchema.findAll({
+    Request: Window,
+    Result: PersonDays,
+    execute: (bounds) => sql`
+      WITH ${stays(bounds)},
+      departures AS (
+        SELECT DISTINCT ON (${officeDate("ended_at")}) user_id, name, still_in
+        FROM stays, bounds
+        WHERE ended_at <= bounds.until
+        ORDER BY ${officeDate("ended_at")}, ended_at DESC, still_in DESC
+      )
+      SELECT user_id, name, count(*)::int AS days
+      FROM departures
+      WHERE NOT still_in
+      GROUP BY user_id, name
+      ORDER BY days DESC, name
+    `,
+  });
 
-  const busiestHours = sql`
-    WITH ${stays},
-    hours AS (
-      SELECT generate_series(
-               date_trunc('hour', coalesce(
-                 (nullif(bounds.since, '-infinity') AT TIME ZONE 'UTC') + interval '2 hours',
-                 (SELECT min(office_from) FROM office_stays)
-               )),
-               date_trunc('hour', (bounds.until AT TIME ZONE 'UTC') + interval '2 hours'),
-               interval '1 hour'
-             ) AS hour_start
-      FROM bounds
-    ),
-    occupied AS (
-      SELECT h.hour_start,
-             sum(extract(epoch FROM
-               least(s.office_to, h.hour_start + interval '1 hour') - greatest(s.office_from, h.hour_start)
-             )) AS seconds
-      FROM office_stays s
-      CROSS JOIN LATERAL generate_series(
-        date_trunc('hour', s.office_from), s.office_to, interval '1 hour'
-      ) AS h(hour_start)
-      GROUP BY h.hour_start
-    )
-    SELECT extract(isodow FROM hours.hour_start)::int AS weekday,
-           extract(hour FROM hours.hour_start)::int AS hour,
-           round((coalesce(sum(occupied.seconds), 0) / 3600 / count(*))::numeric, 2)::float8 AS people
-    FROM hours
-    LEFT JOIN occupied USING (hour_start)
-    GROUP BY 1, 2
-    ORDER BY 1, 2
-  `.pipe(Effect.flatMap(decodeBusyHours));
+  const busiestHours = SqlSchema.findAll({
+    Request: Window,
+    Result: BusyHour,
+    execute: (bounds) => sql`
+      WITH ${stays(bounds)},
+      hours AS (
+        SELECT generate_series(
+                 date_trunc('hour', coalesce(
+                   (nullif(bounds.since, '-infinity') AT TIME ZONE 'UTC') + interval '2 hours',
+                   (SELECT min(office_from) FROM office_stays)
+                 )),
+                 date_trunc('hour', (bounds.until AT TIME ZONE 'UTC') + interval '2 hours'),
+                 interval '1 hour'
+               ) AS hour_start
+        FROM bounds
+      ),
+      occupied AS (
+        SELECT h.hour_start,
+               sum(extract(epoch FROM
+                 least(s.office_to, h.hour_start + interval '1 hour') - greatest(s.office_from, h.hour_start)
+               )) AS seconds
+        FROM office_stays s
+        CROSS JOIN LATERAL generate_series(
+          date_trunc('hour', s.office_from), s.office_to, interval '1 hour'
+        ) AS h(hour_start)
+        GROUP BY h.hour_start
+      )
+      SELECT extract(isodow FROM hours.hour_start)::int AS weekday,
+             extract(hour FROM hours.hour_start)::int AS hour,
+             round((coalesce(sum(occupied.seconds), 0) / 3600 / count(*))::numeric, 2)::float8 AS people
+      FROM hours
+      LEFT JOIN occupied USING (hour_start)
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+    `,
+  });
 
-  const effects = sql`
+  const effects = ({ since, until }: Bounds) => sql`
     bounds AS (
       SELECT coalesce(${since}::timestamptz, '-infinity'::timestamptz) AS since,
              ${until}::timestamptz AS until
@@ -244,57 +248,73 @@ const queries = (sql: SqlClient.SqlClient, window: StatsWindow) => {
     )
   `;
 
-  const sounds = sql`
-    WITH ${effects}
-    SELECT detail AS sound, count(*)::int AS plays
-    FROM effects
-    WHERE event = 'PlayedSound' AND detail IS NOT NULL
-    GROUP BY detail
-    ORDER BY plays DESC, sound
-    LIMIT ${LEADERBOARD_SIZE}
-  `.pipe(Effect.flatMap(decodeSounds));
-
-  const players = sql`
-    WITH ${effects}
-    SELECT user_id, name, count(*)::int AS plays
-    FROM effects
-    WHERE event = 'PlayedSound'
-    GROUP BY user_id, name
-    ORDER BY plays DESC, name
-    LIMIT ${LEADERBOARD_SIZE}
-  `.pipe(Effect.flatMap(decodePlayers));
-
-  const reactions = sql`
-    WITH ${effects}
-    SELECT detail AS emoji, count(*)::int AS reactions
-    FROM effects
-    WHERE event = 'Reacted' AND detail IS NOT NULL
-    GROUP BY detail
-    ORDER BY reactions DESC, emoji
-    LIMIT ${LEADERBOARD_SIZE}
-  `.pipe(Effect.flatMap(decodeReactions));
-
-  const recordings = sql`
-    SELECT count(*)::int AS count,
-           coalesce(sum(extract(epoch FROM least(coalesce(stopped_at, ${until}::timestamptz), ${until}::timestamptz) - started_at)), 0)::float8 AS seconds
-    FROM office.recordings
-    WHERE started_at >= coalesce(${since}::timestamptz, '-infinity'::timestamptz)
-      AND started_at < ${until}::timestamptz
-  `.pipe(
-    Effect.flatMap(decodeRecordings),
-    Effect.map((rows) => rows[0] ?? { count: 0, seconds: 0 }),
-  );
-
-  return Effect.all({
-    timeInOffice,
-    firstIn,
-    lastOut,
-    busiestHours,
-    sounds,
-    players,
-    reactions,
-    recordings,
+  const sounds = SqlSchema.findAll({
+    Request: Window,
+    Result: SoundPlays,
+    execute: (bounds) => sql`
+      WITH ${effects(bounds)}
+      SELECT detail AS sound, count(*)::int AS plays
+      FROM effects
+      WHERE event = 'PlayedSound' AND detail IS NOT NULL
+      GROUP BY detail
+      ORDER BY plays DESC, sound
+      LIMIT ${LEADERBOARD_SIZE}
+    `,
   });
+
+  const players = SqlSchema.findAll({
+    Request: Window,
+    Result: PlayerPlays,
+    execute: (bounds) => sql`
+      WITH ${effects(bounds)}
+      SELECT user_id, name, count(*)::int AS plays
+      FROM effects
+      WHERE event = 'PlayedSound'
+      GROUP BY user_id, name
+      ORDER BY plays DESC, name
+      LIMIT ${LEADERBOARD_SIZE}
+    `,
+  });
+
+  const reactions = SqlSchema.findAll({
+    Request: Window,
+    Result: EmojiReactions,
+    execute: (bounds) => sql`
+      WITH ${effects(bounds)}
+      SELECT detail AS emoji, count(*)::int AS reactions
+      FROM effects
+      WHERE event = 'Reacted' AND detail IS NOT NULL
+      GROUP BY detail
+      ORDER BY reactions DESC, emoji
+      LIMIT ${LEADERBOARD_SIZE}
+    `,
+  });
+
+  const recordings = SqlSchema.findOneOption({
+    Request: Window,
+    Result: RecordingTotals,
+    execute: ({ since, until }) => sql`
+      SELECT count(*)::int AS count,
+             coalesce(sum(extract(epoch FROM least(coalesce(stopped_at, ${until}::timestamptz), ${until}::timestamptz) - started_at)), 0)::float8 AS seconds
+      FROM office.recordings
+      WHERE started_at >= coalesce(${since}::timestamptz, '-infinity'::timestamptz)
+        AND started_at < ${until}::timestamptz
+    `,
+  });
+
+  return (window: StatsWindow) =>
+    Effect.all({
+      timeInOffice: timeInOffice(window),
+      firstIn: firstIn(window),
+      lastOut: lastOut(window),
+      busiestHours: busiestHours(window),
+      sounds: sounds(window),
+      players: players(window),
+      reactions: reactions(window),
+      recordings: recordings(window).pipe(
+        Effect.map(Option.getOrElse(() => ({ count: 0, seconds: 0 }))),
+      ),
+    });
 };
 
 export class OfficeStatsReader extends Context.Service<
@@ -309,7 +329,7 @@ export class OfficeStatsReader extends Context.Service<
     const stats = Effect.fn("OfficeStatsReader.stats")(function* (range: StatsRange) {
       const window = statsWindow(range, yield* DateTime.now);
 
-      const totals = yield* connected((sql) => timed(queries(sql, window)));
+      const totals = yield* connected((sql) => timed(queries(sql)(window)));
 
       const result: OfficeStats = { range, ...window, ...totals };
 

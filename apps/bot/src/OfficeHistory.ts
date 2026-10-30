@@ -1,5 +1,5 @@
-import { Array, Context, DateTime, Effect, Layer, pipe, Schema } from "effect";
-import { SqlClient } from "effect/sql";
+import { Array, Context, DateTime, Effect, Layer, Option, pipe, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/sql";
 
 import { guardQuery } from "recording-requests/Query";
 
@@ -15,16 +15,17 @@ export class HistoryUnavailable extends Schema.TaggedError<
   reason: Schema.String,
 }) {}
 
-const decodeActivityRows = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({
-      observedAt: Schema.DateTimeUtcFromDate,
-      who: Schema.String,
-      event: Schema.String,
-      total: Schema.Int,
-    }),
-  ),
-);
+const ActivityRow = Schema.Struct({
+  observedAt: Schema.DateTimeUtcFromDate,
+  who: Schema.String,
+  event: Schema.String,
+  total: Schema.Int,
+});
+
+const Between = Schema.Struct({
+  from: Schema.DateTimeUtcFromDate,
+  until: Schema.DateTimeUtcFromDate,
+});
 
 export interface RecentActivity {
   readonly entriesOldestFirst: ReadonlyArray<ActivityEntry>;
@@ -60,23 +61,51 @@ export class OfficeHistory extends Context.Service<
         describe: describeError,
       });
 
+      const activityBetween = SqlSchema.findAll({
+        Request: Between,
+        Result: ActivityRow,
+        execute: ({ from, until }) => sql`
+          SELECT
+            observed_at,
+            coalesce(real_name, display_name) AS who,
+            concat_ws(' ', event, detail) AS event,
+            count(*) OVER ()::int AS total
+          FROM office.office_activity
+          WHERE observed_at >= ${from} AND observed_at < ${until}
+          ORDER BY observed_at DESC, snapshot_id DESC NULLS LAST, effect_id DESC NULLS LAST
+          LIMIT ${MAX_ACTIVITY_ENTRIES}
+        `,
+      });
+
+      const presentNow = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({ who: Schema.String }),
+        execute: () => sql`
+          SELECT who FROM (
+            SELECT DISTINCT ON (user_id) coalesce(real_name, display_name) AS who, event
+            FROM office.voice_activity
+            WHERE bot_session_id = (SELECT id FROM office.bot_sessions ORDER BY started_at DESC LIMIT 1)
+              AND event IN ('AlreadyThere', 'Joined', 'Left')
+            ORDER BY user_id, observed_at DESC, snapshot_id DESC
+          ) AS latest_arrival_or_departure
+          WHERE event <> 'Left'
+          ORDER BY who
+        `,
+      });
+
+      const banterPostCount = SqlSchema.findOneOption({
+        Request: Schema.Struct({ from: Schema.DateTimeUtcFromDate }),
+        Result: Schema.Struct({ posts: Schema.Int }),
+        execute: ({ from }) => sql`
+          SELECT count(*)::int AS posts FROM office.banter_posts WHERE posted_at >= ${from}
+        `,
+      });
+
       const latestActivityBetween = Effect.fn("OfficeHistory.latestActivityBetween")(function* (
         from: DateTime.Utc,
         until: DateTime.Utc,
       ) {
-        const newestFirst = yield* onceReady(
-          sql`
-            SELECT
-              observed_at,
-              coalesce(real_name, display_name) AS who,
-              concat_ws(' ', event, detail) AS event,
-              count(*) OVER ()::int AS total
-            FROM office.office_activity
-            WHERE observed_at >= ${DateTime.toDate(from)} AND observed_at < ${DateTime.toDate(until)}
-            ORDER BY observed_at DESC, snapshot_id DESC NULLS LAST, effect_id DESC NULLS LAST
-            LIMIT ${MAX_ACTIVITY_ENTRIES}
-          `.pipe(Effect.flatMap(decodeActivityRows)),
-        );
+        const newestFirst = yield* onceReady(activityBetween({ from, until }));
 
         return {
           entriesOldestFirst: pipe(
@@ -88,34 +117,15 @@ export class OfficeHistory extends Context.Service<
         };
       });
 
-      const presentSinceBotStarted = onceReady(
-        sql<{ readonly who: string }>`
-          SELECT who FROM (
-            SELECT DISTINCT ON (user_id) coalesce(real_name, display_name) AS who, event
-            FROM office.voice_activity
-            WHERE bot_session_id = (SELECT id FROM office.bot_sessions ORDER BY started_at DESC LIMIT 1)
-              AND event IN ('AlreadyThere', 'Joined', 'Left')
-            ORDER BY user_id, observed_at DESC, snapshot_id DESC
-          ) AS latest_arrival_or_departure
-          WHERE event <> 'Left'
-          ORDER BY who
-        `,
-      ).pipe(
+      const presentSinceBotStarted = onceReady(presentNow()).pipe(
         Effect.map((rows) => Array.map(rows, (row) => row.who)),
         Effect.withSpan("OfficeHistory.presentSinceBotStarted"),
       );
 
-      const banterPostsSince = Effect.fn("OfficeHistory.banterPostsSince")(function* (
-        from: DateTime.Utc,
-      ) {
-        const [row] = yield* onceReady(
-          sql<{ readonly posts: number }>`
-            SELECT count(*)::int AS posts FROM office.banter_posts WHERE posted_at >= ${DateTime.toDate(from)}
-          `,
-        );
-
-        return row?.posts ?? 0;
-      });
+      const banterPostsSince = Effect.fn("OfficeHistory.banterPostsSince")(
+        (from: DateTime.Utc) => onceReady(banterPostCount({ from })),
+        Effect.map(Option.match({ onNone: () => 0, onSome: ({ posts }) => posts })),
+      );
 
       const recordBanterPost = Effect.fn("OfficeHistory.recordBanterPost")(
         (at: DateTime.Utc, period: BanterPeriod) =>
