@@ -112,10 +112,17 @@ export const explain = (reason: IgnoreReason): string => {
   }
 };
 
-export const Occupant = Schema.Struct({
+export const OfficeMember = Schema.Struct({
   userId: Schema.String,
   displayName: Schema.String,
   avatarUrl: Schema.NullOr(Schema.String),
+});
+
+export type OfficeMember = typeof OfficeMember.Type;
+
+export const Occupant = Schema.Struct({
+  ...OfficeMember.fields,
+  speaking: Schema.Boolean,
 });
 
 export type Occupant = typeof Occupant.Type;

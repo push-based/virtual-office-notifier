@@ -9,7 +9,7 @@ import { PbAvatarGroup } from "./avatar-group";
   imports: [PbAvatar, PbAvatarGroup],
   template: `
     <pb-avatar-group>
-      <li><pb-avatar [name]="name()" [src]="src()" /></li>
+      <li><pb-avatar [name]="name()" [src]="src()" [speaking]="speaking()" /></li>
     </pb-avatar-group>
   `,
 })
@@ -17,6 +17,8 @@ class Host {
   readonly name = signal("Ada Lovelace");
 
   readonly src = signal<string | null>(null);
+
+  readonly speaking = signal(false);
 }
 
 @Component({
@@ -58,6 +60,19 @@ describe("PbAvatar", () => {
     expect(image?.getAttribute("src")).toBe("https://cdn.example/ada.png");
     expect(image?.getAttribute("alt")).toBe("Ada Lovelace");
     expect(element.querySelector('[role="img"]')).toBeNull();
+  });
+
+  it("wears a ring only while speaking", async () => {
+    const fixture = TestBed.createComponent(Host);
+    await fixture.whenStable();
+    const avatar: HTMLElement | null = fixture.nativeElement.querySelector("pb-avatar");
+
+    expect(avatar?.classList.contains("speaking")).toBe(false);
+
+    fixture.componentInstance.speaking.set(true);
+    await fixture.whenStable();
+
+    expect(avatar?.classList.contains("speaking")).toBe(true);
   });
 });
 

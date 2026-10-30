@@ -73,6 +73,7 @@ export class OfficeRecorder implements OnInit {
       id: occupant.userId,
       name: occupant.displayName,
       avatarUrl: occupant.avatarUrl,
+      speaking: occupant.speaking,
     })),
   );
 

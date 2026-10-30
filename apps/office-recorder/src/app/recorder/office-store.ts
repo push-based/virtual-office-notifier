@@ -5,6 +5,7 @@ import {
   type Observable,
   Subject,
   catchError,
+  defer,
   finalize,
   first,
   interval,
@@ -111,19 +112,11 @@ export class OfficeStore {
 
     if (this.destroyRef.destroyed) return;
 
-    merge(timer(0, this.timing.statePollMs), this.refreshes)
-      .pipe(
-        mergeMap(() =>
-          this.api.status().pipe(
-            catchError((error) => {
-              this.notices.next(unreachableNotice(messageOf(error)));
-
-              return EMPTY;
-            }),
-          ),
-        ),
-        takeUntilDestroyed(this.destroyRef),
-      )
+    merge(
+      defer(() => this.fetchStatus()).pipe(repeat({ delay: () => timer(this.pollMs()) })),
+      this.refreshes.pipe(mergeMap(() => this.fetchStatus())),
+    )
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((status) => this.patch({ status, now: Date.now() }));
 
     interval(this.timing.clockTickMs)
@@ -151,6 +144,20 @@ export class OfficeStore {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((notice) => this.notices.next(notice));
+  }
+
+  private pollMs(): number {
+    return this.recording() ? this.timing.recordingPollMs : this.timing.statePollMs;
+  }
+
+  private fetchStatus(): Observable<RecordingStatus> {
+    return this.api.status().pipe(
+      catchError((error) => {
+        this.notices.next(unreachableNotice(messageOf(error)));
+
+        return EMPTY;
+      }),
+    );
   }
 
   private awaitOutcome(id: number): Observable<HandledRequest | null> {

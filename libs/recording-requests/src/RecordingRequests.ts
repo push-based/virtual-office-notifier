@@ -8,7 +8,8 @@ import {
   endsAt,
   explain,
   IgnoreReason,
-  Occupant,
+  type Occupant,
+  OfficeMember,
   type RecordingRequest,
   type RecordingStatus,
   RequestAction,
@@ -78,11 +79,16 @@ const decodePending = Schema.decodeUnknownEffect(
   ),
 );
 
+const StoredOccupant = Schema.Struct({
+  ...OfficeMember.fields,
+  speaking: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
+});
+
 const decodeStatus = Schema.decodeUnknownEffect(
   Schema.Array(
     Schema.Struct({
       botInOffice: Schema.Boolean,
-      occupants: Schema.Array(Occupant),
+      occupants: Schema.Array(StoredOccupant),
       updatedAt: Schema.DateTimeUtcFromDate,
       recordingId: Schema.NullOr(Schema.String),
       startedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),

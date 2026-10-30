@@ -4,6 +4,7 @@ import {
   Array,
   type Cause,
   DateTime,
+  Duration,
   Effect,
   Fiber,
   Layer,
@@ -22,11 +23,12 @@ import { ClipArchive } from "../src/ClipArchive.ts";
 import { columnNaming, Database } from "../src/Database.ts";
 import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
-import { FINISH_POLL, POLL_INTERVAL, Recorder } from "../src/Recorder.ts";
+import { FINISH_POLL, POLL_INTERVAL, Recorder, STATUS_INTERVAL } from "../src/Recorder.ts";
 import { RecordingStore, type StoreUnavailable } from "../src/RecordingStore.ts";
 import { SummaryWriter, type WrittenSummary } from "../src/SummaryWriter.ts";
 import { type Transcript, Transcriber, TranscriptionError } from "../src/Transcriber.ts";
-import { type CaptureError, type Clip, VoiceCapture } from "../src/VoiceCapture.ts";
+import { SPEAKING_HOLD } from "../src/Speaking.ts";
+import { type CaptureError, type Clip, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
 import { makeFakeSlackClient, makeFakeSlackHistory, SLACK_ENV, withEnv } from "./fakes.ts";
 
 const OFFICE = "office";
@@ -79,7 +81,7 @@ const transcribeAll = () => Effect.succeed({ text: "hello world", model: "whispe
 const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const present = options.present ?? [];
   const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
-  const clips = yield* Queue.unbounded<Clip, Cause.Done | CaptureError>();
+  const heard = yield* Queue.unbounded<Heard, Cause.Done | CaptureError>();
   const recordings = yield* Queue.unbounded<boolean>();
   const slack = yield* makeFakeSlackClient();
   const history = yield* makeFakeSlackHistory();
@@ -99,7 +101,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
 
   const layer = Recorder.layer.pipe(
     Layer.provide([
-      VoiceCapture.layerTest(clips),
+      VoiceCapture.layerTest(heard),
       ClipArchive.layerDisabled,
       transcriber,
       summaries,
@@ -193,7 +195,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const statusRows = sql<{
     readonly recordingId: string | null;
     readonly botInOffice: boolean;
-    readonly occupants: ReadonlyArray<{ readonly userId: string }>;
+    readonly occupants: ReadonlyArray<{ readonly userId: string; readonly speaking: boolean }>;
   }>`
     SELECT recording_id, bot_in_office, occupants FROM office.recording_status
   `;
@@ -209,7 +211,9 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     eventRows,
     statusRows,
     offer: (update: VoiceStateUpdate) => Queue.offer(updates, update),
-    speak: (spoken: Clip) => Queue.offer(clips, spoken),
+    speak: (spoken: Clip) => Queue.offer(heard, Heard.Spoke({ clip: spoken })),
+    hear: (event: Heard) => Queue.offer(heard, event),
+    settle: Effect.repeat(realSleep, { times: 4 }),
     tick: TestClock.adjust(POLL_INTERVAL),
     recordings: Queue.clear(recordings),
     posts: slack.posts,
@@ -450,6 +454,71 @@ describe("Recorder", () => {
         Array.map(withGrace.occupants, ({ userId }) => userId),
         ["u1", "u2"],
       );
+
+      yield* Fiber.interrupt(h.fiber);
+    }),
+  );
+
+  it.effect(
+    "shows who the bot hears speaking until the hold runs out, writing at most once a second",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+
+        const adaSpeaks = (
+          rows: ReadonlyArray<{
+            readonly occupants: ReadonlyArray<{ readonly speaking: boolean }>;
+          }>,
+        ) => rows[0]?.occupants[0]?.speaking === true;
+
+        yield* h.request("u1", "start");
+        yield* h.tick;
+        yield* h.eventually(h.statusRows, (rows) => rows[0]?.recordingId !== null);
+
+        yield* h.hear(Heard.StartedSpeaking({ userId: "u1" }));
+        yield* h.settle;
+        assert.isFalse(adaSpeaks(yield* h.statusRows));
+
+        yield* TestClock.adjust(STATUS_INTERVAL);
+        assert.isTrue(adaSpeaks(yield* h.eventually(h.statusRows, adaSpeaks)));
+
+        yield* h.hear(Heard.StoppedSpeaking({ userId: "u1" }));
+        yield* h.settle;
+        yield* TestClock.adjust(STATUS_INTERVAL);
+        yield* h.settle;
+        assert.isTrue(adaSpeaks(yield* h.statusRows));
+
+        yield* TestClock.adjust(Duration.subtract(SPEAKING_HOLD, STATUS_INTERVAL));
+        assert.isFalse(adaSpeaks(yield* h.eventually(h.statusRows, (rows) => !adaSpeaks(rows))));
+
+        yield* Fiber.interrupt(h.fiber);
+      }),
+  );
+
+  it.effect("shows nobody speaking once the recording stops", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada] });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.hear(Heard.StartedSpeaking({ userId: "u1" }));
+      yield* h.settle;
+      yield* TestClock.adjust(STATUS_INTERVAL);
+      yield* h.eventually(h.statusRows, (rows) => rows[0]?.occupants[0]?.speaking === true);
+
+      yield* h.request("u1", "stop");
+      yield* h.tick;
+      yield* recordingStopped(h);
+      yield* TestClock.adjust(STATUS_INTERVAL);
+
+      const [after] = yield* h.eventually(
+        h.statusRows,
+        (rows) => rows[0]?.recordingId === null && rows[0]?.occupants[0]?.speaking === false,
+      );
+
+      assert.isNull(after?.recordingId);
+      assert.isFalse(after?.occupants[0]?.speaking);
 
       yield* Fiber.interrupt(h.fiber);
     }),

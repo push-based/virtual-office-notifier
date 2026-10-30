@@ -29,7 +29,7 @@ import {
   type VoiceChannelEffect,
   type VoiceState,
 } from "discord.js";
-import type { Occupant } from "recording-requests/RecordingRequest";
+import type { OfficeMember } from "recording-requests/RecordingRequest";
 
 import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
 import { DiscordConfig } from "./Config.ts";
@@ -137,7 +137,7 @@ const alreadyPresent = (member: GuildMember): VoiceStateUpdate => ({
   newDetails: detailsOf(member.voice),
 });
 
-const occupantOfUpdate = (update: VoiceStateUpdate): Occupant => ({
+const occupantOfUpdate = (update: VoiceStateUpdate): OfficeMember => ({
   userId: update.userId,
   displayName: update.displayName,
   avatarUrl: update.avatarUrl,
@@ -298,7 +298,7 @@ const setNickname = (guild: Guild, nickname: string | null) =>
     ),
   );
 
-const occupantOf = (member: GuildMember): Occupant => ({
+const occupantOf = (member: GuildMember): OfficeMember => ({
   userId: member.id,
   displayName: member.displayName,
   avatarUrl: member.displayAvatarURL({ extension: "png", size: 128 }),
@@ -334,7 +334,7 @@ export class DiscordGateway extends Context.Service<
     moveBot(presence: BotPresence): Effect.Effect<void>;
     // Un-deafens and renames the bot while it records, and back afterwards.
     setRecording(active: boolean): Effect.Effect<void>;
-    readonly occupants: Effect.Effect<ReadonlyArray<Occupant>>;
+    readonly occupants: Effect.Effect<ReadonlyArray<OfficeMember>>;
     readonly selfUserId: string;
     readonly voiceAdapter: Option.Option<DiscordGatewayAdapterCreator>;
     // None when the office channel wasn't found at startup.
@@ -446,7 +446,7 @@ export class DiscordGateway extends Context.Service<
             ),
         });
 
-      const whoIsIn = Effect.sync((): ReadonlyArray<Occupant> =>
+      const whoIsIn = Effect.sync((): ReadonlyArray<OfficeMember> =>
         Option.match(office, {
           onNone: () => [],
           onSome: (channel) =>
@@ -512,7 +512,7 @@ export class DiscordGateway extends Context.Service<
           Stream.broadcast({ capacity: "unbounded", replay: 1000 }),
         );
 
-        const inOffice = yield* Ref.make<ReadonlyMap<string, Occupant>>(
+        const inOffice = yield* Ref.make<ReadonlyMap<string, OfficeMember>>(
           new Map(Array.map(present, (update) => [update.userId, occupantOfUpdate(update)])),
         );
 
