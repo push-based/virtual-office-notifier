@@ -1,10 +1,18 @@
-import { Component, type OnInit, inject } from "@angular/core";
-import { PbCard, PbDivider, PbEyebrow, PbNotice, PbNoticeRegion } from "design-system";
+import { Component, type OnInit, computed, inject } from "@angular/core";
+import {
+  PbCard,
+  PbDivider,
+  PbEyebrow,
+  PbNotice,
+  PbNoticeRegion,
+  PbPeople,
+  PbRecordButton,
+  PbStatusHeading,
+  type Person,
+} from "design-system";
 
+import { describePhase } from "./describe-phase";
 import { OfficeStore } from "./office-store";
-import { OccupantList } from "./ui/occupant-list";
-import { RecordButton } from "./ui/record-button";
-import { StatusHeading } from "./ui/status-heading";
 
 @Component({
   selector: "app-office-recorder",
@@ -14,16 +22,21 @@ import { StatusHeading } from "./ui/status-heading";
     PbEyebrow,
     PbNotice,
     PbNoticeRegion,
-    StatusHeading,
-    RecordButton,
-    OccupantList,
+    PbPeople,
+    PbRecordButton,
+    PbStatusHeading,
   ],
   providers: [OfficeStore],
   template: `
+    @let status = description();
     <pb-card size="lg">
       <p pbEyebrow>Office recorder</p>
-      <app-status-heading [phase]="store.phase()" [now]="store.now()" />
-      <app-record-button
+      <pb-status-heading
+        [heading]="status.heading"
+        [description]="status.description"
+        [live]="status.live"
+      />
+      <pb-record-button
         [recording]="store.recording()"
         [busy]="store.busy()"
         [disabled]="!store.canPress()"
@@ -34,9 +47,9 @@ import { StatusHeading } from "./ui/status-heading";
           <pb-notice [kind]="notice.kind">{{ notice.text }}</pb-notice>
         }
       </pb-notice-region>
-      @if (store.occupants().length > 0) {
+      @if (people().length > 0) {
         <hr pbDivider />
-        <app-occupant-list [occupants]="store.occupants()" />
+        <pb-people [people]="people()" label="In the office · {{ people().length }}" />
       }
     </pb-card>
   `,
@@ -50,6 +63,18 @@ import { StatusHeading } from "./ui/status-heading";
 })
 export class OfficeRecorder implements OnInit {
   protected readonly store = inject(OfficeStore);
+
+  protected readonly description = computed(() =>
+    describePhase(this.store.phase(), this.store.now()),
+  );
+
+  protected readonly people = computed((): ReadonlyArray<Person> =>
+    this.store.occupants().map((occupant) => ({
+      id: occupant.userId,
+      name: occupant.displayName,
+      avatarUrl: occupant.avatarUrl,
+    })),
+  );
 
   ngOnInit(): void {
     void this.store.start();
