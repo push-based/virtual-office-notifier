@@ -1,41 +1,41 @@
 /* PushBased — generated from tokens.json */
 
 :root {
-  --color-primary-25: #FBFAFF;
-  --color-primary-50: #F5F3FF;
-  --color-primary-100: #ECE9FE;
-  --color-primary-200: #DDD6FE;
-  --color-primary-300: #C3B5FD;
-  --color-primary-400: #A48AFB;
-  --color-primary-500: #875BF7;
-  --color-primary-600: #7839EE;
-  --color-primary-700: #6927DA;
-  --color-primary-800: #5720B7;
-  --color-primary-900: #491C96;
-  --color-primary-950: #2E125E;
-  --color-secondary-50: #FFF0F4;
-  --color-secondary-100: #FFDDE5;
-  --color-secondary-200: #FFC0CF;
-  --color-secondary-300: #FF94AD;
-  --color-secondary-400: #FF577F;
-  --color-secondary-500: #FF2357;
-  --color-secondary-600: #FF003C;
-  --color-secondary-700: #D70033;
-  --color-secondary-800: #B1032C;
-  --color-secondary-900: #920A2A;
+  --color-primary-25: #fbfaff;
+  --color-primary-50: #f5f3ff;
+  --color-primary-100: #ece9fe;
+  --color-primary-200: #ddd6fe;
+  --color-primary-300: #c3b5fd;
+  --color-primary-400: #a48afb;
+  --color-primary-500: #875bf7;
+  --color-primary-600: #7839ee;
+  --color-primary-700: #6927da;
+  --color-primary-800: #5720b7;
+  --color-primary-900: #491c96;
+  --color-primary-950: #2e125e;
+  --color-secondary-50: #fff0f4;
+  --color-secondary-100: #ffdde5;
+  --color-secondary-200: #ffc0cf;
+  --color-secondary-300: #ff94ad;
+  --color-secondary-400: #ff577f;
+  --color-secondary-500: #ff2357;
+  --color-secondary-600: #ff003c;
+  --color-secondary-700: #d70033;
+  --color-secondary-800: #b1032c;
+  --color-secondary-900: #920a2a;
   --color-secondary-950: #500013;
-  --color-neutral-25: #FCFCFD;
-  --color-neutral-50: #F8FAFC;
-  --color-neutral-100: #EEF2F6;
-  --color-neutral-200: #E3E8EF;
-  --color-neutral-300: #CDD5DF;
-  --color-neutral-400: #9AA4B2;
+  --color-neutral-25: #fcfcfd;
+  --color-neutral-50: #f8fafc;
+  --color-neutral-100: #eef2f6;
+  --color-neutral-200: #e3e8ef;
+  --color-neutral-300: #cdd5df;
+  --color-neutral-400: #9aa4b2;
   --color-neutral-500: #697586;
-  --color-neutral-600: #4B5565;
+  --color-neutral-600: #4b5565;
   --color-neutral-700: #364152;
   --color-neutral-800: #202939;
   --color-neutral-900: #121926;
-  --color-neutral-950: #0D121C;
+  --color-neutral-950: #0d121c;
   --color-success-50: #f0fdf4;
   --color-success-100: #dcfce7;
   --color-success-200: #bbf7d0;
@@ -89,7 +89,7 @@
   --color-border: var(--color-neutral-100);
   --color-brand: var(--color-primary-500);
   --color-brand-hover: var(--color-primary-600);
-  --color-brand-navy: #2D0064;
+  --color-brand-navy: #2d0064;
   --color-brand-red: var(--color-secondary-600);
   --color-focus: #9e77ed3d;
 
@@ -141,22 +141,92 @@
 
   --shadow-sm: 0px 1px 2px 0px rgba(16, 24, 40, 0.05);
   --shadow-md: 0px 20px 24px -4px rgba(16, 24, 40, 0.08), 0px 8px 8px -4px rgba(16, 24, 40, 0.03);
-  --shadow-lg: 0 0 0.5px 0 rgba(15, 20, 25, 0.18), 0 3px 8px 0 rgba(15, 20, 25, 0.1), 0 1px 3px 0 rgba(15, 20, 25, 0.1);
+  --shadow-lg:
+    0 0 0.5px 0 rgba(15, 20, 25, 0.18), 0 3px 8px 0 rgba(15, 20, 25, 0.1),
+    0 1px 3px 0 rgba(15, 20, 25, 0.1);
   --shadow-focus: 0 0 0 4px #9e77ed3d;
 
   --font-sans: Geist, "Geist Fallback", system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
 }
-.text-display-5xl { font-family: var(--font-sans); font-size: 3rem; line-height: 1; font-weight: 600; }
-.text-hero-title { font-family: var(--font-sans); font-size: 2.25rem; line-height: 2.5rem; font-weight: 600; }
-.text-section-title-lg { font-family: var(--font-sans); font-size: 2rem; line-height: 3rem; font-weight: 600; }
-.text-section-title { font-family: var(--font-sans); font-size: 1.5rem; line-height: 2rem; font-weight: 600; }
-.text-title { font-family: var(--font-sans); font-size: 1.25rem; line-height: 1.75rem; font-weight: 500; }
-.text-lead { font-family: var(--font-sans); font-size: 1.125rem; line-height: 1.75rem; font-weight: 400; }
-.text-card-title { font-family: var(--font-sans); font-size: 1rem; line-height: 1.5rem; font-weight: 500; }
-.text-body { font-family: var(--font-sans); font-size: 1rem; line-height: 1.5rem; font-weight: 400; }
-.text-body-sm { font-family: var(--font-sans); font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; letter-spacing: -0.28px; }
-.text-caption { font-family: var(--font-sans); font-size: 0.75rem; line-height: 1rem; font-weight: 400; }
-.text-button { font-family: var(--font-sans); font-size: 1rem; line-height: 1.5rem; font-weight: 500; }
-.text-subtitle { font-family: var(--font-mono); font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; text-transform: uppercase; }
-.text-link-mono { font-family: var(--font-mono); font-size: 0.875rem; line-height: 1; font-weight: 500; text-transform: uppercase; }
+.text-display-5xl {
+  font-family: var(--font-sans);
+  font-size: 3rem;
+  line-height: 1;
+  font-weight: 600;
+}
+.text-hero-title {
+  font-family: var(--font-sans);
+  font-size: 2.25rem;
+  line-height: 2.5rem;
+  font-weight: 600;
+}
+.text-section-title-lg {
+  font-family: var(--font-sans);
+  font-size: 2rem;
+  line-height: 3rem;
+  font-weight: 600;
+}
+.text-section-title {
+  font-family: var(--font-sans);
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+}
+.text-title {
+  font-family: var(--font-sans);
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 500;
+}
+.text-lead {
+  font-family: var(--font-sans);
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 400;
+}
+.text-card-title {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 500;
+}
+.text-body {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 400;
+}
+.text-body-sm {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+  letter-spacing: -0.28px;
+}
+.text-caption {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 400;
+}
+.text-button {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 500;
+}
+.text-subtitle {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.text-link-mono {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1;
+  font-weight: 500;
+  text-transform: uppercase;
+}

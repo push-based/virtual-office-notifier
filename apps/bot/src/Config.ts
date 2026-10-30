@@ -1,7 +1,6 @@
 import { Array, Config, Option, Redacted, Schema } from "effect";
 
-const secret = (name: string) =>
-  Config.schema(Schema.Redacted(Schema.NonEmptyString), name);
+const secret = (name: string) => Config.schema(Schema.Redacted(Schema.NonEmptyString), name);
 
 export const DiscordConfig = Config.all({
   botToken: secret("DISCORD_BOT_TOKEN"),
@@ -84,8 +83,12 @@ export const RecordingConfig = Config.all({
   bucket: Config.option(Config.NonEmptyString("RECORDINGS_BUCKET")).pipe(
     Config.map(Option.filter((bucket) => bucket.trim() !== "")),
   ),
-  whisperModel: Config.NonEmptyString("WHISPER_MODEL").pipe(Config.withDefault(DEFAULT_WHISPER_MODEL)),
-  language: Config.NonEmptyString("TRANSCRIPTION_LANGUAGE").pipe(Config.withDefault(DEFAULT_TRANSCRIPTION_LANGUAGE)),
+  whisperModel: Config.NonEmptyString("WHISPER_MODEL").pipe(
+    Config.withDefault(DEFAULT_WHISPER_MODEL),
+  ),
+  language: Config.NonEmptyString("TRANSCRIPTION_LANGUAGE").pipe(
+    Config.withDefault(DEFAULT_TRANSCRIPTION_LANGUAGE),
+  ),
 });
 
 // Production always records, so a deploy without it fails instead of quietly

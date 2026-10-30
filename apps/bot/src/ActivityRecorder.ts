@@ -33,8 +33,16 @@ export const FLUSH_TIMEOUT = Duration.seconds(10);
 // What's waiting to be written, in the order it happened.
 export type Entry = Data.TaggedEnum<{
   SessionStarted: { readonly sessionId: string; readonly at: DateTime.Utc };
-  Observed: { readonly sessionId: string; readonly entryId: string; readonly observation: VoiceObservation };
-  EffectSent: { readonly sessionId: string; readonly entryId: string; readonly effect: TimedVoiceEffect };
+  Observed: {
+    readonly sessionId: string;
+    readonly entryId: string;
+    readonly observation: VoiceObservation;
+  };
+  EffectSent: {
+    readonly sessionId: string;
+    readonly entryId: string;
+    readonly effect: TimedVoiceEffect;
+  };
   SessionStopped: { readonly sessionId: string; readonly at: DateTime.Utc };
 }>;
 
@@ -69,9 +77,12 @@ export class UpdateSetAside extends Schema.TaggedError<UpdateSetAside>()("Update
   }
 }
 
-export class RecordingDisabled extends Schema.TaggedError<RecordingDisabled>()("RecordingDisabled", {
-  reason: Schema.String,
-}) {
+export class RecordingDisabled extends Schema.TaggedError<RecordingDisabled>()(
+  "RecordingDisabled",
+  {
+    reason: Schema.String,
+  },
+) {
   override get message(): string {
     return `Couldn't create the database client, so nothing is recorded: ${this.reason}`;
   }
@@ -97,7 +108,11 @@ const outageRetry = reconnectSchedule.pipe(
   Schedule.while(({ input }) => input.reason instanceof Outage),
   Schedule.tap(({ input, attempt, duration }) =>
     Effect.logWarning("Couldn't record to the database, retrying").pipe(
-      Effect.annotateLogs({ reason: input.reason.message, attempt, delayMs: Duration.toMillis(duration) }),
+      Effect.annotateLogs({
+        reason: input.reason.message,
+        attempt,
+        delayMs: Duration.toMillis(duration),
+      }),
       Effect.andThen(report(new DatabaseUnavailable({ reason: input.reason.message }))),
     ),
   ),
@@ -129,14 +144,18 @@ export class ActivityRecorder extends Context.Service<
       const enqueue = (entry: Entry) =>
         Queue.offer(buffer, entry).pipe(
           Effect.flatMap((accepted) =>
-            accepted ? Effect.void : logInstead("Recording buffer is full or closed, logging this instead", entry),
+            accepted
+              ? Effect.void
+              : logInstead("Recording buffer is full or closed, logging this instead", entry),
           ),
         );
 
       const persist = Entry.$match({
         SessionStarted: ({ sessionId, at }) => log.startSession(sessionId, at),
-        Observed: ({ sessionId, entryId, observation }) => log.record(sessionId, entryId, observation),
-        EffectSent: ({ sessionId, entryId, effect }) => log.recordEffect(sessionId, entryId, effect),
+        Observed: ({ sessionId, entryId, observation }) =>
+          log.record(sessionId, entryId, observation),
+        EffectSent: ({ sessionId, entryId, effect }) =>
+          log.recordEffect(sessionId, entryId, effect),
         SessionStopped: ({ sessionId, at }) => log.stopSession(sessionId, at),
       });
 
@@ -145,14 +164,19 @@ export class ActivityRecorder extends Context.Service<
           Effect.flatMap((at) => log.reject(JSON.stringify(entry), error.reason.message, at)),
           Effect.timeout(WRITE_TIMEOUT),
           Effect.andThen(
-            Effect.logWarning("The database rejected an update, set it aside in rejected_updates").pipe(
+            Effect.logWarning(
+              "The database rejected an update, set it aside in rejected_updates",
+            ).pipe(
               Effect.annotateLogs({ reason: error.reason.message }),
               Effect.andThen(report(new UpdateSetAside({ reason: error.reason.message }))),
             ),
           ),
           Effect.catch((rejectError) =>
             logInstead("Couldn't record or set aside an update, logging it instead", entry).pipe(
-              Effect.annotateLogs({ reason: error.reason.message, setAsideError: describeError(rejectError) }),
+              Effect.annotateLogs({
+                reason: error.reason.message,
+                setAsideError: describeError(rejectError),
+              }),
             ),
           ),
         );
@@ -162,7 +186,11 @@ export class ActivityRecorder extends Context.Service<
           Effect.timeoutOrElse({
             duration: WRITE_TIMEOUT,
             orElse: () =>
-              Effect.fail(new ActivityLogError({ reason: new Outage({ message: "Timed out after 10 seconds" }) })),
+              Effect.fail(
+                new ActivityLogError({
+                  reason: new Outage({ message: "Timed out after 10 seconds" }),
+                }),
+              ),
           }),
           Effect.retry(outageRetry),
           Effect.catchTag("ActivityLogError", (error) => setAside(entry, error)),
@@ -173,11 +201,10 @@ export class ActivityRecorder extends Context.Service<
       // still log it. Taking and marking it in flight can't be split by an
       // interruption.
       const writeNext = Effect.uninterruptibleMask((restore) =>
-        restore(Queue.take(buffer)).pipe(Effect.tap((entry) => Ref.set(inFlight, Option.some(entry)))),
-      ).pipe(
-        Effect.flatMap(write),
-        Effect.andThen(Ref.set(inFlight, Option.none())),
-      );
+        restore(Queue.take(buffer)).pipe(
+          Effect.tap((entry) => Ref.set(inFlight, Option.some(entry))),
+        ),
+      ).pipe(Effect.flatMap(write), Effect.andThen(Ref.set(inFlight, Option.none())));
 
       yield* enqueue(Entry.SessionStarted({ sessionId, at: yield* DateTime.now }));
 
@@ -202,7 +229,10 @@ export class ActivityRecorder extends Context.Service<
 
           yield* Fiber.interrupt(writer);
 
-          const unwritten = [...Option.toArray(yield* Ref.get(inFlight)), ...(yield* Queue.clear(buffer))];
+          const unwritten = [
+            ...Option.toArray(yield* Ref.get(inFlight)),
+            ...(yield* Queue.clear(buffer)),
+          ];
 
           yield* Effect.forEach(unwritten, (entry) =>
             logInstead("Couldn't record before shutting down, logging this instead", entry),
@@ -211,8 +241,10 @@ export class ActivityRecorder extends Context.Service<
       );
 
       return ActivityRecorder.of({
-        record: (observation) => enqueue(Entry.Observed({ sessionId, entryId: crypto.randomUUID(), observation })),
-        recordEffect: (effect) => enqueue(Entry.EffectSent({ sessionId, entryId: crypto.randomUUID(), effect })),
+        record: (observation) =>
+          enqueue(Entry.Observed({ sessionId, entryId: crypto.randomUUID(), observation })),
+        recordEffect: (effect) =>
+          enqueue(Entry.EffectSent({ sessionId, entryId: crypto.randomUUID(), effect })),
       });
     }),
   );

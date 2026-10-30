@@ -91,7 +91,8 @@ describe("SlackHistory", () => {
       assert.strictEqual(settings.clefThreadMessages, 10);
       assert.strictEqual(settings.writerThreadMessages, 50);
       assert.isAtLeast(settings.reactionEmoji.length, 2);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("reads a change to the settings straight away", () =>
     Effect.gen(function* () {
@@ -106,7 +107,8 @@ describe("SlackHistory", () => {
       assert.isTrue(settings.enabled);
       assert.strictEqual(settings.minConfidence, 0.9);
       assert.deepStrictEqual(settings.reactionEmoji, ["tada", "eyes"]);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("refuses settings that can't work", () =>
     Effect.gen(function* () {
@@ -124,7 +126,8 @@ describe("SlackHistory", () => {
       ]) {
         assert.isTrue(Exit.isFailure(yield* Effect.exit(update)));
       }
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("counts the office day's replies and reactions, and the replies in a thread", () =>
     Effect.gen(function* () {
@@ -135,7 +138,11 @@ describe("SlackHistory", () => {
       yield* history.recordPost(reply("9.0", "1.0", hours(9)));
       yield* history.recordPost(reply("11.0", "1.0", hours(11)));
       yield* history.recordPost(reply("12.0", "2.0", hours(12)));
-      yield* history.recordPost({ ...reply("13.0", "1.0", hours(13)), kind: "Banter", threadTs: null });
+      yield* history.recordPost({
+        ...reply("13.0", "1.0", hours(13)),
+        kind: "Banter",
+        threadTs: null,
+      });
 
       const first = yield* history.recordMessage(message("10.1"));
       const second = yield* history.recordMessage(message("10.2"));
@@ -149,7 +156,8 @@ describe("SlackHistory", () => {
       assert.strictEqual(yield* history.reactionsSince(hours(10)), 1);
       assert.strictEqual(yield* history.repliesInThread("C-OFFICE", "1.0"), 2);
       assert.strictEqual(yield* history.repliesInThread("C-OFFICE", "3.0"), 0);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("links a Slack author by their Slack ID, then by real name", () =>
     Effect.gen(function* () {
@@ -197,7 +205,8 @@ describe("SlackHistory", () => {
       );
       assert.deepStrictEqual(yield* history.linkMember("U-LINUS", "Linus Torvalds"), Option.none());
       assert.deepStrictEqual(yield* history.linkMember("U-NOBODY", ""), Option.none());
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("keeps every reaction on the bot's posts, removals included", () =>
     Effect.gen(function* () {
@@ -219,13 +228,17 @@ describe("SlackHistory", () => {
       yield* history.recordReaction({ ...reaction, added: false, eventTs: "9.6" });
 
       const sql = yield* SqlClient.SqlClient;
-      const rows = yield* sql<{ readonly added: boolean }>`SELECT added FROM office.slack_reactions ORDER BY id`;
+
+      const rows = yield* sql<{
+        readonly added: boolean;
+      }>`SELECT added FROM office.slack_reactions ORDER BY id`;
 
       assert.deepStrictEqual(
         rows.map((row) => row.added),
         [true, false],
       );
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });
 
 describe("SlackHistory.layerDisabled", () => {
@@ -236,5 +249,6 @@ describe("SlackHistory.layerDisabled", () => {
       assert.isTrue(Exit.isFailure(yield* Effect.exit(history.settings)));
 
       yield* history.recordPost(reply("1.0", "1.0", hours(1)));
-    }).pipe(Effect.provide(SlackHistory.layerDisabled)));
+    }).pipe(Effect.provide(SlackHistory.layerDisabled)),
+  );
 });

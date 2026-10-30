@@ -49,7 +49,9 @@ class FakeWebSocket implements Socket.WebSocketLike {
     this.emit("close", { type: "close", code });
   }
 
-  receive(message: Record<string, string | number | Record<string, string | Record<string, string>>>): void {
+  receive(
+    message: Record<string, string | number | Record<string, string | Record<string, string>>>,
+  ): void {
     this.emit("message", { type: "message", data: JSON.stringify(message) });
   }
 
@@ -75,7 +77,8 @@ const eventEnvelope = (envelopeId: string, retryAttempt = 0) => ({
   payload: { type: "event_callback", event: threadReply },
 });
 
-const connection = (ticket: string) => slackOk({ url: `wss://wss-primary.slack.com/link/?ticket=${ticket}` });
+const connection = (ticket: string) =>
+  slackOk({ url: `wss://wss-primary.slack.com/link/?ticket=${ticket}` });
 
 const settle = TestClock.adjust("1 millis");
 
@@ -97,9 +100,14 @@ const connect = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>) {
     ),
   );
 
-  const slackSocket = yield* Effect.service(SlackSocket).pipe(Effect.provide(layer), withEnv(SLACK_ENV));
+  const slackSocket = yield* Effect.service(SlackSocket).pipe(
+    Effect.provide(layer),
+    withEnv(SLACK_ENV),
+  );
 
-  yield* Stream.runForEach(slackSocket.envelopes, (envelope) => Queue.offer(received, envelope)).pipe(Effect.forkChild);
+  yield* Stream.runForEach(slackSocket.envelopes, (envelope) =>
+    Queue.offer(received, envelope),
+  ).pipe(Effect.forkChild);
   yield* settle;
 
   return {
@@ -107,7 +115,9 @@ const connect = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>) {
     latest: () => sockets.at(-1)!,
     received: Queue.clear(received),
     connectionsOpened: http.requests.pipe(
-      Effect.map((sent) => sent.filter((request) => request.url.endsWith("apps.connections.open")).length),
+      Effect.map(
+        (sent) => sent.filter((request) => request.url.endsWith("apps.connections.open")).length,
+      ),
     ),
   };
 });
@@ -118,7 +128,8 @@ describe("SlackSocket", () => {
       const slack = yield* connect([connection("first")]);
 
       assert.strictEqual(slack.latest().url, "wss://wss-primary.slack.com/link/?ticket=first");
-    }));
+    }),
+  );
 
   it.effect("acks an event before handing it on", () =>
     Effect.gen(function* () {
@@ -129,12 +140,16 @@ describe("SlackSocket", () => {
       socket.receive(eventEnvelope("env-1"));
       yield* settle;
 
-      assert.deepStrictEqual(socket.sent.map((sent) => JSON.parse(sent)), [{ envelope_id: "env-1" }]);
+      assert.deepStrictEqual(
+        socket.sent.map((sent) => JSON.parse(sent)),
+        [{ envelope_id: "env-1" }],
+      );
 
       const [envelope] = yield* slack.received;
       assert.deepStrictEqual(envelope?.envelopeId, Option.some("env-1"));
       assert.isTrue(Option.isSome(envelope!.event));
-    }));
+    }),
+  );
 
   it.effect("acks a redelivery but drops it", () =>
     Effect.gen(function* () {
@@ -144,9 +159,13 @@ describe("SlackSocket", () => {
       socket.receive(eventEnvelope("env-1", 1));
       yield* settle;
 
-      assert.deepStrictEqual(socket.sent.map((sent) => JSON.parse(sent)), [{ envelope_id: "env-1" }]);
+      assert.deepStrictEqual(
+        socket.sent.map((sent) => JSON.parse(sent)),
+        [{ envelope_id: "env-1" }],
+      );
       assert.deepStrictEqual(yield* slack.received, []);
-    }));
+    }),
+  );
 
   it.effect("reconnects straight away with a fresh URL when Slack asks it to", () =>
     Effect.gen(function* () {
@@ -162,7 +181,8 @@ describe("SlackSocket", () => {
       yield* settle;
 
       assert.strictEqual((yield* slack.received).length, 1);
-    }));
+    }),
+  );
 
   it.effect("reconnects with backoff when the connection drops", () =>
     Effect.gen(function* () {
@@ -176,11 +196,16 @@ describe("SlackSocket", () => {
       yield* TestClock.adjust("2 seconds");
 
       assert.strictEqual(slack.sockets.length, 2);
-    }));
+    }),
+  );
 
   it.effect("keeps trying when Slack won't open a connection, without failing", () =>
     Effect.gen(function* () {
-      const slack = yield* connect([slackError("invalid_auth"), slackError("invalid_auth"), connection("finally")]);
+      const slack = yield* connect([
+        slackError("invalid_auth"),
+        slackError("invalid_auth"),
+        connection("finally"),
+      ]);
 
       assert.strictEqual(slack.sockets.length, 0);
 
@@ -188,5 +213,6 @@ describe("SlackSocket", () => {
 
       assert.strictEqual(slack.sockets.length, 1);
       assert.strictEqual(slack.latest().url, "wss://wss-primary.slack.com/link/?ticket=finally");
-    }));
+    }),
+  );
 });

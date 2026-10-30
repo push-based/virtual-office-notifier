@@ -31,7 +31,10 @@ const inVoice = (overrides: Partial<VoiceDetails> = {}): VoiceDetails => ({
   ...overrides,
 });
 
-const observation = (minute: number, overrides: Partial<VoiceObservation> = {}): VoiceObservation => ({
+const observation = (
+  minute: number,
+  overrides: Partial<VoiceObservation> = {},
+): VoiceObservation => ({
   source: "update",
   officeChannelId: OFFICE,
   userId: "u1",
@@ -65,7 +68,11 @@ describe("ActivityLog", () => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* log.startSession(SESSION, DateTime.makeUnsafe(0));
-      yield* log.record(SESSION, crypto.randomUUID(), joined(1, inVoice({ selfMute: true, requestToSpeakAt: DateTime.makeUnsafe(5) })));
+      yield* log.record(
+        SESSION,
+        crypto.randomUUID(),
+        joined(1, inVoice({ selfMute: true, requestToSpeakAt: DateTime.makeUnsafe(5) })),
+      );
 
       const [snapshot] = yield* sql`SELECT * FROM office.voice_snapshots`;
       const [member] = yield* sql`SELECT * FROM office.members`;
@@ -85,7 +92,8 @@ describe("ActivityLog", () => {
       });
       assert.instanceOf(snapshot?.["observedAt"], Date);
       assert.deepInclude(member, { userId: "u1", displayName: "Ada", realName: null });
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("keeps a real name filled in by hand while updating the display name", () =>
     Effect.gen(function* () {
@@ -110,7 +118,8 @@ describe("ActivityLog", () => {
       assert.strictEqual(member?.realName, "Ada Lovelace");
       assert.strictEqual(member?.firstSeenAt.getTime(), 60_000);
       assert.strictEqual(member?.lastSeenAt.getTime(), 120_000);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("keeps the display name when Discord only sent the user ID", () =>
     Effect.gen(function* () {
@@ -129,7 +138,8 @@ describe("ActivityLog", () => {
 
       assert.strictEqual(member?.displayName, "Ada");
       assert.strictEqual(member?.lastSeenAt.getTime(), 120_000);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("stores a repeated write once, since a timed-out write may have gone through", () =>
     Effect.gen(function* () {
@@ -151,7 +161,8 @@ describe("ActivityLog", () => {
       `;
 
       assert.deepStrictEqual(counts, { sessions: 1, snapshots: 1 });
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("records a clean stop on the session", () =>
     Effect.gen(function* () {
@@ -163,10 +174,13 @@ describe("ActivityLog", () => {
       yield* log.startSession(SESSION, DateTime.makeUnsafe(0));
       yield* log.stopSession(SESSION, DateTime.makeUnsafe(60_000));
 
-      const [session] = yield* sql<{ readonly stoppedAt: Date }>`SELECT stopped_at FROM office.bot_sessions`;
+      const [session] = yield* sql<{
+        readonly stoppedAt: Date;
+      }>`SELECT stopped_at FROM office.bot_sessions`;
 
       assert.strictEqual(session?.stoppedAt.getTime(), 60_000);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("sets aside a payload as JSON", () =>
     Effect.gen(function* () {
@@ -175,7 +189,11 @@ describe("ActivityLog", () => {
       const log = yield* ActivityLog;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* log.reject(JSON.stringify({ userId: "u1", selfMute: true }), "violates check", DateTime.makeUnsafe(0));
+      yield* log.reject(
+        JSON.stringify({ userId: "u1", selfMute: true }),
+        "violates check",
+        DateTime.makeUnsafe(0),
+      );
 
       const [rejected] = yield* sql<{ readonly payload: unknown; readonly error: string }>`
         SELECT payload, error FROM office.rejected_updates
@@ -183,7 +201,8 @@ describe("ActivityLog", () => {
 
       assert.deepStrictEqual(rejected?.payload, { userId: "u1", selfMute: true });
       assert.strictEqual(rejected?.error, "violates check");
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("reports a row Postgres rejects as a bad row", () =>
     Effect.gen(function* () {
@@ -195,7 +214,8 @@ describe("ActivityLog", () => {
       const error = yield* log.record(SESSION, crypto.randomUUID(), joined(1)).pipe(Effect.flip);
 
       assert.instanceOf(error.reason, BadRow);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });
 
 describe("classify", () => {
@@ -216,8 +236,11 @@ describe("classify", () => {
     assert.instanceOf(classify(serverError("08006")).reason, Outage);
     assert.instanceOf(classify(serverError("XX000")).reason, Outage);
     assert.instanceOf(
-      classify(new SqlError.SqlError({ reason: new SqlError.ConnectionError({ message: "closed", cause: undefined }) }))
-        .reason,
+      classify(
+        new SqlError.SqlError({
+          reason: new SqlError.ConnectionError({ message: "closed", cause: undefined }),
+        }),
+      ).reason,
       Outage,
     );
   });
@@ -251,14 +274,25 @@ describe("voice_activity", () => {
           oldDetails: inVoice({ selfDeaf: true, selfMute: true }),
           newDetails: inVoice({ selfDeaf: true, selfMute: true, streaming: true }),
         }),
-        observation(5, { oldDetails: inVoice({ serverMute: false }), newDetails: inVoice({ serverMute: true }) }),
+        observation(5, {
+          oldDetails: inVoice({ serverMute: false }),
+          newDetails: inVoice({ serverMute: true }),
+        }),
         // Moving out leaves, whatever was on.
-        observation(6, { newChannelId: "lobby", oldDetails: inVoice({ selfMute: true }), newDetails: inVoice() }),
+        observation(6, {
+          newChannelId: "lobby",
+          oldDetails: inVoice({ selfMute: true }),
+          newDetails: inVoice(),
+        }),
       ];
 
       yield* Effect.forEach(steps, (step) => log.record(SESSION, crypto.randomUUID(), step));
 
-      const rows = yield* sql<{ readonly userId: string; readonly event: string; readonly realName: string | null }>`
+      const rows = yield* sql<{
+        readonly userId: string;
+        readonly event: string;
+        readonly realName: string | null;
+      }>`
         SELECT user_id, event, real_name FROM office.voice_activity ORDER BY observed_at, event
       `;
 
@@ -277,5 +311,6 @@ describe("voice_activity", () => {
           "u1 Left",
         ],
       );
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 });

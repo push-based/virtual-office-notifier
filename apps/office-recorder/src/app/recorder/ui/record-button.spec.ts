@@ -7,7 +7,12 @@ import { RecordButton } from "./record-button";
 @Component({
   imports: [RecordButton],
   template: `
-    <app-record-button [recording]="recording()" [busy]="busy()" [disabled]="disabled()" (pressed)="presses.update((count) => count + 1)" />
+    <app-record-button
+      [recording]="recording()"
+      [busy]="busy()"
+      [disabled]="disabled()"
+      (pressed)="presses.update((count) => count + 1)"
+    />
   `,
 })
 class Host {
@@ -39,7 +44,9 @@ describe("RecordButton", () => {
     await fixture.whenStable();
 
     expect(button().textContent?.trim()).toBe("Stop recording");
-    expect(fixture.nativeElement.querySelector("app-record-button").classList).toContain("recording");
+    expect(fixture.nativeElement.querySelector("app-record-button").classList).toContain(
+      "recording",
+    );
   });
 
   it("reports a press", async () => {

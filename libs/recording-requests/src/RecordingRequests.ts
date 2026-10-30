@@ -19,9 +19,12 @@ import {
 
 const QUERY_TIMEOUT = Duration.seconds(10);
 
-export class RecordingUnavailable extends Schema.TaggedError<RecordingUnavailable>()("RecordingUnavailable", {
-  reason: Schema.String,
-}) {}
+export class RecordingUnavailable extends Schema.TaggedError<RecordingUnavailable>()(
+  "RecordingUnavailable",
+  {
+    reason: Schema.String,
+  },
+) {}
 
 export interface Situation {
   readonly occupants: ReadonlySet<string>;
@@ -47,7 +50,11 @@ export interface StatusUpdate {
 
 const SubmittedRow = Schema.Union([
   Schema.Struct({ id: RowId, outcome: Schema.Null, reason: Schema.Null }),
-  Schema.Struct({ id: RowId, outcome: Schema.Literals(["started", "stopped"]), reason: Schema.Null }),
+  Schema.Struct({
+    id: RowId,
+    outcome: Schema.Literals(["started", "stopped"]),
+    reason: Schema.Null,
+  }),
   Schema.Struct({ id: RowId, outcome: Schema.Literal("ignored"), reason: IgnoreReason }),
 ]);
 
@@ -90,10 +97,18 @@ const unavailable = (reason: string) => Effect.fail(new RecordingUnavailable({ r
 export class RecordingRequests extends Context.Service<
   RecordingRequests,
   {
-    submit(requester: Requester, action: RequestAction): Effect.Effect<SubmittedRequest, RecordingUnavailable>;
-    find(requester: Requester, id: number): Effect.Effect<Option.Option<SubmittedRequest>, RecordingUnavailable>;
+    submit(
+      requester: Requester,
+      action: RequestAction,
+    ): Effect.Effect<SubmittedRequest, RecordingUnavailable>;
+    find(
+      requester: Requester,
+      id: number,
+    ): Effect.Effect<Option.Option<SubmittedRequest>, RecordingUnavailable>;
     readonly status: Effect.Effect<RecordingStatus, RecordingUnavailable>;
-    handlePending<E, R>(handler: RequestHandler<E, R>): Effect.Effect<void, RecordingUnavailable | E, R>;
+    handlePending<E, R>(
+      handler: RequestHandler<E, R>,
+    ): Effect.Effect<void, RecordingUnavailable | E, R>;
     publishStatus(status: StatusUpdate): Effect.Effect<void, RecordingUnavailable>;
   }
 >()("recording-requests/RecordingRequests") {
@@ -105,10 +120,16 @@ export class RecordingRequests extends Context.Service<
         ready.pipe(
           Effect.andThen(query),
           Effect.mapError((error) => new RecordingUnavailable({ reason: error.message })),
-          Effect.timeoutOrElse({ duration: QUERY_TIMEOUT, orElse: () => unavailable("Timed out after 10 seconds") }),
+          Effect.timeoutOrElse({
+            duration: QUERY_TIMEOUT,
+            orElse: () => unavailable("Timed out after 10 seconds"),
+          }),
         );
 
-      const submit = Effect.fn("RecordingRequests.submit")(function* (requester: Requester, action: RequestAction) {
+      const submit = Effect.fn("RecordingRequests.submit")(function* (
+        requester: Requester,
+        action: RequestAction,
+      ) {
         const rows = yield* onceReady(
           sql`
             INSERT INTO office.recording_requests ${sql.insert({ requestedBy: requester.id, requestedByName: requester.name, action })}
@@ -118,7 +139,9 @@ export class RecordingRequests extends Context.Service<
 
         const [row] = rows;
 
-        return row === undefined ? yield* unavailable("The request wasn't stored") : toSubmitted(row);
+        return row === undefined
+          ? yield* unavailable("The request wasn't stored")
+          : toSubmitted(row);
       });
 
       const find = Effect.fn("RecordingRequests.find")((requester: Requester, id: number) =>
@@ -152,7 +175,11 @@ export class RecordingRequests extends Context.Service<
                 id: row.recordingId,
                 startedAt: row.startedAt,
                 startedByName: row.startedByName ?? row.startedBy,
-                endsAt: endsAt({ id: row.recordingId, startedAt: row.startedAt, startedBy: row.startedBy }),
+                endsAt: endsAt({
+                  id: row.recordingId,
+                  startedAt: row.startedAt,
+                  startedBy: row.startedBy,
+                }),
               };
 
         const current: RecordingStatus = {
@@ -165,14 +192,23 @@ export class RecordingRequests extends Context.Service<
         return current;
       }).pipe(Effect.withSpan("RecordingRequests.status"));
 
-      const resolve = (request: RecordingRequest, outcome: RequestOutcome, reason: IgnoreReason | null, recordingId: string | null) =>
+      const resolve = (
+        request: RecordingRequest,
+        outcome: RequestOutcome,
+        reason: IgnoreReason | null,
+        recordingId: string | null,
+      ) =>
         sql`
           UPDATE office.recording_requests
           SET handled_at = now(), outcome = ${outcome}, reason = ${reason}, recording_id = ${recordingId}
           WHERE id = ${request.id} AND handled_at IS NULL
         `;
 
-      const act = <E, R>(request: RecordingRequest, outcome: Exclude<RequestOutcome, "ignored">, change: Effect.Effect<Change<E, R>, E, R>) =>
+      const act = <E, R>(
+        request: RecordingRequest,
+        outcome: Exclude<RequestOutcome, "ignored">,
+        change: Effect.Effect<Change<E, R>, E, R>,
+      ) =>
         Effect.gen(function* () {
           yield* ready;
 
@@ -191,7 +227,9 @@ export class RecordingRequests extends Context.Service<
           yield* committed.afterCommit;
         });
 
-      const handlePending = Effect.fn("RecordingRequests.handlePending")(function* <E, R>(handler: RequestHandler<E, R>) {
+      const handlePending = Effect.fn("RecordingRequests.handlePending")(function* <E, R>(
+        handler: RequestHandler<E, R>,
+      ) {
         const pending = yield* onceReady(
           sql`
             SELECT id, requested_at, requested_by, requested_by_name, action, now() AS checked_at
@@ -209,7 +247,11 @@ export class RecordingRequests extends Context.Service<
             Stop: ({ recording }) => act(request, "stopped", handler.stop(request, recording)),
             Ignore: ({ reason }) =>
               onceReady(resolve(request, "ignored", reason, null)).pipe(
-                Effect.andThen(Effect.logInfo("Ignored a recording request").pipe(Effect.annotateLogs({ reason }))),
+                Effect.andThen(
+                  Effect.logInfo("Ignored a recording request").pipe(
+                    Effect.annotateLogs({ reason }),
+                  ),
+                ),
               ),
           }).pipe(Effect.annotateLogs({ request: request.id, action: request.action }));
         }

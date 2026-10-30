@@ -1,5 +1,15 @@
 import { PgClient } from "@effect/sql-pg";
-import { Context, DateTime, Duration, Effect, Layer, Match, Option, Redacted, Schema } from "effect";
+import {
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  Layer,
+  Match,
+  Option,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -11,7 +21,13 @@ import {
   HttpServerResponse,
 } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
-import { CurrentRequester, RecordingApi, type Requester, SignedIn, Unauthorized } from "recording-requests/RecordingApi";
+import {
+  CurrentRequester,
+  RecordingApi,
+  type Requester,
+  SignedIn,
+  Unauthorized,
+} from "recording-requests/RecordingApi";
 import { RecordingHandlers } from "recording-requests/RecordingHandlers";
 import { RecordingRequests, RecordingUnavailable } from "recording-requests/RecordingRequests";
 import { columnNaming } from "recording-requests/SqlNaming";
@@ -66,14 +82,25 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 const base64url = (bytes: Uint8Array): string =>
-  btoa(globalThis.String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  btoa(globalThis.String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
 
 const fromBase64url = (text: string): Uint8Array =>
-  Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (char) => char.charCodeAt(0));
+  Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (char) =>
+    char.charCodeAt(0),
+  );
 
 const hmac = (secret: string, message: string) =>
   Effect.promise(async () => {
-    const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
 
     return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(message)));
   });
@@ -103,12 +130,16 @@ const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
 
   let difference = 0;
 
-  for (let index = 0; index < left.length; index += 1) difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  for (let index = 0; index < left.length; index += 1)
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
 
   return difference === 0;
 };
 
-const requesterOf = Effect.fnUntraced(function* (sessionSecret: Redacted.Redacted<string>, session: string) {
+const requesterOf = Effect.fnUntraced(function* (
+  sessionSecret: Redacted.Redacted<string>,
+  session: string,
+) {
   const [payload, signature] = session.split(".");
 
   if (payload === undefined || signature === undefined) return yield* new Unauthorized();
@@ -120,7 +151,8 @@ const requesterOf = Effect.fnUntraced(function* (sessionSecret: Redacted.Redacte
   const decoded = decodeSession(decoder.decode(fromBase64url(payload)));
   const now = yield* DateTime.now;
 
-  if (Option.isNone(decoded) || decoded.value.exp < DateTime.toEpochMillis(now)) return yield* new Unauthorized();
+  if (Option.isNone(decoded) || decoded.value.exp < DateTime.toEpochMillis(now))
+    return yield* new Unauthorized();
 
   const requester: Requester = { id: decoded.value.sub, name: decoded.value.name };
 
@@ -135,7 +167,9 @@ const SignedInLayer = Layer.effect(
     return SignedIn.of({
       session: (httpEffect, { credential }) =>
         requesterOf(sessionSecret, Redacted.value(credential)).pipe(
-          Effect.flatMap((requester) => Effect.provideService(httpEffect, CurrentRequester, requester)),
+          Effect.flatMap((requester) =>
+            Effect.provideService(httpEffect, CurrentRequester, requester),
+          ),
         ),
     });
   }),
@@ -164,13 +198,21 @@ const avatarUrlOf = (user: typeof DiscordUser.Type): string | null =>
 const readDiscord = <A>(decode: (body: string) => Effect.Effect<A, Schema.SchemaError>) =>
   Effect.fnUntraced(function* (request: HttpClientRequest.HttpClientRequest) {
     const client = yield* HttpClient.HttpClient;
-    const response = yield* client.execute(request).pipe(Effect.mapError(() => new DiscordRefused({ status: 0 })));
 
-    if (response.status < 200 || response.status >= 300) return yield* new DiscordRefused({ status: response.status });
+    const response = yield* client
+      .execute(request)
+      .pipe(Effect.mapError(() => new DiscordRefused({ status: 0 })));
 
-    const body = yield* response.text.pipe(Effect.mapError(() => new DiscordRefused({ status: response.status })));
+    if (response.status < 200 || response.status >= 300)
+      return yield* new DiscordRefused({ status: response.status });
 
-    return yield* decode(body).pipe(Effect.mapError(() => new DiscordRefused({ status: response.status })));
+    const body = yield* response.text.pipe(
+      Effect.mapError(() => new DiscordRefused({ status: response.status })),
+    );
+
+    return yield* decode(body).pipe(
+      Effect.mapError(() => new DiscordRefused({ status: response.status })),
+    );
   });
 
 const exchangeCode = Effect.fnUntraced(function* (code: string) {
@@ -188,7 +230,9 @@ const exchangeCode = Effect.fnUntraced(function* (code: string) {
   );
 
   const user = yield* readDiscord(decodeDiscordUser)(
-    HttpClientRequest.get(`${DISCORD_API}/users/@me`).pipe(HttpClientRequest.bearerToken(access_token)),
+    HttpClientRequest.get(`${DISCORD_API}/users/@me`).pipe(
+      HttpClientRequest.bearerToken(access_token),
+    ),
   );
 
   const sessionUser: SessionUser = {
@@ -200,8 +244,10 @@ const exchangeCode = Effect.fnUntraced(function* (code: string) {
   return { accessToken: access_token, user: sessionUser };
 });
 
-const json = (body: TokenResponse | { readonly clientId: string } | { readonly error: string }, status = 200) =>
-  HttpServerResponse.jsonUnsafe(body, { status });
+const json = (
+  body: TokenResponse | { readonly clientId: string } | { readonly error: string },
+  status = 200,
+) => HttpServerResponse.jsonUnsafe(body, { status });
 
 type SignInFailure = DiscordRefused | Schema.SchemaError | HttpServerError.HttpServerError;
 
@@ -212,8 +258,9 @@ const responseFor = (failure: SignInFailure) =>
     HttpServerError: () => json({ error: "bad_request" }, 400),
   });
 
-const answered = <E extends SignInFailure, R>(handler: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
-  handler.pipe(Effect.catch((failure) => Effect.succeed(responseFor(failure))));
+const answered = <E extends SignInFailure, R>(
+  handler: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) => handler.pipe(Effect.catch((failure) => Effect.succeed(responseFor(failure))));
 
 const connectionTo = (env: Env) =>
   PgClient.layer({
@@ -225,13 +272,17 @@ const connectionTo = (env: Env) =>
   });
 
 const recordingRequestsFor = (env: Env) => {
-  const perCall = <A, E, R>(use: (requests: RecordingRequests["Service"]) => Effect.Effect<A, E, R>) =>
+  const perCall = <A, E, R>(
+    use: (requests: RecordingRequests["Service"]) => Effect.Effect<A, E, R>,
+  ) =>
     Effect.gen(function* () {
       const connection = yield* Layer.build(connectionTo(env)).pipe(
         Effect.mapError((error) => new RecordingUnavailable({ reason: error.message })),
       );
 
-      const requests = yield* RecordingRequests.make(Effect.void).pipe(Effect.provideContext(connection));
+      const requests = yield* RecordingRequests.make(Effect.void).pipe(
+        Effect.provideContext(connection),
+      );
 
       return yield* use(requests);
     }).pipe(Effect.scoped);

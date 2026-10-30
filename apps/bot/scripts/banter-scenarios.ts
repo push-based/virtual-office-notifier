@@ -38,7 +38,12 @@ const muteMarathon = Array.from({ length: 8 }, (_, index) => {
 }).join("\n");
 
 const loneWeek = [MON, TUE, WED, THU]
-  .flatMap((day) => happenedOn(day, "09:01 Margaret Joined\n12:30 Margaret Left\n13:15 Margaret Joined\n17:32 Margaret Left"))
+  .flatMap((day) =>
+    happenedOn(
+      day,
+      "09:01 Margaret Joined\n12:30 Margaret Left\n13:15 Margaret Joined\n17:32 Margaret Left",
+    ),
+  )
   .concat(happenedOn(FRI, "08:58 Margaret Joined"));
 
 const earlyBirds = [
@@ -48,7 +53,10 @@ const earlyBirds = [
   [THU, "07:20"],
   [FRI, "07:01"],
 ].flatMap(([day = MON, time = "07:00"]) =>
-  happenedOn(day, `${time} Ada Joined\n09:34 Grace Joined\n09:41 Alan Joined\n16:02 Ada Left\n17:45 Grace Left\n18:10 Alan Left`),
+  happenedOn(
+    day,
+    `${time} Ada Joined\n09:34 Grace Joined\n09:41 Alan Joined\n16:02 Ada Left\n17:45 Grace Left\n18:10 Alan Left`,
+  ),
 );
 
 export const banterScenarios: ReadonlyArray<BanterScenario> = [
@@ -89,7 +97,10 @@ export const banterScenarios: ReadonlyArray<BanterScenario> = [
     name: "mute-marathon",
     at: officeTime(THU, "11:20"),
     period: "Today",
-    activityOldestFirst: happenedOn(THU, `09:15 Ada Joined\n09:40 Linus Joined\n09:40 Linus Muted\n${muteMarathon}`),
+    activityOldestFirst: happenedOn(
+      THU,
+      `09:15 Ada Joined\n09:40 Linus Joined\n09:40 Linus Muted\n${muteMarathon}`,
+    ),
     olderEntriesLeftOut: 0,
     present: ["Ada", "Linus"],
   },

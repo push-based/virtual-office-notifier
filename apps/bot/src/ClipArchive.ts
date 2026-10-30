@@ -8,7 +8,8 @@ export class ArchiveError extends Schema.TaggedError<ArchiveError>()("ArchiveErr
   reason: Schema.String,
 }) {}
 
-const METADATA_TOKEN_URL = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
+const METADATA_TOKEN_URL =
+  "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token";
 
 const STORAGE_URL = "https://storage.googleapis.com";
 
@@ -25,7 +26,11 @@ interface CachedToken {
   readonly expiresAt: DateTime.Utc;
 }
 
-export const objectPathOf = (recordingId: string, userId: string, startedAt: DateTime.Utc): string =>
+export const objectPathOf = (
+  recordingId: string,
+  userId: string,
+  startedAt: DateTime.Utc,
+): string =>
   `recordings/${recordingId}/${userId}/${DateTime.formatIso(startedAt).replaceAll(":", "-")}.ogg`;
 
 const archiveError = (reason: string) => new ArchiveError({ reason });
@@ -59,7 +64,9 @@ export class ClipArchive extends Context.Service<
             return yield* archiveError(`The metadata server answered HTTP ${response.status}`);
           }
 
-          const body = yield* response.text.pipe(Effect.mapError(failed("Couldn't read the metadata server's reply")));
+          const body = yield* response.text.pipe(
+            Effect.mapError(failed("Couldn't read the metadata server's reply")),
+          );
 
           const { access_token, expires_in } = yield* decodeToken(body).pipe(
             Effect.mapError(() => archiveError("The metadata server's reply isn't a token")),
@@ -69,7 +76,10 @@ export class ClipArchive extends Context.Service<
 
           const token: CachedToken = {
             token: access_token,
-            expiresAt: DateTime.subtractDuration(DateTime.addDuration(now, Duration.seconds(expires_in)), TOKEN_MARGIN),
+            expiresAt: DateTime.subtractDuration(
+              DateTime.addDuration(now, Duration.seconds(expires_in)),
+              TOKEN_MARGIN,
+            ),
           };
 
           yield* Ref.set(cached, Option.some(token));
@@ -81,17 +91,18 @@ export class ClipArchive extends Context.Service<
           const now = yield* DateTime.now;
           const current = yield* Ref.get(cached);
 
-          return Option.isSome(current) && DateTime.isLessThan(now, current.value.expiresAt) ? current.value : yield* fetchToken;
+          return Option.isSome(current) && DateTime.isLessThan(now, current.value.expiresAt)
+            ? current.value
+            : yield* fetchToken;
         });
 
         const send = (what: string, request: HttpClientRequest.HttpClientRequest) =>
           Effect.gen(function* () {
             const { token: bearer } = yield* token;
 
-            const response = yield* client.execute(HttpClientRequest.bearerToken(request, bearer)).pipe(
-              Effect.timeout(REQUEST_TIMEOUT),
-              Effect.mapError(failed(what)),
-            );
+            const response = yield* client
+              .execute(HttpClientRequest.bearerToken(request, bearer))
+              .pipe(Effect.timeout(REQUEST_TIMEOUT), Effect.mapError(failed(what)));
 
             if (response.status < 200 || response.status >= 300) {
               return yield* archiveError(`${what} answered HTTP ${response.status}`);
@@ -104,7 +115,9 @@ export class ClipArchive extends Context.Service<
           (path: string, audio: Uint8Array) =>
             send(
               "Uploading the clip",
-              HttpClientRequest.post(`${STORAGE_URL}/upload/storage/v1/b/${encodeURIComponent(bucket)}/o`).pipe(
+              HttpClientRequest.post(
+                `${STORAGE_URL}/upload/storage/v1/b/${encodeURIComponent(bucket)}/o`,
+              ).pipe(
                 HttpClientRequest.setUrlParams({ uploadType: "media", name: path }),
                 HttpClientRequest.setBody(HttpBody.uint8Array(audio, "audio/ogg")),
               ),
@@ -121,9 +134,9 @@ export class ClipArchive extends Context.Service<
         const download = Effect.fn("ClipArchive.download")((path: string) =>
           send(
             "Downloading the clip",
-            HttpClientRequest.get(`${STORAGE_URL}/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`).pipe(
-              HttpClientRequest.setUrlParams({ alt: "media" }),
-            ),
+            HttpClientRequest.get(
+              `${STORAGE_URL}/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`,
+            ).pipe(HttpClientRequest.setUrlParams({ alt: "media" })),
           ).pipe(Effect.flatMap(readBody)),
         );
 
@@ -146,9 +159,9 @@ export class ClipArchive extends Context.Service<
 
       return Option.match(bucket, {
         onNone: () =>
-          Layer.effectDiscard(Effect.logInfo("RECORDINGS_BUCKET isn't set, so recorded clips aren't archived")).pipe(
-            Layer.provideMerge(ClipArchive.layerDisabled),
-          ),
+          Layer.effectDiscard(
+            Effect.logInfo("RECORDINGS_BUCKET isn't set, so recorded clips aren't archived"),
+          ).pipe(Layer.provideMerge(ClipArchive.layerDisabled)),
         onSome: ClipArchive.layerBucket,
       });
     }),

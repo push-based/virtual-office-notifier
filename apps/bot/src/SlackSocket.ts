@@ -18,9 +18,12 @@ import { Socket } from "effect/socket";
 import { type SlackError, SlackClient } from "./SlackClient.ts";
 import { decodeEnvelope, type Envelope } from "./SlackEvent.ts";
 
-export class SlackSocketDropped extends Schema.TaggedError<SlackSocketDropped>()("SlackSocketDropped", {
-  reason: Schema.String,
-}) {
+export class SlackSocketDropped extends Schema.TaggedError<SlackSocketDropped>()(
+  "SlackSocketDropped",
+  {
+    reason: Schema.String,
+  },
+) {
   override get message(): string {
     return `Lost the Slack Socket Mode connection: ${this.reason}`;
   }
@@ -36,11 +39,14 @@ export class SlackSocketDropped extends Schema.TaggedError<SlackSocketDropped>()
 
 const MAX_RECONNECT_DELAY = Duration.minutes(5);
 
-const dropped = (error: Socket.SocketError) => new SlackSocketDropped({ reason: error.reason._tag });
+const dropped = (error: Socket.SocketError) =>
+  new SlackSocketDropped({ reason: error.reason._tag });
 
 const reconnectSchedule = Schedule.exponential("1 second").pipe(
   Schedule.setInputType<SlackError | SlackSocketDropped>(),
-  Schedule.modifyDelay(({ duration }) => Effect.succeed(Duration.min(duration, MAX_RECONNECT_DELAY))),
+  Schedule.modifyDelay(({ duration }) =>
+    Effect.succeed(Duration.min(duration, MAX_RECONNECT_DELAY)),
+  ),
   Schedule.tap(({ input, attempt, duration }) =>
     Effect.logWarning("Lost the Slack connection, reconnecting").pipe(
       Effect.annotateLogs({
@@ -56,7 +62,8 @@ const reconnectSchedule = Schedule.exponential("1 second").pipe(
 const ack = (writer: Socket.Writer, envelope: Envelope) =>
   Option.match(envelope.envelopeId, {
     onNone: () => Effect.void,
-    onSome: (envelopeId) => writer.write(JSON.stringify({ envelope_id: envelopeId })).pipe(Effect.mapError(dropped)),
+    onSome: (envelopeId) =>
+      writer.write(JSON.stringify({ envelope_id: envelopeId })).pipe(Effect.mapError(dropped)),
   });
 
 export class SlackSocket extends Context.Service<
@@ -127,5 +134,7 @@ export class SlackSocket extends Context.Service<
     }),
   );
 
-  static readonly layer = SlackSocket.layerNoDeps.pipe(Layer.provide(NodeSocket.layerWebSocketConstructor));
+  static readonly layer = SlackSocket.layerNoDeps.pipe(
+    Layer.provide(NodeSocket.layerWebSocketConstructor),
+  );
 }

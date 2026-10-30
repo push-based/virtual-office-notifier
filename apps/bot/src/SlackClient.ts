@@ -45,7 +45,13 @@ export class InvalidPayload extends Schema.TaggedError<InvalidPayload>()("Invali
   error: Schema.String,
 }) {}
 
-export const SlackErrorReason = Schema.Union([RateLimited, Unavailable, Transport, AccessRevoked, InvalidPayload]);
+export const SlackErrorReason = Schema.Union([
+  RateLimited,
+  Unavailable,
+  Transport,
+  AccessRevoked,
+  InvalidPayload,
+]);
 
 export type SlackErrorReason = typeof SlackErrorReason.Type;
 
@@ -120,11 +126,13 @@ const checkResponse =
     Effect.gen(function* () {
       const { status, headers } = response;
 
-      if (status === 429) return yield* failWith(new RateLimited({ retryAfter: retryAfter(headers) }));
+      if (status === 429)
+        return yield* failWith(new RateLimited({ retryAfter: retryAfter(headers) }));
 
       if (status >= 500) return yield* failWith(new Unavailable({ status }));
 
-      if (status < 200 || status >= 300) return yield* failWith(new InvalidPayload({ error: `http_${status}` }));
+      if (status < 200 || status >= 300)
+        return yield* failWith(new InvalidPayload({ error: `http_${status}` }));
 
       const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
 
@@ -265,7 +273,10 @@ export class SlackClient extends Context.Service<
     postMessage(message: OutgoingMessage): Effect.Effect<PostedMessage, SlackError>;
     addReaction(channel: string, ts: string, emoji: string): Effect.Effect<void, SlackError>;
     uploadFile(upload: FileUpload): Effect.Effect<void, SlackError>;
-    threadReplies(channel: string, threadTs: string): Effect.Effect<ReadonlyArray<ThreadMessage>, SlackError>;
+    threadReplies(
+      channel: string,
+      threadTs: string,
+    ): Effect.Effect<ReadonlyArray<ThreadMessage>, SlackError>;
     userProfile(userId: string): Effect.Effect<SlackProfile, SlackError>;
     readonly botUserId: Effect.Effect<string, SlackError>;
     readonly openConnection: Effect.Effect<string, SlackError>;
@@ -296,18 +307,30 @@ export class SlackClient extends Context.Service<
           Effect.withSpan(`SlackClient.${method}`),
         );
 
-      const write = <S extends Schema.Decoder<unknown>>(method: string, body: WriteBody, schema: S) =>
+      const write = <S extends Schema.Decoder<unknown>>(
+        method: string,
+        body: WriteBody,
+        schema: S,
+      ) =>
         send(
           method,
-          HttpClientRequest.post(`https://slack.com/api/${method}`).pipe(HttpClientRequest.bodyJsonUnsafe(body)),
+          HttpClientRequest.post(`https://slack.com/api/${method}`).pipe(
+            HttpClientRequest.bodyJsonUnsafe(body),
+          ),
           botToken,
           schema,
         );
 
-      const read = <S extends Schema.Decoder<unknown>>(method: string, params: Record<string, string>, schema: S) =>
+      const read = <S extends Schema.Decoder<unknown>>(
+        method: string,
+        params: Record<string, string>,
+        schema: S,
+      ) =>
         send(
           method,
-          HttpClientRequest.get(`https://slack.com/api/${method}`).pipe(HttpClientRequest.setUrlParams(params)),
+          HttpClientRequest.get(`https://slack.com/api/${method}`).pipe(
+            HttpClientRequest.setUrlParams(params),
+          ),
           botToken,
           schema,
         );
@@ -321,7 +344,8 @@ export class SlackClient extends Context.Service<
         write("reactions.add", { channel, timestamp: ts, name: emoji }, Nothing).pipe(
           Effect.asVoid,
           Effect.catchIf(
-            (error) => error.reason instanceof InvalidPayload && error.reason.error === "already_reacted",
+            (error) =>
+              error.reason instanceof InvalidPayload && error.reason.error === "already_reacted",
             () => Effect.void,
           ),
         );
@@ -336,7 +360,9 @@ export class SlackClient extends Context.Service<
         );
 
         yield* HttpClientRequest.post(upload_url).pipe(
-          HttpClientRequest.setBody(HttpBody.uint8Array(upload.content, "application/octet-stream")),
+          HttpClientRequest.setBody(
+            HttpBody.uint8Array(upload.content, "application/octet-stream"),
+          ),
           client.execute,
           Effect.timeout(REQUEST_TIMEOUT),
           Effect.catchTags({
@@ -355,7 +381,11 @@ export class SlackClient extends Context.Service<
 
         yield* write(
           "files.completeUploadExternal",
-          { files: [{ id: file_id, title: upload.title }], channel_id: upload.channel, thread_ts: upload.threadTs },
+          {
+            files: [{ id: file_id, title: upload.title }],
+            channel_id: upload.channel,
+            thread_ts: upload.threadTs,
+          },
           Nothing,
         );
       });
@@ -364,7 +394,9 @@ export class SlackClient extends Context.Service<
         read("conversations.replies", { channel, ts: threadTs, limit: THREAD_LIMIT }, Replies).pipe(
           Effect.map(({ messages }) =>
             messages.flatMap(({ ts, user, subtype, text }): ReadonlyArray<ThreadMessage> =>
-              subtype === undefined && user !== undefined ? [{ ts, userId: user, text: text ?? "" }] : [],
+              subtype === undefined && user !== undefined
+                ? [{ ts, userId: user, text: text ?? "" }]
+                : [],
             ),
           ),
         );
@@ -374,7 +406,10 @@ export class SlackClient extends Context.Service<
           Effect.map(({ user }): SlackProfile => {
             const realName = nonEmpty(user.profile?.real_name, user.real_name);
 
-            return { displayName: nonEmpty(user.profile?.display_name, realName, userId), realName };
+            return {
+              displayName: nonEmpty(user.profile?.display_name, realName, userId),
+              realName,
+            };
           }),
         );
 
@@ -387,7 +422,15 @@ export class SlackClient extends Context.Service<
         ConnectionUrl,
       ).pipe(Effect.map(({ url }) => url));
 
-      return SlackClient.of({ postMessage, addReaction, uploadFile, threadReplies, userProfile, botUserId, openConnection });
+      return SlackClient.of({
+        postMessage,
+        addReaction,
+        uploadFile,
+        threadReplies,
+        userProfile,
+        botUserId,
+        openConnection,
+      });
     }),
   );
 

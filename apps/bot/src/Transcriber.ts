@@ -6,14 +6,22 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { AiConfig, RecordingConfig } from "./Config.ts";
 
-export const TranscriptionFailure = Schema.Literals(["DailyLimit", "Unavailable", "Rejected", "Unreadable"]);
+export const TranscriptionFailure = Schema.Literals([
+  "DailyLimit",
+  "Unavailable",
+  "Rejected",
+  "Unreadable",
+]);
 
 export type TranscriptionFailure = typeof TranscriptionFailure.Type;
 
-export class TranscriptionError extends Schema.TaggedError<TranscriptionError>()("TranscriptionError", {
-  failure: TranscriptionFailure,
-  detail: Schema.String,
-}) {}
+export class TranscriptionError extends Schema.TaggedError<TranscriptionError>()(
+  "TranscriptionError",
+  {
+    failure: TranscriptionFailure,
+    detail: Schema.String,
+  },
+) {}
 
 export interface Transcript {
   readonly text: string;
@@ -28,7 +36,9 @@ const CloudflareCode = Schema.Union([Schema.Finite, Schema.FiniteFromString]);
 
 const RunResponse = Schema.Struct({
   success: Schema.Boolean,
-  errors: Schema.optional(Schema.Array(Schema.Struct({ code: CloudflareCode, message: Schema.optional(Schema.String) }))),
+  errors: Schema.optional(
+    Schema.Array(Schema.Struct({ code: CloudflareCode, message: Schema.optional(Schema.String) })),
+  ),
   result: Schema.optional(Schema.Struct({ text: Schema.optional(Schema.String) })),
 });
 
@@ -39,13 +49,24 @@ const failure = (failure: TranscriptionFailure, detail: string) =>
 
 const failureForStatus = (status: number, body: string): TranscriptionError => {
   const decoded = decodeRunResponse(body);
-  const dailyLimit = Option.isSome(decoded) && (decoded.value.errors ?? []).some(({ code }) => code === CLOUDFLARE_DAILY_LIMIT);
 
-  if (dailyLimit) return new TranscriptionError({ failure: "DailyLimit", detail: "Workers AI's daily allocation is used up" });
+  const dailyLimit =
+    Option.isSome(decoded) &&
+    (decoded.value.errors ?? []).some(({ code }) => code === CLOUDFLARE_DAILY_LIMIT);
 
-  if (status === 429 || status >= 500) return new TranscriptionError({ failure: "Unavailable", detail: `HTTP ${status}` });
+  if (dailyLimit)
+    return new TranscriptionError({
+      failure: "DailyLimit",
+      detail: "Workers AI's daily allocation is used up",
+    });
 
-  return new TranscriptionError({ failure: "Rejected", detail: `HTTP ${status}: ${body.slice(0, 200)}` });
+  if (status === 429 || status >= 500)
+    return new TranscriptionError({ failure: "Unavailable", detail: `HTTP ${status}` });
+
+  return new TranscriptionError({
+    failure: "Rejected",
+    detail: `HTTP ${status}: ${body.slice(0, 200)}`,
+  });
 };
 
 export interface TranscriberOptions {
@@ -78,12 +99,15 @@ export class Transcriber extends Context.Service<
             }),
             client.execute,
             Effect.timeout(REQUEST_TIMEOUT),
-            Effect.mapError((error) => new TranscriptionError({ failure: "Unavailable", detail: String(error) })),
+            Effect.mapError(
+              (error) => new TranscriptionError({ failure: "Unavailable", detail: String(error) }),
+            ),
           );
 
           const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
 
-          if (response.status < 200 || response.status >= 300) return yield* failureForStatus(response.status, body);
+          if (response.status < 200 || response.status >= 300)
+            return yield* failureForStatus(response.status, body);
 
           const decoded = decodeRunResponse(body);
 
@@ -105,7 +129,13 @@ export class Transcriber extends Context.Service<
   static readonly layerNone = Layer.succeed(
     Transcriber,
     Transcriber.of({
-      transcribe: () => Effect.fail(new TranscriptionError({ failure: "Unavailable", detail: "No transcriber is configured" })),
+      transcribe: () =>
+        Effect.fail(
+          new TranscriptionError({
+            failure: "Unavailable",
+            detail: "No transcriber is configured",
+          }),
+        ),
     }),
   );
 
@@ -114,13 +144,17 @@ export class Transcriber extends Context.Service<
       const { cloudflare } = yield* AiConfig;
       const { whisperModel, language } = yield* RecordingConfig;
 
-      return Option.match(Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }), {
-        onNone: () =>
-          Layer.effectDiscard(Effect.logInfo("Cloudflare isn't configured, so recordings aren't transcribed")).pipe(
-            Layer.provideMerge(Transcriber.layerNone),
-          ),
-        onSome: ({ accountId, apiToken }) => Transcriber.layerOptions({ accountId, apiToken, model: whisperModel, language }),
-      });
+      return Option.match(
+        Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }),
+        {
+          onNone: () =>
+            Layer.effectDiscard(
+              Effect.logInfo("Cloudflare isn't configured, so recordings aren't transcribed"),
+            ).pipe(Layer.provideMerge(Transcriber.layerNone)),
+          onSome: ({ accountId, apiToken }) =>
+            Transcriber.layerOptions({ accountId, apiToken, model: whisperModel, language }),
+        },
+      );
     }),
   ).pipe(Layer.provide(NodeHttpClient.layerUndici));
 }

@@ -37,9 +37,7 @@ const TIME = "<!date^1790345100^{time}|14:05 UTC>";
 
 describe("escapeSlackText", () => {
   it("escapes Slack control characters", () => {
-    expect(escapeSlackText("<!channel> & <@U123>")).toBe(
-      "&lt;!channel&gt; &amp; &lt;@U123&gt;",
-    );
+    expect(escapeSlackText("<!channel> & <@U123>")).toBe("&lt;!channel&gt; &amp; &lt;@U123&gt;");
   });
 
   it("does not double-escape an existing entity", () => {
@@ -63,14 +61,19 @@ describe("formatDuration", () => {
   });
 });
 
-const announce = (...args: Parameters<typeof formatMessage>) => Option.getOrThrow(formatMessage(...args));
+const announce = (...args: Parameters<typeof formatMessage>) =>
+  Option.getOrThrow(formatMessage(...args));
 
 describe("formatMessage", () => {
   it("uses a generated headline and button for an opened office and credits the model", () => {
     const message = announce(
       OfficeEvent.Opened(member),
       0,
-      Option.some({ template: "🛋️ {name} saved you a seat!", button: "🪑 Grab a seat", model: "nvidia/nemotron:free" }),
+      Option.some({
+        template: "🛋️ {name} saved you a seat!",
+        button: "🪑 Grab a seat",
+        model: "nvidia/nemotron:free",
+      }),
     );
 
     expect(message.text).toBe("🛋️ *Ada* saved you a seat!");
@@ -93,7 +96,9 @@ describe("formatMessage", () => {
     );
 
     expect(message.text).toBe("🍪 Cookies &amp; *&lt;!channel&gt; $&amp;*!");
-    expect(message.blocks[2]).toMatchObject({ elements: [{}, { text: "✨ Headline by &lt;!here&gt;" }] });
+    expect(message.blocks[2]).toMatchObject({
+      elements: [{}, { text: "✨ Headline by &lt;!here&gt;" }],
+    });
   });
 
   it("shows who opened the office with their avatar, a join button and the time", () => {
@@ -102,7 +107,10 @@ describe("formatMessage", () => {
       blocks: [
         {
           type: "section",
-          text: { type: "mrkdwn", text: "🎙️ *Ada* opened the virtual office — everyone's welcome to join!" },
+          text: {
+            type: "mrkdwn",
+            text: "🎙️ *Ada* opened the virtual office — everyone's welcome to join!",
+          },
           accessory: { type: "image", image_url: member.avatarUrl, alt_text: "Ada" },
         },
         {
@@ -116,7 +124,10 @@ describe("formatMessage", () => {
             },
           ],
         },
-        { type: "context", elements: [{ type: "mrkdwn", text: `🔊 Opened on Discord at ${TIME}` }] },
+        {
+          type: "context",
+          elements: [{ type: "mrkdwn", text: `🔊 Opened on Discord at ${TIME}` }],
+        },
       ],
     });
   });
@@ -136,7 +147,9 @@ describe("formatMessage", () => {
       0,
     );
 
-    expect(message.text).toBe("🪑 The virtual office is empty right now — jump in and get it going!");
+    expect(message.text).toBe(
+      "🪑 The virtual office is empty right now — jump in and get it going!",
+    );
     expect(message.blocks).toContainEqual({
       type: "section",
       fields: [
@@ -152,7 +165,10 @@ describe("formatMessage", () => {
 
   it("says person, not people, for a solo session", () => {
     const message = announce(
-      OfficeEvent.Emptied({ ...member, recap: Option.some({ duration: Duration.minutes(5), visitors: 1 }) }),
+      OfficeEvent.Emptied({
+        ...member,
+        recap: Option.some({ duration: Duration.minutes(5), visitors: 1 }),
+      }),
       0,
     );
 
@@ -169,7 +185,11 @@ describe("formatMessage", () => {
     const message = announce(
       OfficeEvent.Emptied({ ...member, recap: Option.none() }),
       0,
-      Option.some({ template: "🌙 The office is quiet & waiting!", button: "🔦 Light it up", model: "nvidia/nemotron:free" }),
+      Option.some({
+        template: "🌙 The office is quiet & waiting!",
+        button: "🔦 Light it up",
+        model: "nvidia/nemotron:free",
+      }),
     );
 
     expect(message.text).toBe("🌙 The office is quiet &amp; waiting!");
@@ -210,7 +230,10 @@ describe("formatMessage", () => {
 
   it("rotates the reminder by date and ignores the variant", () => {
     const onDay = (day: number, variant = 0) =>
-      announce(OfficeEvent.Reminder({ ...office, at: DateTime.add(monday, { days: day }) }), variant).text;
+      announce(
+        OfficeEvent.Reminder({ ...office, at: DateTime.add(monday, { days: day }) }),
+        variant,
+      ).text;
 
     expect(onDay(0, 0)).toBe(onDay(0, 7));
     expect(onDay(0)).not.toBe(onDay(1));
@@ -223,7 +246,9 @@ describe("formatMessage", () => {
     const weekdays = Array.from({ length: count + 1 }, (_, n) => Math.floor(n / 5) * 7 + (n % 5));
 
     const texts = weekdays.map(
-      (day) => announce(OfficeEvent.Reminder({ ...office, at: DateTime.add(monday, { days: day }) }), 0).text,
+      (day) =>
+        announce(OfficeEvent.Reminder({ ...office, at: DateTime.add(monday, { days: day }) }), 0)
+          .text,
     );
 
     expect(new Set(texts).size).toBe(count);
@@ -325,7 +350,9 @@ describe("summaryMessage", () => {
     const card = JSON.stringify(message.blocks);
 
     expect(message.text).toBe("📝 Office recording, 1h 35m");
-    expect(card).toContain("📝 *Office recording* from <!date^1790345100^{date_short} {time}|2026-09-25 14:05 UTC>, 1h 35m");
+    expect(card).toContain(
+      "📝 *Office recording* from <!date^1790345100^{date_short} {time}|2026-09-25 14:05 UTC>, 1h 35m",
+    );
     expect(card).toContain("• Ada &amp; Grace agreed to ship");
     expect(card).toContain("*Started by*\\nAda &lt;3");
     expect(card).toContain("*Who spoke*\\nAda &lt;3, Grace");
@@ -335,7 +362,9 @@ describe("summaryMessage", () => {
   });
 
   it("says so when no model could write a summary", () => {
-    const card = JSON.stringify(summaryMessage({ ...recording, summary: Option.none(), speakers: [] }).blocks);
+    const card = JSON.stringify(
+      summaryMessage({ ...recording, summary: Option.none(), speakers: [] }).blocks,
+    );
 
     expect(card).toContain("No AI model could write a summary this time");
     expect(card).toContain("*Who spoke*\\nNobody");

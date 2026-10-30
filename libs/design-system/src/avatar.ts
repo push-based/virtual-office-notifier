@@ -9,7 +9,9 @@ import { InitialsPipe } from "./initials.pipe";
     @if (src(); as src) {
       <img [src]="src" [alt]="name()" />
     } @else {
-      <span class="text-caption initials" role="img" [attr.aria-label]="name()">{{ name() | initials }}</span>
+      <span class="text-caption initials" role="img" [attr.aria-label]="name()">{{
+        name() | initials
+      }}</span>
     }
   `,
   styles: `

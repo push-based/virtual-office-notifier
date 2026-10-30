@@ -48,7 +48,10 @@ export const opusPacketSamples = (packet: Uint8Array): number => {
   const config = toc >> 3;
   const frameCode = toc & 0x03;
 
-  return Math.round((frameDurationMs(config) * OPUS_SAMPLE_RATE) / 1000) * framesInPacket(packet, frameCode);
+  return (
+    Math.round((frameDurationMs(config) * OPUS_SAMPLE_RATE) / 1000) *
+    framesInPacket(packet, frameCode)
+  );
 };
 
 export const opusPacketsDuration = (packets: ReadonlyArray<Uint8Array>): number => {
@@ -118,7 +121,14 @@ interface PageInput {
   readonly last: boolean;
 }
 
-const oggPage = ({ packets, granulePosition, serial, sequence, first, last }: PageInput): Uint8Array => {
+const oggPage = ({
+  packets,
+  granulePosition,
+  serial,
+  sequence,
+  first,
+  last,
+}: PageInput): Uint8Array => {
   const lacing = packets.flatMap(segmentsOf);
   const bodyLength = packets.reduce((total, packet) => total + packet.length, 0);
   const page = new Uint8Array(27 + lacing.length + bodyLength);
@@ -148,7 +158,9 @@ const oggPage = ({ packets, granulePosition, serial, sequence, first, last }: Pa
 
 const PACKETS_PER_PAGE = 50;
 
-const groupIntoPages = (packets: ReadonlyArray<Uint8Array>): ReadonlyArray<ReadonlyArray<Uint8Array>> => {
+const groupIntoPages = (
+  packets: ReadonlyArray<Uint8Array>,
+): ReadonlyArray<ReadonlyArray<Uint8Array>> => {
   const groups: Array<ReadonlyArray<Uint8Array>> = [];
   let current: Array<Uint8Array> = [];
   let segments = 0;
@@ -156,7 +168,10 @@ const groupIntoPages = (packets: ReadonlyArray<Uint8Array>): ReadonlyArray<Reado
   for (const packet of packets) {
     const needed = segmentsOf(packet).length;
 
-    if (current.length > 0 && (segments + needed > MAX_SEGMENTS || current.length >= PACKETS_PER_PAGE)) {
+    if (
+      current.length > 0 &&
+      (segments + needed > MAX_SEGMENTS || current.length >= PACKETS_PER_PAGE)
+    ) {
       groups.push(current);
       current = [];
       segments = 0;
@@ -171,10 +186,27 @@ const groupIntoPages = (packets: ReadonlyArray<Uint8Array>): ReadonlyArray<Reado
   return groups;
 };
 
-export const oggOpusFile = (packets: ReadonlyArray<Uint8Array>, serial = 0x4f464643): Uint8Array => {
+export const oggOpusFile = (
+  packets: ReadonlyArray<Uint8Array>,
+  serial = 0x4f464643,
+): Uint8Array => {
   const pages: Array<Uint8Array> = [
-    oggPage({ packets: [opusHead()], granulePosition: 0n, serial, sequence: 0, first: true, last: false }),
-    oggPage({ packets: [opusTags()], granulePosition: 0n, serial, sequence: 1, first: false, last: false }),
+    oggPage({
+      packets: [opusHead()],
+      granulePosition: 0n,
+      serial,
+      sequence: 0,
+      first: true,
+      last: false,
+    }),
+    oggPage({
+      packets: [opusTags()],
+      granulePosition: 0n,
+      serial,
+      sequence: 1,
+      first: false,
+      last: false,
+    }),
   ];
 
   const groups = groupIntoPages(packets);

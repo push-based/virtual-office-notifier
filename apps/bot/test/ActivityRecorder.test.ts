@@ -1,6 +1,19 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Context, DateTime, Deferred, Effect, Exit, Fiber, Layer, Logger, Queue, Ref, References, Scope } from "effect";
+import {
+  Context,
+  DateTime,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Logger,
+  Queue,
+  Ref,
+  References,
+  Scope,
+} from "effect";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
@@ -47,7 +60,9 @@ const effect = (userId: string): TimedVoiceEffect => ({
 
 const outage = new ActivityLogError({ reason: new Outage({ message: "connection closed" }) });
 
-const badRow = new ActivityLogError({ reason: new BadRow({ message: "violates check constraint" }) });
+const badRow = new ActivityLogError({
+  reason: new BadRow({ message: "violates check constraint" }),
+});
 
 const outages = (count: number) => Array.from({ length: count }, () => outage);
 
@@ -128,18 +143,27 @@ const startRecorder = Effect.fnUntraced(function* (
 });
 
 describe("ActivityRecorder", () => {
-  it.effect("writes the session start, each observation and effect and the session stop, in order", () =>
-    Effect.gen(function* () {
-      const fake = yield* makeFakeLog();
-      const { recorder, stop } = yield* startRecorder(fake.log);
+  it.effect(
+    "writes the session start, each observation and effect and the session stop, in order",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeFakeLog();
+        const { recorder, stop } = yield* startRecorder(fake.log);
 
-      yield* recorder.record(observation("u1"));
-      yield* recorder.recordEffect(effect("u1"));
-      yield* recorder.record(observation("u2"));
-      yield* stop;
+        yield* recorder.record(observation("u1"));
+        yield* recorder.recordEffect(effect("u1"));
+        yield* recorder.record(observation("u2"));
+        yield* stop;
 
-      assert.deepStrictEqual(yield* fake.allCalls, ["start", "record u1", "effect u1", "record u2", "stop"]);
-    }));
+        assert.deepStrictEqual(yield* fake.allCalls, [
+          "start",
+          "record u1",
+          "effect u1",
+          "record u2",
+          "stop",
+        ]);
+      }),
+  );
 
   it.effect("buffers until the database is ready", () =>
     Effect.gen(function* () {
@@ -156,39 +180,43 @@ describe("ActivityRecorder", () => {
       yield* stop;
 
       assert.deepStrictEqual(yield* fake.allCalls, ["start", "record u1", "stop"]);
-    }));
+    }),
+  );
 
-  it.effect("retries an outage on the reconnect schedule without losing its place, reporting each retry", () => {
-    const { reports, layer } = captureReports();
+  it.effect(
+    "retries an outage on the reconnect schedule without losing its place, reporting each retry",
+    () => {
+      const { reports, layer } = captureReports();
 
-    return Effect.gen(function* () {
-      const fake = yield* makeFakeLog({ "record u1": outages(2) });
-      const { recorder, stop } = yield* startRecorder(fake.log);
+      return Effect.gen(function* () {
+        const fake = yield* makeFakeLog({ "record u1": outages(2) });
+        const { recorder, stop } = yield* startRecorder(fake.log);
 
-      yield* recorder.record(observation("u1"));
-      yield* recorder.record(observation("u2"));
+        yield* recorder.record(observation("u1"));
+        yield* recorder.record(observation("u2"));
 
-      assert.strictEqual(yield* fake.takeCall, "start");
-      assert.strictEqual(yield* fake.takeCall, "record u1");
+        assert.strictEqual(yield* fake.takeCall, "start");
+        assert.strictEqual(yield* fake.takeCall, "record u1");
 
-      yield* TestClock.adjust("1 second");
-      assert.strictEqual(yield* fake.takeCall, "record u1");
+        yield* TestClock.adjust("1 second");
+        assert.strictEqual(yield* fake.takeCall, "record u1");
 
-      yield* TestClock.adjust("2 seconds");
-      assert.strictEqual(yield* fake.takeCall, "record u1");
-      assert.strictEqual(yield* fake.takeCall, "record u2");
+        yield* TestClock.adjust("2 seconds");
+        assert.strictEqual(yield* fake.takeCall, "record u1");
+        assert.strictEqual(yield* fake.takeCall, "record u2");
 
-      yield* stop;
+        yield* stop;
 
-      const retry = {
-        name: "DatabaseUnavailable",
-        message: "Couldn't reach the database: connection closed",
-        severity: "Warn",
-      };
+        const retry = {
+          name: "DatabaseUnavailable",
+          message: "Couldn't reach the database: connection closed",
+          severity: "Warn",
+        };
 
-      assert.deepStrictEqual(reports, [retry, retry]);
-    }).pipe(Effect.provide(layer));
-  });
+        assert.deepStrictEqual(reports, [retry, retry]);
+      }).pipe(Effect.provide(layer));
+    },
+  );
 
   it.effect("sets aside a row the database rejects and carries on, reporting a warning", () => {
     const { reports, layer } = captureReports();
@@ -201,7 +229,13 @@ describe("ActivityRecorder", () => {
       yield* recorder.record(observation("u2"));
       yield* stop;
 
-      assert.deepStrictEqual(yield* fake.allCalls, ["start", "record u1", "reject u1", "record u2", "stop"]);
+      assert.deepStrictEqual(yield* fake.allCalls, [
+        "start",
+        "record u1",
+        "reject u1",
+        "record u2",
+        "stop",
+      ]);
       assert.deepStrictEqual(reports, [
         {
           name: "UpdateSetAside",
@@ -212,32 +246,35 @@ describe("ActivityRecorder", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("logs an update in full when it can't be recorded or set aside, reporting an error without it", () =>
-    Effect.gen(function* () {
-      const logs = captureLogs();
-      const { reports, layer } = captureReports();
-      const fake = yield* makeFakeLog({ "record u1": [badRow], "reject u1": [outage] });
+  it.effect(
+    "logs an update in full when it can't be recorded or set aside, reporting an error without it",
+    () =>
+      Effect.gen(function* () {
+        const logs = captureLogs();
+        const { reports, layer } = captureReports();
+        const fake = yield* makeFakeLog({ "record u1": [badRow], "reject u1": [outage] });
 
-      yield* Effect.gen(function* () {
-        const { recorder, stop } = yield* startRecorder(fake.log);
+        yield* Effect.gen(function* () {
+          const { recorder, stop } = yield* startRecorder(fake.log);
 
-        yield* recorder.record(observation("u1"));
-        yield* stop;
-      }).pipe(Effect.provide(Layer.merge(logs.layer, layer)));
+          yield* recorder.record(observation("u1"));
+          yield* stop;
+        }).pipe(Effect.provide(Layer.merge(logs.layer, layer)));
 
-      const lost = messagesStartingWith(logs.messages, "Couldn't record or set aside");
+        const lost = messagesStartingWith(logs.messages, "Couldn't record or set aside");
 
-      assert.strictEqual(lost.length, 1);
-      assert.include(lost[0]?.entry, `"userId":"u1"`);
-      assert.deepStrictEqual(reports, [
-        {
-          name: "UpdateNotStored",
-          message: "Couldn't record or set aside an update, logging it instead",
-          severity: "Error",
-        },
-      ]);
-      assert.notInclude(JSON.stringify(reports), "u1");
-    }));
+        assert.strictEqual(lost.length, 1);
+        assert.include(lost[0]?.entry, `"userId":"u1"`);
+        assert.deepStrictEqual(reports, [
+          {
+            name: "UpdateNotStored",
+            message: "Couldn't record or set aside an update, logging it instead",
+            severity: "Error",
+          },
+        ]);
+        assert.notInclude(JSON.stringify(reports), "u1");
+      }),
+  );
 
   it.effect("refuses observations once the buffer is full, logging each one", () =>
     Effect.gen(function* () {
@@ -261,7 +298,8 @@ describe("ActivityRecorder", () => {
 
       assert.strictEqual(refused.length, 1);
       assert.include(refused[0]?.entry, `"userId":"u${BUFFER_SIZE - 1}"`);
-    }));
+    }),
+  );
 
   it.effect("logs everything still unwritten when shutdown can't finish in time", () =>
     Effect.gen(function* () {
@@ -283,13 +321,15 @@ describe("ActivityRecorder", () => {
       yield* TestClock.adjust("10 seconds");
       yield* Fiber.join(stopping);
 
-      const unwritten = messagesStartingWith(logs.messages, "Couldn't record before shutting down").map(
-        (log) => JSON.parse(log.entry)._tag,
-      );
+      const unwritten = messagesStartingWith(
+        logs.messages,
+        "Couldn't record before shutting down",
+      ).map((log) => JSON.parse(log.entry)._tag);
 
       // The one being retried, then what was queued behind it.
       assert.deepStrictEqual(unwritten, ["Observed", "Observed", "SessionStopped"]);
-    }));
+    }),
+  );
 });
 
 describe("StorageLayer", () => {
@@ -297,10 +337,17 @@ describe("StorageLayer", () => {
     { case: "without DATABASE_URL", env: {} },
     { case: "with a blank DATABASE_URL", env: { DATABASE_URL: " " } },
     { case: "with a DATABASE_URL it can't parse", env: { DATABASE_URL: "not a url" } },
-    { case: "while the database is unreachable", env: { DATABASE_URL: "postgres://user:secret@127.0.0.1:1/postgres" } },
+    {
+      case: "while the database is unreachable",
+      env: { DATABASE_URL: "postgres://user:secret@127.0.0.1:1/postgres" },
+    },
   ])("never fails startup or shutdown $case", ({ env }) =>
     Effect.gen(function* () {
-      const building = yield* Layer.build(StorageLayer).pipe(Effect.scoped, withEnv(env), Effect.forkChild);
+      const building = yield* Layer.build(StorageLayer).pipe(
+        Effect.scoped,
+        withEnv(env),
+        Effect.forkChild,
+      );
 
       // Shutting down waits up to 10 seconds for a database that never came up.
       // The real connection attempt needs real time to fail, so the test clock
@@ -311,14 +358,17 @@ describe("StorageLayer", () => {
       }
 
       yield* Fiber.join(building);
-    }));
+    }),
+  );
 
   it.effect("records into the database, from session start to clean stop", () =>
     Effect.gen(function* () {
       const scope = yield* Scope.make();
 
       const context = yield* Layer.buildWithScope(
-        ActivityRecorder.layerNoDeps.pipe(Layer.provide(Layer.provideMerge(ActivityLog.layer, Database.layerNoDeps()))),
+        ActivityRecorder.layerNoDeps.pipe(
+          Layer.provide(Layer.provideMerge(ActivityLog.layer, Database.layerNoDeps())),
+        ),
         scope,
       );
 
@@ -331,7 +381,11 @@ describe("StorageLayer", () => {
 
       const sql = yield* SqlClient.SqlClient;
 
-      const [counts] = yield* sql<{ readonly snapshots: number; readonly effects: number; readonly stopped: number }>`
+      const [counts] = yield* sql<{
+        readonly snapshots: number;
+        readonly effects: number;
+        readonly stopped: number;
+      }>`
         SELECT
           (SELECT count(*)::int FROM office.voice_snapshots) AS snapshots,
           (SELECT count(*)::int FROM office.voice_effects) AS effects,
@@ -339,5 +393,6 @@ describe("StorageLayer", () => {
       `;
 
       assert.deepStrictEqual(counts, { snapshots: 2, effects: 1, stopped: 1 });
-    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))));
+    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
+  );
 });

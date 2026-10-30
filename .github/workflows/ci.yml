@@ -30,7 +30,7 @@ jobs:
 
       - run: pnpm exec vp run -r typecheck
 
-      - run: pnpm exec vp run lint
+      - run: pnpm exec vp run check
 
       - run: pnpm exec vp run -r test
 

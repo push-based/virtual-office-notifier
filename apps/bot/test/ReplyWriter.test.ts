@@ -27,7 +27,9 @@ const fakeModel = (
       LanguageModel.make({
         generateText: (options) =>
           Ref.update(calls, (sent) => [...sent, name]).pipe(
-            Effect.andThen(Ref.update(prompts, (sent) => [...sent, JSON.stringify(options.prompt)])),
+            Effect.andThen(
+              Ref.update(prompts, (sent) => [...sent, JSON.stringify(options.prompt)]),
+            ),
             Effect.andThen(reply),
           ),
         streamText: () => Stream.empty,
@@ -39,7 +41,9 @@ const context: ReplyContext = {
   office: {
     at: DateTime.makeUnsafe("2026-10-20T10:00:00Z"),
     period: "ThisWeek",
-    activityOldestFirst: [{ at: DateTime.makeUnsafe("2026-10-20T07:00:00Z"), who: "Sam", event: "Joined" }],
+    activityOldestFirst: [
+      { at: DateTime.makeUnsafe("2026-10-20T07:00:00Z"), who: "Sam", event: "Joined" },
+    ],
     olderEntriesLeftOut: 0,
     present: ["Sam"],
   },
@@ -87,7 +91,10 @@ describe("ReplyText", () => {
   const decode = Schema.decodeOption(ReplyText);
 
   it("takes the message, without surrounding whitespace or quotes", () => {
-    assert.deepStrictEqual(decode('  "🕰️ Sam was in for 3 hours today."\n'), Option.some("🕰️ Sam was in for 3 hours today."));
+    assert.deepStrictEqual(
+      decode('  "🕰️ Sam was in for 3 hours today."\n'),
+      Option.some("🕰️ Sam was in for 3 hours today."),
+    );
   });
 
   it("rejects Slack link and mention syntax", () => {
@@ -117,7 +124,8 @@ describe("ReplyWriter", () => {
         );
         assert.deepStrictEqual(yield* calls, ["openrouter-1"]);
       }
-    }));
+    }),
+  );
 
   it.effect("falls back to Cloudflare when OpenRouter's models can't write it", () =>
     Effect.gen(function* () {
@@ -134,11 +142,15 @@ describe("ReplyWriter", () => {
         Option.some("cloudflare-1"),
       );
       assert.lengthOf(yield* calls, 3);
-    }));
+    }),
+  );
 
   it.effect("shows the model the office log, the thread and who it's answering", () =>
     Effect.gen(function* () {
-      const { writer, prompts } = yield* makeWriter([["openrouter-1", says("🕰️ A while.")]], [["cloudflare-1", modelDown]]);
+      const { writer, prompts } = yield* makeWriter(
+        [["openrouter-1", says("🕰️ A while.")]],
+        [["cloudflare-1", modelDown]],
+      );
 
       yield* writer.write(context);
 
@@ -150,17 +162,23 @@ describe("ReplyWriter", () => {
       assert.include(prompt, "Grace Hopper: Sam lives there now");
       assert.include(prompt, "Ada: how long was Sam in today?");
       assert.include(prompt, "never assume");
-    }));
+    }),
+  );
 
   it.effect("writes nothing and reports a warning when every model fails", () =>
     Effect.gen(function* () {
       const { reports, layer } = captureReports();
-      const { writer } = yield* makeWriter([["openrouter-1", modelDown]], [["cloudflare-1", modelDown]]);
+
+      const { writer } = yield* makeWriter(
+        [["openrouter-1", modelDown]],
+        [["cloudflare-1", modelDown]],
+      );
 
       assert.isTrue(Option.isNone(yield* writer.write(context).pipe(Effect.provide(layer))));
       assert.deepStrictEqual(
         reports.map(({ name, severity }) => ({ name, severity })),
         [{ name: "NoAiReply", severity: "Warn" }],
       );
-    }));
+    }),
+  );
 });

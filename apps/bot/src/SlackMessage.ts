@@ -160,7 +160,10 @@ const joinButton = (office: OfficeLocation, label: string): ActionsBlock => ({
   ],
 });
 
-const context = (...texts: ReadonlyArray<string>): ContextBlock => ({ type: "context", elements: texts.map(mrkdwn) });
+const context = (...texts: ReadonlyArray<string>): ContextBlock => ({
+  type: "context",
+  elements: texts.map(mrkdwn),
+});
 
 const recapFields = (recap: SessionRecap): SectionBlock => ({
   type: "section",
@@ -180,7 +183,11 @@ export interface GeneratedHeadline {
 }
 
 // The model's output isn't trusted, so it's escaped; the name already is.
-const headlineText = (generated: Option.Option<GeneratedHeadline>, fixed: () => string, name = ""): string =>
+const headlineText = (
+  generated: Option.Option<GeneratedHeadline>,
+  fixed: () => string,
+  name = "",
+): string =>
   Option.match(generated, {
     onNone: fixed,
     onSome: ({ template }) => escapeSlackText(template).replace(NAME_PLACEHOLDER, () => name),
@@ -194,7 +201,10 @@ const credit = (generated: Option.Option<GeneratedHeadline>): Option.Option<stri
 
 export const AI_DISCLAIMER = "🤖 AI is a hallucination machine.";
 
-const banterMessage = (office: OfficeLocation, { template, button, model }: GeneratedHeadline): SlackMessage => {
+const banterMessage = (
+  office: OfficeLocation,
+  { template, button, model }: GeneratedHeadline,
+): SlackMessage => {
   const text = escapeSlackText(template);
 
   return {
@@ -216,7 +226,8 @@ export interface RecordingSummary {
   readonly summary: Option.Option<{ readonly text: string; readonly model: string }>;
 }
 
-const NO_SUMMARY = "No AI model could write a summary this time. The full transcript is in the thread.";
+const NO_SUMMARY =
+  "No AI model could write a summary this time. The full transcript is in the thread.";
 
 const slackDate = (at: DateTime.Utc): string =>
   `<!date^${DateTime.toEpochSeconds(at)}^{date_short} {time}|${DateTime.formatIso(at).slice(0, 16).replace("T", " ")} UTC>`;
@@ -239,13 +250,19 @@ export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
         type: "section",
         fields: [
           mrkdwn(`*Started by*\n${escapeSlackText(recording.startedByName)}`),
-          mrkdwn(`*Who spoke*\n${recording.speakers.length === 0 ? "Nobody" : recording.speakers.map(escapeSlackText).join(", ")}`),
+          mrkdwn(
+            `*Who spoke*\n${recording.speakers.length === 0 ? "Nobody" : recording.speakers.map(escapeSlackText).join(", ")}`,
+          ),
         ],
       },
       context(
         ...Option.match(recording.summary, {
           onNone: () => ["📄 Full transcript in the thread"],
-          onSome: ({ model }) => [`✨ Summary by ${escapeSlackText(model)}`, AI_DISCLAIMER, "📄 Full transcript in the thread"],
+          onSome: ({ model }) => [
+            `✨ Summary by ${escapeSlackText(model)}`,
+            AI_DISCLAIMER,
+            "📄 Full transcript in the thread",
+          ],
         }),
       ),
     ],
@@ -257,7 +274,10 @@ export const replyMessage = (text: string, model: string): SlackMessage => {
 
   return {
     text: escaped,
-    blocks: [headline(escaped, Option.none()), context(`Reply by ${escapeSlackText(model)}`, AI_DISCLAIMER)],
+    blocks: [
+      headline(escaped, Option.none()),
+      context(`Reply by ${escapeSlackText(model)}`, AI_DISCLAIMER),
+    ],
   };
 };
 
@@ -273,14 +293,21 @@ export const formatMessage = (
     Opened: (member) => {
       const name = `*${escapeSlackText(member.displayName)}*`;
       const text = headlineText(generated, () => pick(openedHeadlines(name), variant), name);
-      const avatar = Option.map(Option.fromNullOr(member.avatarUrl), (url) => ({ url, name: member.displayName }));
+
+      const avatar = Option.map(Option.fromNullOr(member.avatarUrl), (url) => ({
+        url,
+        name: member.displayName,
+      }));
 
       return Option.some({
         text,
         blocks: [
           headline(text, avatar),
           joinButton(member, buttonLabel(generated, JOIN_LABEL)),
-          context(`🔊 Opened on Discord at ${slackTime(member.at)}`, ...Option.toArray(credit(generated))),
+          context(
+            `🔊 Opened on Discord at ${slackTime(member.at)}`,
+            ...Option.toArray(credit(generated)),
+          ),
         ],
       });
     },
@@ -291,14 +318,19 @@ export const formatMessage = (
         text,
         blocks: [
           headline(text, Option.none()),
-          ...Option.match(member.recap, { onNone: () => [], onSome: (recap) => [recapFields(recap)] }),
+          ...Option.match(member.recap, {
+            onNone: () => [],
+            onSome: (recap) => [recapFields(recap)],
+          }),
           joinButton(member, buttonLabel(generated, JUMP_IN_LABEL)),
           context(`🔇 Emptied at ${slackTime(member.at)}`, ...Option.toArray(credit(generated))),
         ],
       });
     },
     Reminder: (office) => {
-      const text = headlineText(generated, () => pick(reminderHeadlines, weekdaysSinceEpoch(office.at)));
+      const text = headlineText(generated, () =>
+        pick(reminderHeadlines, weekdaysSinceEpoch(office.at)),
+      );
 
       return Option.some({
         text,

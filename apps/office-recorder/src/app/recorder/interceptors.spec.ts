@@ -34,7 +34,9 @@ describe("sessionInterceptor", () => {
 
     void firstValueFrom(http.get("/api/status"));
 
-    expect(backend.expectOne("/api/status").request.headers.get("authorization")).toBe("Bearer session-1");
+    expect(backend.expectOne("/api/status").request.headers.get("authorization")).toBe(
+      "Bearer session-1",
+    );
   });
 });
 

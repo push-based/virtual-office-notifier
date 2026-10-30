@@ -113,7 +113,8 @@ export interface LinkedMember {
   readonly name: string;
 }
 
-const jsonb = (value: ClefRequest | Readonly<Record<string, number>>): string => JSON.stringify(value);
+const jsonb = (value: ClefRequest | Readonly<Record<string, number>>): string =>
+  JSON.stringify(value);
 
 const notRecording = () => Effect.fail(new HistoryUnavailable({ reason: "Nothing is recorded" }));
 
@@ -128,7 +129,10 @@ export class SlackHistory extends Context.Service<
     repliesSince(from: DateTime.Utc): Effect.Effect<number, HistoryUnavailable>;
     reactionsSince(from: DateTime.Utc): Effect.Effect<number, HistoryUnavailable>;
     repliesInThread(channel: string, threadTs: string): Effect.Effect<number, HistoryUnavailable>;
-    linkMember(slackUserId: string, realName: string): Effect.Effect<Option.Option<LinkedMember>, HistoryUnavailable>;
+    linkMember(
+      slackUserId: string,
+      realName: string,
+    ): Effect.Effect<Option.Option<LinkedMember>, HistoryUnavailable>;
   }
 >()("virtual-office-notifier/SlackHistory") {
   static readonly layer = Layer.effect(
@@ -143,7 +147,8 @@ export class SlackHistory extends Context.Service<
           Effect.mapError((error) => new HistoryUnavailable({ reason: describeError(error) })),
           Effect.timeoutOrElse({
             duration: READ_TIMEOUT,
-            orElse: () => Effect.fail(new HistoryUnavailable({ reason: "Timed out after 10 seconds" })),
+            orElse: () =>
+              Effect.fail(new HistoryUnavailable({ reason: "Timed out after 10 seconds" })),
           }),
         );
 
@@ -155,9 +160,10 @@ export class SlackHistory extends Context.Service<
           Effect.flatMap(([row]) => decodeSettings(row)),
         ),
       ).pipe(
-        Effect.map(
-          ({ staleAfterSeconds, ...row }): ResponderSettings => ({ ...row, staleAfter: Duration.seconds(staleAfterSeconds) }),
-        ),
+        Effect.map(({ staleAfterSeconds, ...row }): ResponderSettings => ({
+          ...row,
+          staleAfter: Duration.seconds(staleAfterSeconds),
+        })),
         Effect.withSpan("SlackHistory.settings"),
       );
 
@@ -179,7 +185,9 @@ export class SlackHistory extends Context.Service<
         Effect.asVoid,
       );
 
-      const recordMessage = Effect.fn("SlackHistory.recordMessage")(function* (message: ConsideredMessage) {
+      const recordMessage = Effect.fn("SlackHistory.recordMessage")(function* (
+        message: ConsideredMessage,
+      ) {
         const [row] = yield* onceReady(
           sql<{ readonly id: string }>`
             INSERT INTO office.slack_messages ${sql.insert({
@@ -200,11 +208,12 @@ export class SlackHistory extends Context.Service<
         return Number(row?.id);
       });
 
-      const recordDecision = Effect.fn("SlackHistory.recordDecision")((decision: DecisionRecord) => {
-        const clef = Option.getOrNull(decision.clef);
+      const recordDecision = Effect.fn("SlackHistory.recordDecision")(
+        (decision: DecisionRecord) => {
+          const clef = Option.getOrNull(decision.clef);
 
-        return onceReady(
-          sql`
+          return onceReady(
+            sql`
             INSERT INTO office.slack_decisions (
               message_id, decided_at, clef_model, clef_request, action, action_probabilities, action_confidence,
               reaction, reaction_probabilities, reaction_confidence, latency_ms, min_confidence,
@@ -229,8 +238,10 @@ export class SlackHistory extends Context.Service<
               ${decision.reason}
             )
           `,
-        );
-      }, Effect.asVoid);
+          );
+        },
+        Effect.asVoid,
+      );
 
       const recordReaction = Effect.fn("SlackHistory.recordReaction")(
         (reaction: ReactionRecord) =>
@@ -268,16 +279,20 @@ export class SlackHistory extends Context.Service<
         ),
       );
 
-      const repliesInThread = Effect.fn("SlackHistory.repliesInThread")((channel: string, threadTs: string) =>
-        count(
-          sql`
+      const repliesInThread = Effect.fn("SlackHistory.repliesInThread")(
+        (channel: string, threadTs: string) =>
+          count(
+            sql`
             SELECT count(*)::int AS total FROM office.slack_posts
             WHERE kind = 'Reply' AND channel_id = ${channel} AND thread_ts = ${threadTs}
           `,
-        ),
+          ),
       );
 
-      const linkMember = Effect.fn("SlackHistory.linkMember")(function* (slackUserId: string, realName: string) {
+      const linkMember = Effect.fn("SlackHistory.linkMember")(function* (
+        slackUserId: string,
+        realName: string,
+      ) {
         const rows = yield* onceReady(
           sql<{ readonly memberUserId: string; readonly name: string }>`
             SELECT user_id AS member_user_id, coalesce(real_name, display_name) AS name
@@ -289,7 +304,10 @@ export class SlackHistory extends Context.Service<
           `,
         );
 
-        return Option.map(Array.head(rows), ({ memberUserId, name }): LinkedMember => ({ memberUserId, name }));
+        return Option.map(Array.head(rows), ({ memberUserId, name }): LinkedMember => ({
+          memberUserId,
+          name,
+        }));
       });
 
       return SlackHistory.of({

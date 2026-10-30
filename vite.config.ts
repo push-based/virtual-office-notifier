@@ -53,10 +53,19 @@ export default defineConfig({
       "anti-slop-effect/prefer-effect-match": "error",
     },
   },
+  fmt: {
+    ignorePatterns: [
+      ".claude/skills/**",
+      "tools/oxlint/anti-slop/**",
+      "pnpm-lock.yaml",
+      "**/dist/**",
+      "**/.wrangler/**",
+    ],
+  },
   run: {
     tasks: {
       typecheck: "tsc --noEmit",
-      lint: "vp lint",
+      check: "vp check",
     },
   },
 });

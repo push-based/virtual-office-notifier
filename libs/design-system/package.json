@@ -8,9 +8,6 @@
     "./tokens.css": "./src/tokens.css",
     "./components.css": "./src/components.css"
   },
-  "peerDependencies": {
-    "@angular/core": "catalog:angular"
-  },
   "devDependencies": {
     "@angular/common": "catalog:angular",
     "@angular/compiler": "catalog:angular",
@@ -24,5 +21,8 @@
     "typescript": "catalog:angular",
     "vite": "catalog:",
     "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "@angular/core": "catalog:angular"
   }
 }

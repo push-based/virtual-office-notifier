@@ -2,7 +2,14 @@ import { assert, describe, it } from "@effect/vitest";
 import { DateTime, Schema } from "effect";
 
 import type { ClipLine, RecordingDetails } from "../src/RecordingStore.ts";
-import { hasSpeech, MAX_SUMMARY_LENGTH, speakersOf, SummaryText, transcriptLines, transcriptText } from "../src/SummaryWriter.ts";
+import {
+  hasSpeech,
+  MAX_SUMMARY_LENGTH,
+  speakersOf,
+  SummaryText,
+  transcriptLines,
+  transcriptText,
+} from "../src/SummaryWriter.ts";
 
 // 2026-10-23T08:00:00Z, a Friday, 10:00 in the office.
 const start = DateTime.makeUnsafe("2026-10-23T08:00:00Z");
@@ -42,7 +49,11 @@ describe("transcriptLines", () => {
       line({ startedAt: at(6), transcription: "pending", transcript: null }),
     ]);
 
-    assert.deepStrictEqual(lines, ["10:01 Ada: Hello everyone.", "10:02 Grace: Hi Ada.", "10:04 Grace: [couldn't be transcribed]"]);
+    assert.deepStrictEqual(lines, [
+      "10:01 Ada: Hello everyone.",
+      "10:02 Grace: Hi Ada.",
+      "10:04 Grace: [couldn't be transcribed]",
+    ]);
   });
 });
 

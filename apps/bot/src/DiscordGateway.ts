@@ -49,17 +49,24 @@ import { observe, type VoiceObservation } from "./VoiceObservation.ts";
 
 export const RECORDING_NICKNAME = "🔴 Recording";
 
-export class DiscordLoginError extends Schema.TaggedError<DiscordLoginError>()("DiscordLoginError", {
-  cause: Schema.Defect(),
-}) {}
+export class DiscordLoginError extends Schema.TaggedError<DiscordLoginError>()(
+  "DiscordLoginError",
+  {
+    cause: Schema.Defect(),
+  },
+) {}
 
 const stamped = <A extends VoiceStateUpdate | VoiceEffect, E, R>(updates: Stream.Stream<A, E, R>) =>
-  updates.pipe(Stream.mapEffect((update) => DateTime.now.pipe(Effect.map((at) => ({ ...update, at })))));
+  updates.pipe(
+    Stream.mapEffect((update) => DateTime.now.pipe(Effect.map((at) => ({ ...update, at })))),
+  );
 
 const officeEvents =
   (officeChannelId: string, occupants: Occupants) =>
   <E, R>(updates: Stream.Stream<VoiceStateUpdate, E, R>): Stream.Stream<OfficeEvent, E, R> =>
-    stamped(updates).pipe(Stream.mapAccum(() => sessionOf(occupants), trackOccupancy(officeChannelId)));
+    stamped(updates).pipe(
+      Stream.mapAccum(() => sessionOf(occupants), trackOccupancy(officeChannelId)),
+    );
 
 // Starts with whoever was already in the office at startup, then follows every
 // update touching it.
@@ -73,7 +80,9 @@ const voiceObservations =
 
 const fromOthers =
   (selfId: string) =>
-  <A extends { readonly userId: string }, E, R>(stream: Stream.Stream<A, E, R>): Stream.Stream<A, E, R> =>
+  <A extends { readonly userId: string }, E, R>(
+    stream: Stream.Stream<A, E, R>,
+  ): Stream.Stream<A, E, R> =>
     stream.pipe(Stream.filter((item) => item.userId !== selfId));
 
 const officeEffects =
@@ -82,7 +91,9 @@ const officeEffects =
     stamped(effects).pipe(Stream.filterMap(sentInOffice(officeChannelId)));
 
 const botPresence = <E, R>(occupants: Occupants, events: Stream.Stream<OfficeEvent, E, R>) =>
-  Stream.make(presenceAtStartup(occupants)).pipe(Stream.concat(events.pipe(Stream.filterMap(presenceAfter))));
+  Stream.make(presenceAtStartup(occupants)).pipe(
+    Stream.concat(events.pipe(Stream.filterMap(presenceAfter))),
+  );
 
 const detailsOf = (state: VoiceState): VoiceDetails => ({
   selfMute: state.selfMute,
@@ -92,7 +103,10 @@ const detailsOf = (state: VoiceState): VoiceDetails => ({
   selfVideo: state.selfVideo,
   streaming: state.streaming,
   suppress: state.suppress,
-  requestToSpeakAt: state.requestToSpeakTimestamp === null ? null : DateTime.makeUnsafe(state.requestToSpeakTimestamp),
+  requestToSpeakAt:
+    state.requestToSpeakTimestamp === null
+      ? null
+      : DateTime.makeUnsafe(state.requestToSpeakTimestamp),
   sessionId: state.sessionId,
 });
 
@@ -144,15 +158,23 @@ const voiceStateUpdates = (client: Client) =>
 
 type DefaultSoundNames = ReadonlyMap<string, string>;
 
-const soundNameOf = (effect: VoiceChannelEffect, defaultSounds: DefaultSoundNames): string | null => {
+const soundNameOf = (
+  effect: VoiceChannelEffect,
+  defaultSounds: DefaultSoundNames,
+): string | null => {
   if (effect.soundId === null) return null;
 
   const soundId = String(effect.soundId);
 
-  return effect.guild.soundboardSounds.cache.get(soundId)?.name ?? defaultSounds.get(soundId) ?? null;
+  return (
+    effect.guild.soundboardSounds.cache.get(soundId)?.name ?? defaultSounds.get(soundId) ?? null
+  );
 };
 
-const toVoiceEffect = (effect: VoiceChannelEffect, defaultSounds: DefaultSoundNames): VoiceEffect => {
+const toVoiceEffect = (
+  effect: VoiceChannelEffect,
+  defaultSounds: DefaultSoundNames,
+): VoiceEffect => {
   const member = effect.guild.members.cache.get(effect.userId);
 
   return {
@@ -193,10 +215,14 @@ const decodeDefaultSounds = Schema.decodeUnknownEffect(
 const fetchDefaultSoundNames = (client: Client<true>) =>
   Effect.tryPromise(() => client.rest.get(Routes.soundboardDefaultSounds())).pipe(
     Effect.flatMap(decodeDefaultSounds),
-    Effect.map((sounds): DefaultSoundNames => new Map(sounds.map((sound) => [sound.sound_id, sound.name]))),
+    Effect.map(
+      (sounds): DefaultSoundNames => new Map(sounds.map((sound) => [sound.sound_id, sound.name])),
+    ),
     Effect.timeout(Duration.seconds(10)),
     Effect.catch((error) =>
-      Effect.logWarning("Couldn't fetch Discord's default soundboard sounds, so their names aren't recorded").pipe(
+      Effect.logWarning(
+        "Couldn't fetch Discord's default soundboard sounds, so their names aren't recorded",
+      ).pipe(
         Effect.annotateLogs({ reason: String(error) }),
         Effect.as<DefaultSoundNames>(new Map()),
       ),
@@ -223,7 +249,9 @@ const moveBot = (guild: Guild, officeChannelId: string) => (presence: BotPresenc
   sendVoiceState(guild, presence === "InOffice" ? officeChannelId : null, true).pipe(
     Effect.andThen(Effect.logInfo("Moved the bot")),
     Effect.catchTag("BotMoveError", (error) =>
-      Effect.logWarning("Couldn't move the bot").pipe(Effect.annotateLogs({ reason: error.reason })),
+      Effect.logWarning("Couldn't move the bot").pipe(
+        Effect.annotateLogs({ reason: error.reason }),
+      ),
     ),
     Effect.annotateLogs({ presence }),
   );
@@ -234,13 +262,17 @@ const leaveForRecording = (guild: Guild) =>
   sendVoiceState(guild, null, true).pipe(
     Effect.andThen(
       Effect.sync(() => guild.members.me?.voice.channelId ?? null).pipe(
-        Effect.repeat({ until: (channelId) => channelId === null, schedule: Schedule.spaced("100 millis") }),
+        Effect.repeat({
+          until: (channelId) => channelId === null,
+          schedule: Schedule.spaced("100 millis"),
+        }),
         Effect.timeoutOption(LEAVE_TIMEOUT),
       ),
     ),
     Effect.flatMap(
       Option.match({
-        onNone: () => Effect.logWarning("Discord didn't confirm the bot left the office before recording"),
+        onNone: () =>
+          Effect.logWarning("Discord didn't confirm the bot left the office before recording"),
         onSome: () => Effect.void,
       }),
     ),
@@ -255,9 +287,9 @@ const setNickname = (guild: Guild, nickname: string | null) =>
   Effect.tryPromise(() => guild.members.me?.setNickname(nickname) ?? Promise.resolve(null)).pipe(
     Effect.asVoid,
     Effect.catch((error) =>
-      Effect.logWarning("Couldn't change the bot's nickname. Give it the Change Nickname permission.").pipe(
-        Effect.annotateLogs({ reason: String(error) }),
-      ),
+      Effect.logWarning(
+        "Couldn't change the bot's nickname. Give it the Change Nickname permission.",
+      ).pipe(Effect.annotateLogs({ reason: String(error) })),
     ),
   );
 
@@ -315,18 +347,30 @@ export class DiscordGateway extends Context.Service<
         Effect.sync(
           () =>
             new Client({
-              intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildExpressions],
+              intents: [
+                GatewayIntentBits.Guilds,
+                GatewayIntentBits.GuildVoiceStates,
+                GatewayIntentBits.GuildExpressions,
+              ],
             }),
         ),
         (client) =>
-          Effect.promise(() => client.destroy()).pipe(Effect.andThen(Effect.logInfo("Disconnected from Discord"))),
+          Effect.promise(() => client.destroy()).pipe(
+            Effect.andThen(Effect.logInfo("Disconnected from Discord")),
+          ),
       );
 
       // An EventEmitter "error" event with no listener would crash the process.
       client.on(Events.Error, (error) =>
-        runFork(Effect.logError("Discord client error", error).pipe(Effect.andThen(ErrorReporter.report(Cause.fail(error))))),
+        runFork(
+          Effect.logError("Discord client error", error).pipe(
+            Effect.andThen(ErrorReporter.report(Cause.fail(error))),
+          ),
+        ),
       );
-      client.on(Events.Warn, (message) => runFork(Effect.logWarning("Discord client warning", message)));
+      client.on(Events.Warn, (message) =>
+        runFork(Effect.logWarning("Discord client warning", message)),
+      );
 
       const ready = yield* login(client, botToken);
 
@@ -359,7 +403,11 @@ export class DiscordGateway extends Context.Service<
           ).pipe(Effect.annotateLogs({ officeChannelId, guilds: ready.guilds.cache.size })),
         onSome: (channel) =>
           Effect.logInfo("Found the office voice channel").pipe(
-            Effect.annotateLogs({ officeChannelId, officeChannel: channel.name, occupants: occupants.size }),
+            Effect.annotateLogs({
+              officeChannelId,
+              officeChannel: channel.name,
+              occupants: occupants.size,
+            }),
             Effect.andThen(
               channel.permissionsFor(ready.user)?.has(PermissionFlagsBits.Connect)
                 ? Effect.void
@@ -377,7 +425,9 @@ export class DiscordGateway extends Context.Service<
         onNone: () => Effect.void,
         onSome: (channel) =>
           Effect.all([Ref.get(wanted), Ref.get(recording)]).pipe(
-            Effect.flatMap(([presence, active]) => (active ? Effect.void : moveBot(channel.guild, officeChannelId)(presence))),
+            Effect.flatMap(([presence, active]) =>
+              active ? Effect.void : moveBot(channel.guild, officeChannelId)(presence),
+            ),
           ),
       });
 
@@ -391,12 +441,12 @@ export class DiscordGateway extends Context.Service<
             ),
         });
 
-      const whoIsIn = Effect.sync(
-        (): ReadonlyArray<Occupant> =>
-          Option.match(office, {
-            onNone: () => [],
-            onSome: (channel) => [...channel.members.filter((member) => !member.user.bot).values()].map(occupantOf),
-          }),
+      const whoIsIn = Effect.sync((): ReadonlyArray<Occupant> =>
+        Option.match(office, {
+          onNone: () => [],
+          onSome: (channel) =>
+            [...channel.members.filter((member) => !member.user.bot).values()].map(occupantOf),
+        }),
       );
 
       client.on(Events.ShardReady, () => runFork(goWhereWanted));
@@ -407,17 +457,24 @@ export class DiscordGateway extends Context.Service<
         voiceObservations: updates().pipe(
           voiceObservations(officeChannelId, present.map(alreadyPresent)),
         ),
-        voiceEffects: voiceEffects(client, defaultSounds).pipe(fromOthers(ready.user.id), officeEffects(officeChannelId)),
+        voiceEffects: voiceEffects(client, defaultSounds).pipe(
+          fromOthers(ready.user.id),
+          officeEffects(officeChannelId),
+        ),
         botPresence: Option.match(office, {
           onNone: () => Stream.empty,
-          onSome: () => botPresence(occupants, updates().pipe(officeEvents(officeChannelId, occupants))),
+          onSome: () =>
+            botPresence(occupants, updates().pipe(officeEvents(officeChannelId, occupants))),
         }),
         moveBot: (presence) => Ref.set(wanted, presence).pipe(Effect.andThen(goWhereWanted)),
         setRecording,
         occupants: whoIsIn,
         selfUserId: ready.user.id,
         voiceAdapter: Option.map(office, (channel) => channel.guild.voiceAdapterCreator),
-        office: Option.map(office, (channel) => ({ guildId: channel.guild.id, channelId: officeChannelId })),
+        office: Option.map(office, (channel) => ({
+          guildId: channel.guild.id,
+          channelId: officeChannelId,
+        })),
       });
     }),
   );
@@ -456,7 +513,8 @@ export class DiscordGateway extends Context.Service<
             Ref.update(inOffice, (members) => {
               const next = new Map(members);
 
-              if (isOfficeJoin(officeChannelId, update)) next.set(update.userId, occupantOfUpdate(update));
+              if (isOfficeJoin(officeChannelId, update))
+                next.set(update.userId, occupantOfUpdate(update));
 
               if (isOfficeLeave(officeChannelId, update)) next.delete(update.userId);
 
@@ -469,11 +527,20 @@ export class DiscordGateway extends Context.Service<
         return DiscordGateway.of({
           officeEvents: shared.pipe(officeEvents(officeChannelId, occupants)),
           voiceObservations: shared.pipe(voiceObservations(officeChannelId, present)),
-          voiceEffects: Stream.fromIterable(effects).pipe(fromOthers(selfId), officeEffects(officeChannelId)),
-          botPresence: botPresence(occupants, shared.pipe(officeEvents(officeChannelId, occupants))),
-          moveBot: (presence) => (moves === undefined ? Effect.void : Queue.offer(moves, presence).pipe(Effect.asVoid)),
+          voiceEffects: Stream.fromIterable(effects).pipe(
+            fromOthers(selfId),
+            officeEffects(officeChannelId),
+          ),
+          botPresence: botPresence(
+            occupants,
+            shared.pipe(officeEvents(officeChannelId, occupants)),
+          ),
+          moveBot: (presence) =>
+            moves === undefined ? Effect.void : Queue.offer(moves, presence).pipe(Effect.asVoid),
           setRecording: (active) =>
-            recordings === undefined ? Effect.void : Queue.offer(recordings, active).pipe(Effect.asVoid),
+            recordings === undefined
+              ? Effect.void
+              : Queue.offer(recordings, active).pipe(Effect.asVoid),
           occupants: Ref.get(inOffice).pipe(Effect.map((members) => [...members.values()])),
           selfUserId: selfId,
           voiceAdapter: Option.none(),

@@ -37,7 +37,9 @@ export class SlackNotifier extends Context.Service<
           })
           .pipe(
             Effect.catchTag("HistoryUnavailable", (error) =>
-              Effect.logWarning("Couldn't record the Slack post").pipe(Effect.annotateLogs({ reason: error.reason })),
+              Effect.logWarning("Couldn't record the Slack post").pipe(
+                Effect.annotateLogs({ reason: error.reason }),
+              ),
             ),
           );
       });

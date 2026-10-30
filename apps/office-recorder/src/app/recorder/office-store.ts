@@ -18,7 +18,13 @@ import {
   timer,
 } from "rxjs";
 
-import type { HandledRequest, Notice, OfficePhase, RecordingStatus, SubmittedRequest } from "./models";
+import type {
+  HandledRequest,
+  Notice,
+  OfficePhase,
+  RecordingStatus,
+  SubmittedRequest,
+} from "./models";
 import { outcomeNotice, unreachableNotice } from "./notices";
 import { RecorderApi } from "./recorder-api";
 import { RecorderSession } from "./session";
@@ -31,7 +37,8 @@ interface OfficeState {
   readonly now: number;
 }
 
-const isHandled = (request: SubmittedRequest): request is HandledRequest => request.outcome !== null;
+const isHandled = (request: SubmittedRequest): request is HandledRequest =>
+  request.outcome !== null;
 
 @Service({ autoProvided: false })
 export class OfficeStore {
@@ -47,7 +54,12 @@ export class OfficeStore {
 
   private readonly notices = new Subject<Notice>();
 
-  private readonly state = signal<OfficeState>({ status: null, failure: null, busy: false, now: Date.now() });
+  private readonly state = signal<OfficeState>({
+    status: null,
+    failure: null,
+    busy: false,
+    now: Date.now(),
+  });
 
   readonly status = computed(() => this.state().status);
 
@@ -101,7 +113,9 @@ export class OfficeStore {
         mergeMap(() =>
           this.api.status().pipe(
             catchError((error) => {
-              this.notices.next(unreachableNotice(error instanceof Error ? error.message : String(error)));
+              this.notices.next(
+                unreachableNotice(error instanceof Error ? error.message : String(error)),
+              );
 
               return EMPTY;
             }),
@@ -128,7 +142,9 @@ export class OfficeStore {
       .pipe(
         switchMap(({ id }) => this.awaitOutcome(id)),
         map(outcomeNotice),
-        catchError((error) => of(unreachableNotice(error instanceof Error ? error.message : String(error)))),
+        catchError((error) =>
+          of(unreachableNotice(error instanceof Error ? error.message : String(error))),
+        ),
         finalize(() => {
           this.patch({ busy: false });
           this.refreshes.next();

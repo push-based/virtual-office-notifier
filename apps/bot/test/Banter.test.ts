@@ -115,8 +115,14 @@ interface FakeHistory {
   readonly unavailable?: boolean;
 }
 
-const makeFakeHistory = Effect.fnUntraced(function* ({ postsAlreadyToday = 0, unavailable = false }: FakeHistory) {
-  const posts = yield* Ref.make<ReadonlyArray<{ readonly at: DateTime.Utc; readonly period: BanterPeriod }>>([]);
+const makeFakeHistory = Effect.fnUntraced(function* ({
+  postsAlreadyToday = 0,
+  unavailable = false,
+}: FakeHistory) {
+  const posts = yield* Ref.make<
+    ReadonlyArray<{ readonly at: DateTime.Utc; readonly period: BanterPeriod }>
+  >([]);
+
   const fail = Effect.fail(new HistoryUnavailable({ reason: "Database down" }));
 
   const layer = Layer.succeed(
@@ -125,7 +131,10 @@ const makeFakeHistory = Effect.fnUntraced(function* ({ postsAlreadyToday = 0, un
       latestActivityBetween: (from) =>
         unavailable
           ? fail
-          : Effect.succeed({ entriesOldestFirst: [{ at: from, who: "Ada", event: "Joined" }], olderEntriesLeftOut: 3 }),
+          : Effect.succeed({
+              entriesOldestFirst: [{ at: from, who: "Ada", event: "Joined" }],
+              olderEntriesLeftOut: 3,
+            }),
       presentSinceBotStarted: unavailable ? fail : Effect.succeed(["Ada"]),
       banterPostsSince: (from) =>
         unavailable
@@ -133,10 +142,12 @@ const makeFakeHistory = Effect.fnUntraced(function* ({ postsAlreadyToday = 0, un
           : Ref.get(posts).pipe(
               Effect.map(
                 (recorded) =>
-                  postsAlreadyToday + recorded.filter(({ at }) => DateTime.isGreaterThanOrEqualTo(at, from)).length,
+                  postsAlreadyToday +
+                  recorded.filter(({ at }) => DateTime.isGreaterThanOrEqualTo(at, from)).length,
               ),
             ),
-      recordBanterPost: (at, period) => Ref.update(posts, (recorded) => [...recorded, { at, period }]),
+      recordBanterPost: (at, period) =>
+        Ref.update(posts, (recorded) => [...recorded, { at, period }]),
     }),
   );
 
@@ -174,7 +185,8 @@ describe("banter", () => {
         posts.map(({ at }) => iso(at)),
         ["07:00", "08:00", "09:00", "10:00", "11:00"].map((time) => `1970-01-01T${time}:00.000Z`),
       );
-    }));
+    }),
+  );
 
   it.effect("hands the model the period's activity and who's in", () =>
     Effect.gen(function* () {
@@ -189,21 +201,27 @@ describe("banter", () => {
         olderEntriesLeftOut: 3,
         present: ["Ada"],
       });
-    }));
+    }),
+  );
 
   it.effect("counts what was already posted today, so a restart doesn't reset the limit", () =>
     Effect.gen(function* () {
-      const { emitted } = yield* collectBanter({ postsAlreadyToday: MAX_BANTER_PER_DAY - 1 }, "24 hours");
+      const { emitted } = yield* collectBanter(
+        { postsAlreadyToday: MAX_BANTER_PER_DAY - 1 },
+        "24 hours",
+      );
 
       assert.strictEqual(emitted.length, 1);
-    }));
+    }),
+  );
 
   it.effect("stays quiet at the weekend", () =>
     Effect.gen(function* () {
       const { emitted } = yield* collectBanter({}, "72 hours");
 
       assert.strictEqual(emitted.length, MAX_BANTER_PER_DAY * 2);
-    }));
+    }),
+  );
 
   it.effect("skips its chance without failing when the history can't be read", () =>
     Effect.gen(function* () {
@@ -211,5 +229,6 @@ describe("banter", () => {
 
       assert.deepStrictEqual(emitted, []);
       assert.deepStrictEqual(posts, []);
-    }));
+    }),
+  );
 });

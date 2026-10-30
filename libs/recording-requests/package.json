@@ -7,9 +7,6 @@
     "./wire": "./src/Wire.ts",
     "./*": "./src/*.ts"
   },
-  "peerDependencies": {
-    "effect": "catalog:"
-  },
   "devDependencies": {
     "@effect/sql-pglite": "catalog:",
     "@effect/vitest": "catalog:",
@@ -18,5 +15,8 @@
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
   }
 }

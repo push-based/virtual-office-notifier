@@ -32,12 +32,20 @@ const soon = DateTime.makeUnsafe(5_000);
 
 describe("decideRequest", () => {
   it("starts when someone in the office asks and nothing is recording", () => {
-    assert.deepStrictEqual(decideRequest(request(), new Set(["u1", "u2"]), Option.none(), soon), RequestDecision.Start());
+    assert.deepStrictEqual(
+      decideRequest(request(), new Set(["u1", "u2"]), Option.none(), soon),
+      RequestDecision.Start(),
+    );
   });
 
   it("stops the running recording when someone in the office asks", () => {
     assert.deepStrictEqual(
-      decideRequest(request({ action: "stop", requestedBy: "u2" }), new Set(["u1", "u2"]), Option.some(active), soon),
+      decideRequest(
+        request({ action: "stop", requestedBy: "u2" }),
+        new Set(["u1", "u2"]),
+        Option.some(active),
+        soon,
+      ),
       RequestDecision.Stop({ recording: active }),
     );
   });
@@ -80,7 +88,12 @@ describe("request expiry", () => {
       RequestDecision.Ignore({ reason: "expired" }),
     );
     assert.deepStrictEqual(
-      decideRequest(request(), new Set(["u1"]), Option.none(), DateTime.addDuration(DateTime.makeUnsafe(0), REQUEST_EXPIRY)),
+      decideRequest(
+        request(),
+        new Set(["u1"]),
+        Option.none(),
+        DateTime.addDuration(DateTime.makeUnsafe(0), REQUEST_EXPIRY),
+      ),
       RequestDecision.Start(),
     );
   });
@@ -130,7 +143,12 @@ describe("the page's types", () => {
     const encoded = Schema.encodeSync(RecordingStatus)({
       botInOffice: true,
       occupants: [],
-      recording: { id: "r1", startedAt: DateTime.makeUnsafe(0), startedByName: "Ada", endsAt: endsAt(active) },
+      recording: {
+        id: "r1",
+        startedAt: DateTime.makeUnsafe(0),
+        startedByName: "Ada",
+        endsAt: endsAt(active),
+      },
       updatedAt: DateTime.makeUnsafe(0),
     });
 

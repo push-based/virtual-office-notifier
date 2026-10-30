@@ -44,7 +44,8 @@ import { TimeLeftPipe } from "../time-left.pipe";
           Press start to record and transcribe the office.
         }
         @case ("recording") {
-          Started by {{ current.recording.startedByName }} · {{ current.recording.endsAt | timeLeft: now() }}
+          Started by {{ current.recording.startedByName }} ·
+          {{ current.recording.endsAt | timeLeft: now() }}
         }
       }
     </p>

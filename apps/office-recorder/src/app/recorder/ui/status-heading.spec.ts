@@ -20,7 +20,9 @@ const render = async (phase: OfficePhase) => {
   fixture.componentInstance.phase.set(phase);
   await fixture.whenStable();
   const element: HTMLElement = fixture.nativeElement;
-  const text = (selector: string) => element.querySelector(selector)?.textContent?.replace(/\s+/g, " ").trim();
+
+  const text = (selector: string) =>
+    element.querySelector(selector)?.textContent?.replace(/\s+/g, " ").trim();
 
   return { headline: text("h1"), detail: text("p"), live: element.querySelector(".live") !== null };
 };

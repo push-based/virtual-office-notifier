@@ -7,10 +7,13 @@ export type DiscordClient = Pick<DiscordSDK, "ready"> & {
   readonly commands: Pick<DiscordSDK["commands"], "authorize" | "authenticate">;
 };
 
-export const DISCORD_CLIENT = new InjectionToken<(clientId: string) => DiscordClient>("DiscordClient", {
-  providedIn: "root",
-  factory: () => (clientId) => new DiscordSDK(clientId),
-});
+export const DISCORD_CLIENT = new InjectionToken<(clientId: string) => DiscordClient>(
+  "DiscordClient",
+  {
+    providedIn: "root",
+    factory: () => (clientId) => new DiscordSDK(clientId),
+  },
+);
 
 interface ConfigResponse {
   readonly clientId: string;

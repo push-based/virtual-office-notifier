@@ -23,7 +23,8 @@ const makeTranscriber = Effect.fnUntraced(function* (replies: ReadonlyArray<Repl
   return { transcriber, requests: http.requests };
 });
 
-const success = (text: string): Reply => respond(200, JSON.stringify({ success: true, result: { text } }));
+const success = (text: string): Reply =>
+  respond(200, JSON.stringify({ success: true, result: { text } }));
 
 describe("Transcriber", () => {
   it.effect("sends the audio as base64 with the language, and returns the trimmed text", () =>
@@ -32,7 +33,10 @@ describe("Transcriber", () => {
 
       const transcript = yield* transcriber.transcribe(audio);
 
-      assert.deepStrictEqual(transcript, { text: "Hello there.", model: "@cf/openai/whisper-large-v3-turbo" });
+      assert.deepStrictEqual(transcript, {
+        text: "Hello there.",
+        model: "@cf/openai/whisper-large-v3-turbo",
+      });
 
       const [request] = yield* requests;
       assert.strictEqual(
@@ -40,19 +44,28 @@ describe("Transcriber", () => {
         "https://api.cloudflare.com/client/v4/accounts/acc-123/ai/run/@cf/openai/whisper-large-v3-turbo",
       );
       assert.strictEqual(request?.headers["authorization"], "Bearer cf-token");
-      assert.deepStrictEqual(requestJson(request!), { audio: "T2dnUwABAgM=", task: "transcribe", language: "en" });
-    }));
+      assert.deepStrictEqual(requestJson(request!), {
+        audio: "T2dnUwABAgM=",
+        task: "transcribe",
+        language: "en",
+      });
+    }),
+  );
 
   it.effect("tells the daily limit apart from other refusals", () =>
     Effect.gen(function* () {
       const { transcriber } = yield* makeTranscriber([
-        respond(429, JSON.stringify({ success: false, errors: [{ code: 4006, message: "Daily limit" }] })),
+        respond(
+          429,
+          JSON.stringify({ success: false, errors: [{ code: 4006, message: "Daily limit" }] }),
+        ),
       ]);
 
       const error = yield* transcriber.transcribe(audio).pipe(Effect.flip);
 
       assert.strictEqual(error.failure, "DailyLimit");
-    }));
+    }),
+  );
 
   it.effect.each([429, 500, 503])("treats HTTP %s as the transcriber being unavailable", (status) =>
     Effect.gen(function* () {
@@ -62,19 +75,24 @@ describe("Transcriber", () => {
 
       assert.strictEqual(error.failure, "Unavailable");
       assert.include(error.detail, String(status));
-    }));
+    }),
+  );
 
   it.effect("treats a 4xx as the clip being rejected", () =>
     Effect.gen(function* () {
       const { transcriber } = yield* makeTranscriber([
-        respond(400, JSON.stringify({ success: false, errors: [{ code: 7000, message: "bad audio" }] })),
+        respond(
+          400,
+          JSON.stringify({ success: false, errors: [{ code: 7000, message: "bad audio" }] }),
+        ),
       ]);
 
       const error = yield* transcriber.transcribe(audio).pipe(Effect.flip);
 
       assert.strictEqual(error.failure, "Rejected");
       assert.include(error.detail, "bad audio");
-    }));
+    }),
+  );
 
   it.effect("fails as unreadable when the reply isn't a transcription", () =>
     Effect.gen(function* () {
@@ -83,14 +101,18 @@ describe("Transcriber", () => {
       const error = yield* transcriber.transcribe(audio).pipe(Effect.flip);
 
       assert.strictEqual(error.failure, "Unreadable");
-    }));
+    }),
+  );
 
   it.effect("fails as unavailable when nothing is configured", () =>
     Effect.gen(function* () {
-      const transcriber = yield* Effect.service(Transcriber).pipe(Effect.provide(Transcriber.layerNone));
+      const transcriber = yield* Effect.service(Transcriber).pipe(
+        Effect.provide(Transcriber.layerNone),
+      );
 
       const error = yield* transcriber.transcribe(audio).pipe(Effect.flip);
 
       assert.strictEqual(error.failure, "Unavailable");
-    }));
+    }),
+  );
 });

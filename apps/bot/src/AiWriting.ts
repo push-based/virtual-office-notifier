@@ -80,7 +80,8 @@ export const isDailyLimit = (error: WritingError): boolean => {
   if (body === undefined) return false;
 
   return (
-    (error.reason instanceof AiError.RateLimitError && Option.isSome(decodeOpenRouterDailyLimit(body))) ||
+    (error.reason instanceof AiError.RateLimitError &&
+      Option.isSome(decodeOpenRouterDailyLimit(body))) ||
     isCloudflareDailyLimit(body)
   );
 };
@@ -92,7 +93,10 @@ export const failureReason = Match.typeTags<WritingError, string>()({
 });
 
 const respondingModel = (content: ReadonlyArray<Response.AnyPart>, requested: string): string =>
-  Array.findFirst(content, (part): part is Response.ResponseMetadataPart => part.type === "response-metadata").pipe(
+  Array.findFirst(
+    content,
+    (part): part is Response.ResponseMetadataPart => part.type === "response-metadata",
+  ).pipe(
     Option.flatMap((part) => Option.fromUndefinedOr(part.modelId)),
     Option.getOrElse(() => requested),
   );
@@ -122,14 +126,19 @@ const writeWithModel = Effect.fnUntraced(function* <A>(brief: Brief<A>) {
   return { value, model: respondingModel(response.content, model) };
 }, Effect.tapError(logFailure));
 
-export type ModelLayer = Layer.Layer<LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName>;
+export type ModelLayer = Layer.Layer<
+  LanguageModel.LanguageModel | Model.ProviderName | Model.ModelName
+>;
 
 export type Providers = Array.NonEmptyReadonlyArray<Array.NonEmptyReadonlyArray<ModelLayer>>;
 
 export const orderModels = Effect.fnUntraced(function* <A>(models: Array.NonEmptyReadonlyArray<A>) {
   const first = (yield* Random.nextBoolean) ? models[0] : yield* Random.choice(models);
 
-  return Array.prepend(yield* Random.shuffle(Array.filter(models, (model) => model !== first)), first);
+  return Array.prepend(
+    yield* Random.shuffle(Array.filter(models, (model) => model !== first)),
+    first,
+  );
 });
 
 interface ModelStep {
@@ -138,14 +147,20 @@ interface ModelStep {
 }
 
 const providerSteps = (models: Array.NonEmptyReadonlyArray<ModelLayer>) =>
-  Array.map(models, (provide, index): ModelStep => ({ provide, while: (error) => index === 0 || !isDailyLimit(error) }));
+  Array.map(models, (provide, index): ModelStep => ({
+    provide,
+    while: (error) => index === 0 || !isDailyLimit(error),
+  }));
 
 export const writeWithProviders = Effect.fnUntraced(function* <A>(
   brief: Brief<A>,
   providersInOrder: Providers,
 ): Effect.fn.Return<Written<A>, WritingError> {
   const ordered = yield* Effect.all(Array.map(providersInOrder, orderModels));
-  const plan = ExecutionPlan.make<Array.NonEmptyReadonlyArray<ModelStep>>(...Array.flatMap(ordered, providerSteps));
+
+  const plan = ExecutionPlan.make<Array.NonEmptyReadonlyArray<ModelStep>>(
+    ...Array.flatMap(ordered, providerSteps),
+  );
 
   return yield* writeWithModel(brief).pipe(Effect.withExecutionPlan(plan));
 });
@@ -162,10 +177,15 @@ const withClient = Effect.fnUntraced(function* <P extends string, C>(
 ) {
   const context = yield* Layer.build(client);
 
-  return yield* Effect.all(Array.map(models, (model) => model.captureRequirements)).pipe(Effect.provideContext(context));
+  return yield* Effect.all(Array.map(models, (model) => model.captureRequirements)).pipe(
+    Effect.provideContext(context),
+  );
 });
 
-export const openRouterProvider = (apiKey: Redacted.Redacted<string>, models: Array.NonEmptyReadonlyArray<string>) =>
+export const openRouterProvider = (
+  apiKey: Redacted.Redacted<string>,
+  models: Array.NonEmptyReadonlyArray<string>,
+) =>
   withClient(
     Array.map(models, (model) => OpenRouterLanguageModel.model(model, { temperature: 1 })),
     OpenRouterClient.layer({ apiKey, siteTitle: "Virtual Office Notifier" }),
@@ -185,16 +205,23 @@ export const cloudflareProvider = (
   );
 
 export const configuredProviders = Effect.fnUntraced(function* (
-  openRouterModels: (config: Config.Success<typeof AiConfig>) => Array.NonEmptyReadonlyArray<string>,
+  openRouterModels: (
+    config: Config.Success<typeof AiConfig>,
+  ) => Array.NonEmptyReadonlyArray<string>,
 ) {
   const config = yield* AiConfig;
   const { openRouter, cloudflare } = config;
 
   return yield* Effect.all([
-    ...Option.toArray(Option.map(openRouter.apiKey, (apiKey) => openRouterProvider(apiKey, openRouterModels(config)))),
     ...Option.toArray(
-      Option.map(Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }), ({ accountId, apiToken }) =>
-        cloudflareProvider(accountId, apiToken, cloudflare.models),
+      Option.map(openRouter.apiKey, (apiKey) =>
+        openRouterProvider(apiKey, openRouterModels(config)),
+      ),
+    ),
+    ...Option.toArray(
+      Option.map(
+        Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }),
+        ({ accountId, apiToken }) => cloudflareProvider(accountId, apiToken, cloudflare.models),
       ),
     ),
   ]);

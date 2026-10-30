@@ -2,7 +2,14 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Config, Effect, FileSystem, Option, Path, Redacted, Schema } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-import { AiConfig, DiscordConfig, ProductionDatabaseConfig, RecordingConfig, SentryConfig, SlackConfig } from "../src/Config.ts";
+import {
+  AiConfig,
+  DiscordConfig,
+  ProductionDatabaseConfig,
+  RecordingConfig,
+  SentryConfig,
+  SlackConfig,
+} from "../src/Config.ts";
 import pkg from "../package.json" with { type: "json" };
 
 const APP_DIR = "/opt/virtual-office-notifier";
@@ -53,7 +60,8 @@ const run = Effect.fnUntraced(function* (
   }
 });
 
-const tarballName = (name: string): string => `${name.replace("@", "").replace("/", "-")}-${DAVE_VERSION}.tgz`;
+const tarballName = (name: string): string =>
+  `${name.replace("@", "").replace("/", "-")}-${DAVE_VERSION}.tgz`;
 
 // Downloaded with `npm pack`, which doesn't care what platform it runs on, and
 // unpacked into a node_modules tree for the VM. Neither package has
@@ -75,7 +83,13 @@ const packNativeDependencies = Effect.gen(function* () {
     const target = path.join(dir, "node_modules", name);
 
     yield* fs.makeDirectory(target, { recursive: true });
-    yield* run(`Unpacking ${name}`, "tar", ["-xzf", path.join(dir, tarballName(name)), "-C", target, "--strip-components=1"]);
+    yield* run(`Unpacking ${name}`, "tar", [
+      "-xzf",
+      path.join(dir, tarballName(name)),
+      "-C",
+      target,
+      "--strip-components=1",
+    ]);
   }
 
   const archive = path.join(dir, MODULES_ARCHIVE);
@@ -85,7 +99,10 @@ const packNativeDependencies = Effect.gen(function* () {
   return archive;
 });
 
-const envLine = (name: string, value: Option.Option<Redacted.Redacted<string>>): ReadonlyArray<string> =>
+const envLine = (
+  name: string,
+  value: Option.Option<Redacted.Redacted<string>>,
+): ReadonlyArray<string> =>
   Option.toArray(Option.map(value, (secret) => `${name}=${Redacted.value(secret)}`));
 
 // Writes the service's environment file into a scoped temp directory, so the
@@ -135,7 +152,13 @@ const packRelease = Effect.fnUntraced(function* (modules: string, envFile: strin
   const dir = yield* fs.makeTempDirectoryScoped({ prefix: `${SERVICE}-release-` });
   const archive = path.join(dir, RELEASE_ARCHIVE);
 
-  const entries = [path.resolve("dist/main.js"), path.resolve("dist/main.js.map"), modules, path.resolve(UNIT_FILE), envFile];
+  const entries = [
+    path.resolve("dist/main.js"),
+    path.resolve("dist/main.js.map"),
+    modules,
+    path.resolve(UNIT_FILE),
+    envFile,
+  ];
 
   yield* run("Packing the release", "tar", [
     "-czf",
