@@ -50,6 +50,21 @@ import { observe, type VoiceObservation } from "./VoiceObservation.ts";
 
 export const RECORDING_NICKNAME = "🔴 Recording";
 
+export const PAUSED_NICKNAME = "⏸️ Recording paused";
+
+export type RecordingMode = "Off" | "Capturing" | "Paused";
+
+const nicknameFor = (mode: RecordingMode): string | null => {
+  switch (mode) {
+    case "Off":
+      return null;
+    case "Capturing":
+      return RECORDING_NICKNAME;
+    case "Paused":
+      return PAUSED_NICKNAME;
+  }
+};
+
 export class DiscordLoginError extends Schema.TaggedError<
   DiscordLoginError,
   { readonly brand: unique symbol }
@@ -319,7 +334,7 @@ export interface TestGateway {
   readonly present?: ReadonlyArray<VoiceStateUpdate>;
   readonly effects?: ReadonlyArray<VoiceEffect>;
   readonly moves?: Queue.Enqueue<BotPresence>;
-  readonly recordings?: Queue.Enqueue<boolean>;
+  readonly recordings?: Queue.Enqueue<RecordingMode>;
   readonly selfId?: string;
 }
 
@@ -333,7 +348,7 @@ export class DiscordGateway extends Context.Service<
     readonly botPresence: Stream.Stream<BotPresence>;
     moveBot(presence: BotPresence): Effect.Effect<void>;
     // Un-deafens and renames the bot while it records, and back afterwards.
-    setRecording(active: boolean): Effect.Effect<void>;
+    setRecording(mode: RecordingMode): Effect.Effect<void>;
     readonly occupants: Effect.Effect<ReadonlyArray<Occupant>>;
     readonly selfUserId: string;
     readonly voiceAdapter: Option.Option<DiscordGatewayAdapterCreator>;
@@ -424,25 +439,29 @@ export class DiscordGateway extends Context.Service<
       });
 
       const wanted = yield* Ref.make<BotPresence>("Away");
-      const recording = yield* Ref.make(false);
+      const recording = yield* Ref.make<RecordingMode>("Off");
 
       const goWhereWanted = Option.match(office, {
         onNone: () => Effect.void,
         onSome: (channel) =>
           Effect.all([Ref.get(wanted), Ref.get(recording)]).pipe(
-            Effect.flatMap(([presence, active]) =>
-              active ? Effect.void : moveBot(channel.guild, officeChannelId)(presence),
+            Effect.flatMap(([presence, mode]) =>
+              mode === "Capturing"
+                ? Effect.void
+                : moveBot(channel.guild, officeChannelId)(presence),
             ),
           ),
       });
 
-      const setRecording = (active: boolean) =>
+      const setRecording = (mode: RecordingMode) =>
         Option.match(office, {
-          onNone: () => Ref.set(recording, active),
+          onNone: () => Ref.set(recording, mode),
           onSome: (channel) =>
-            Ref.set(recording, active).pipe(
-              Effect.andThen(setNickname(channel.guild, active ? RECORDING_NICKNAME : null)),
-              Effect.andThen(active ? leaveForRecording(channel.guild) : goWhereWanted),
+            Ref.set(recording, mode).pipe(
+              Effect.andThen(setNickname(channel.guild, nicknameFor(mode))),
+              Effect.andThen(
+                mode === "Capturing" ? leaveForRecording(channel.guild) : goWhereWanted,
+              ),
             ),
         });
 
@@ -545,10 +564,10 @@ export class DiscordGateway extends Context.Service<
           ),
           moveBot: (presence) =>
             moves === undefined ? Effect.void : Queue.offer(moves, presence).pipe(Effect.asVoid),
-          setRecording: (active) =>
+          setRecording: (mode) =>
             recordings === undefined
               ? Effect.void
-              : Queue.offer(recordings, active).pipe(Effect.asVoid),
+              : Queue.offer(recordings, mode).pipe(Effect.asVoid),
           occupants: Ref.get(inOffice).pipe(Effect.map((members) => [...members.values()])),
           selfUserId: selfId,
           voiceAdapter: Option.none(),

@@ -26,6 +26,7 @@ import type {
   Notice,
   OfficePhase,
   RecordingStatus,
+  RequestAction,
   SubmittedRequest,
 } from "./models";
 import { describePresence, samePresence } from "./describe-presence";
@@ -93,12 +94,19 @@ export class OfficeStore {
 
     if (status === null) return { kind: "connecting" };
 
-    if (status.recording !== null) return { kind: "recording", recording: status.recording };
+    const { recording } = status;
+
+    if (recording !== null)
+      return recording.pause === null
+        ? { kind: "recording", recording }
+        : { kind: "paused", recording, pause: recording.pause };
 
     return status.botInOffice ? { kind: "idle" } : { kind: "away" };
   });
 
-  readonly recording = computed(() => this.phase().kind === "recording");
+  readonly recording = computed(() => (this.status()?.recording ?? null) !== null);
+
+  readonly paused = computed(() => this.phase().kind === "paused");
 
   readonly occupants = computed(() => this.status()?.occupants ?? []);
 
@@ -145,14 +153,28 @@ export class OfficeStore {
   }
 
   press(): void {
-    const { busy, status } = this.state();
+    const status = this.state().status;
 
-    if (busy || status === null) return;
+    if (status === null) return;
+
+    this.submit(status.recording === null ? "start" : "stop");
+  }
+
+  pressPause(): void {
+    const recording = this.state().status?.recording ?? null;
+
+    if (recording === null) return;
+
+    this.submit(recording.pause === null ? "pause" : "resume");
+  }
+
+  private submit(action: RequestAction): void {
+    if (this.state().busy) return;
 
     this.patch({ busy: true });
 
     this.api
-      .submit(status.recording === null ? "start" : "stop")
+      .submit(action)
       .pipe(
         switchMap(({ id }) => this.awaitOutcome(id)),
         map(outcomeNotice),

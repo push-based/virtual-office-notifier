@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatDuration, formatElapsed, formatTimeLeft } from "./duration";
+import { formatDuration, formatElapsed, formatTimeLeft, formatTimeSince } from "./duration";
 
 describe("formatElapsed", () => {
   const since = "2026-10-27T12:00:00Z";
@@ -49,5 +49,23 @@ describe("formatDuration", () => {
   it("rounds to the nearest minute", () => {
     expect(formatDuration(89)).toBe("1m");
     expect(formatDuration(29)).toBe("0m");
+  });
+});
+
+describe("formatTimeSince", () => {
+  const since = "2026-10-27T12:00:00Z";
+  const after = (ms: number) => Date.parse(since) + ms;
+
+  it("counts whole minutes, rounding a partial one down", () => {
+    expect(formatTimeSince(since, after(30_000))).toBe("0m");
+    expect(formatTimeSince(since, after(3 * 60_000 + 59_000))).toBe("3m");
+  });
+
+  it("switches to hours from sixty minutes", () => {
+    expect(formatTimeSince(since, after(61 * 60_000))).toBe("1h 1m");
+  });
+
+  it("never goes below zero when the clock is behind the server", () => {
+    expect(formatTimeSince(since, after(-60_000))).toBe("0m");
   });
 });

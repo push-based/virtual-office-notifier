@@ -66,7 +66,7 @@ const UPLOAD_ATTEMPTS = 3;
 
 interface Session {
   readonly recording: ActiveRecording;
-  readonly capture: Fiber.Fiber<void>;
+  readonly capture: Option.Option<Fiber.Fiber<void>>;
 }
 
 type Audio = Data.TaggedEnum<{
@@ -279,13 +279,33 @@ export class Recorder extends Context.Service<
             Effect.annotateLogs({ recordingId }),
           );
 
+        const interruptCapture = (current: Option.Option<Session>) =>
+          Option.match(
+            Option.flatMap(current, ({ capture }) => capture),
+            {
+              onNone: () => Effect.void,
+              onSome: (capture) => Fiber.interrupt(capture),
+            },
+          );
+
         const beginCapture = (recording: ActiveRecording) =>
           Effect.gen(function* () {
-            yield* gateway.setRecording(true);
+            yield* gateway.setRecording("Capturing");
 
             const capture = yield* runCapture(recording.id).pipe(Effect.forkScoped);
 
-            yield* Ref.set(session, Option.some({ recording, capture }));
+            yield* Ref.set(session, Option.some({ recording, capture: Option.some(capture) }));
+          });
+
+        const holdPaused = (recording: ActiveRecording) =>
+          Effect.gen(function* () {
+            const current = yield* Ref.getAndSet(
+              session,
+              Option.some({ recording, capture: Option.none() }),
+            );
+
+            yield* interruptCapture(current);
+            yield* gateway.setRecording("Paused");
           });
 
         const awaitClips = (id: string) =>
@@ -306,7 +326,8 @@ export class Recorder extends Context.Service<
             }
 
             const lines = yield* store.clipsOf(id);
-            const transcript = transcriptText(details.value, lines);
+            const pauses = yield* store.pausesOf(id);
+            const transcript = transcriptText(details.value, lines, pauses);
             const at = yield* DateTime.now;
 
             if (!hasSpeech(lines)) {
@@ -403,8 +424,8 @@ export class Recorder extends Context.Service<
 
           if (Option.isNone(current)) return;
 
-          yield* Fiber.interrupt(current.value.capture);
-          yield* gateway.setRecording(false);
+          yield* interruptCapture(current);
+          yield* gateway.setRecording("Off");
         });
 
         const stopped = (recordingId: string, reason: StopReason) =>
@@ -444,6 +465,7 @@ export class Recorder extends Context.Service<
                 id: yield* random.uuidV4(),
                 startedAt,
                 startedBy: request.requestedBy,
+                pause: Option.none(),
               };
 
               yield* store.startRecording({
@@ -476,6 +498,51 @@ export class Recorder extends Context.Service<
               return {
                 recordingId: recording.id,
                 afterCommit: endCapture.pipe(Effect.andThen(stopped(recording.id, "requested"))),
+              };
+            }),
+          pause: (request, recording) =>
+            Effect.gen(function* () {
+              const pausedAt = yield* DateTime.now;
+
+              yield* store.pauseRecording(
+                recording.id,
+                pausedAt,
+                request.requestedBy,
+                request.requestedByName,
+              );
+
+              return {
+                recordingId: recording.id,
+                afterCommit: holdPaused({
+                  ...recording,
+                  pause: Option.some({ pausedAt, pausedBy: request.requestedBy }),
+                }).pipe(
+                  Effect.andThen(
+                    Effect.logInfo("Paused recording").pipe(
+                      Effect.annotateLogs({ recordingId: recording.id }),
+                    ),
+                  ),
+                ),
+              };
+            }),
+          resume: (request, recording) =>
+            Effect.gen(function* () {
+              yield* store.resumeRecording(
+                recording.id,
+                yield* DateTime.now,
+                request.requestedBy,
+                request.requestedByName,
+              );
+
+              return {
+                recordingId: recording.id,
+                afterCommit: beginCapture({ ...recording, pause: Option.none() }).pipe(
+                  Effect.andThen(
+                    Effect.logInfo("Resumed recording").pipe(
+                      Effect.annotateLogs({ recordingId: recording.id }),
+                    ),
+                  ),
+                ),
               };
             }),
         };
@@ -512,10 +579,12 @@ export class Recorder extends Context.Service<
             const now = yield* DateTime.now;
 
             if (current === "InOffice" && !isOverLimit(active.value, now)) {
-              yield* store.resumeRecording(active.value.id, now);
-              yield* beginCapture(active.value);
-              yield* Effect.logInfo("Resumed the recording that was on before the restart").pipe(
-                Effect.annotateLogs({ recordingId: active.value.id }),
+              const paused = Option.isSome(active.value.pause);
+
+              yield* store.recoverRecording(active.value.id, now);
+              yield* paused ? holdPaused(active.value) : beginCapture(active.value);
+              yield* Effect.logInfo("Picked up the recording that was on before the restart").pipe(
+                Effect.annotateLogs({ recordingId: active.value.id, paused }),
               );
 
               return;

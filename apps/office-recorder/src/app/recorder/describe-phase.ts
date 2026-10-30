@@ -1,4 +1,4 @@
-import { formatElapsed, formatTimeLeft } from "design-system";
+import { formatElapsed, formatTimeLeft, formatTimeSince } from "design-system";
 
 import type { OfficePhase } from "./models";
 
@@ -31,6 +31,12 @@ export const describePhase = (phase: OfficePhase, now: number): PhaseDescription
         heading: `Recording · ${formatElapsed(phase.recording.startedAt, now)}`,
         description: `Started by ${phase.recording.startedByName} · ${formatTimeLeft(phase.recording.endsAt, now)} left`,
         live: true,
+      };
+    case "paused":
+      return {
+        heading: `Paused by ${phase.pause.byName} · ${formatTimeSince(phase.pause.since, now)}`,
+        description: `Started by ${phase.recording.startedByName} · ${formatTimeLeft(phase.recording.endsAt, now)} left`,
+        live: false,
       };
   }
 };

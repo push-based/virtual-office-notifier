@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { DateTime, Effect, Exit, pipe, Schema, String } from "effect";
 
-import type { ClipLine, RecordingDetails } from "../src/RecordingStore.ts";
+import type { ClipLine, PauseLine, RecordingDetails } from "../src/RecordingStore.ts";
 import {
   hasSpeech,
   MAX_SUMMARY_LENGTH,
@@ -59,12 +59,36 @@ describe("transcriptLines", () => {
 
 describe("transcriptText", () => {
   it("starts with when the recording was and who started it", () => {
-    const text = transcriptText(details, [line()]);
+    const text = transcriptText(details, [line()], []);
 
     assert.deepStrictEqual(String.split(text, "\n"), [
       "Office recording from Fri 23 Oct 10:00 to 11:35 (UTC+2), 1h 35m, started by Ada.",
       "",
       "10:01 Ada: Hello everyone.",
+    ]);
+  });
+
+  it("leaves one line in place of each pause, saying when and who paused it", () => {
+    const pause = (overrides: Partial<PauseLine> = {}): PauseLine => ({
+      pausedAt: at(20),
+      resumedAt: at(35),
+      who: "Ben",
+      ...overrides,
+    });
+
+    const text = transcriptText(
+      details,
+      [line(), line({ who: "Ben", startedAt: at(40), transcript: "We're back." })],
+      [pause(), pause({ pausedAt: at(80), resumedAt: null, who: "Grace" })],
+    );
+
+    assert.deepStrictEqual(String.split(text, "\n"), [
+      "Office recording from Fri 23 Oct 10:00 to 11:35 (UTC+2), 1h 35m, started by Ada.",
+      "",
+      "10:01 Ada: Hello everyone.",
+      "10:20–10:35 Paused by Ben",
+      "10:40 Ben: We're back.",
+      "11:20–11:35 Paused by Grace",
     ]);
   });
 });

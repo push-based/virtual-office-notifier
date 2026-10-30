@@ -14,6 +14,17 @@ describe("outcomeNotice", () => {
     expect(outcomeNotice({ id: 1, outcome: "stopped" }).kind).toBe("info");
   });
 
+  it("confirms a pause and a resume", () => {
+    expect(outcomeNotice({ id: 1, outcome: "paused" })).toEqual({
+      kind: "info",
+      text: "Recording paused. Nothing is captured until it's resumed.",
+    });
+    expect(outcomeNotice({ id: 1, outcome: "resumed" })).toEqual({
+      kind: "info",
+      text: "Recording resumed.",
+    });
+  });
+
   it("passes on the bot's explanation for ignoring a request", () => {
     expect(
       outcomeNotice({
