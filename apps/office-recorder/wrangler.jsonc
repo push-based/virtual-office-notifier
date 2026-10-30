@@ -1,11 +1,10 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "virtual-office-recorder",
-  "main": "./src/index.ts",
+  "main": "./worker/index.ts",
   "compatibility_date": "2026-10-24",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
-    "directory": "../office-recorder-page/dist",
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
