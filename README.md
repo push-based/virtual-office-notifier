@@ -490,7 +490,9 @@ The workspace runs on [Vite+](https://viteplus.dev). Each package defines its ta
 
 Run a single package's task with `pnpm vp run <package>#<task>`, for example `pnpm vp run bot#test`. `pnpm vp cache clean` clears the task cache.
 
-CI runs the same typecheck, check, test and build tasks on every push and pull request, and dry-runs the Activity's deploy. It keeps the task cache between runs.
+CI runs the same typecheck, check, test and build tasks on every push and pull request, and dry-runs the Activity's deploy. It sets up Node, pnpm and `vp` with [`setup-vp`](https://github.com/voidzero-dev/setup-vp), and keeps the task cache between runs.
+
+`pnpm install` also installs a pre-commit hook, through `vp config` in the `prepare` script. It runs `vp staged`, which runs `vp check --fix` on the staged files, so formatting and lint fixes land in the commit. Lint is type-aware (`lint.options.typeAware`), so rules that need types run too. Type checking stays with `tsc`, since it runs the Effect diagnostics.
 
 Running the Activity locally needs a Postgres for its `DATABASE` Hyperdrive binding, with a password in the URL, even if you never record. Set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE`, for example to `postgres://postgres:postgres@localhost:5432/postgres` (the `office-recorder` preview in [`.claude/launch.json`](.claude/launch.json) uses that), and put the Worker's secrets in `apps/office-recorder/.dev.vars`.
 

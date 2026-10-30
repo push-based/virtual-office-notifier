@@ -48,7 +48,7 @@ The app is built on [Effect](https://effect.website) v4. Follow the patterns alr
 - A failure worth an alert is reported to Sentry with `Effect.withErrorReporting` or `ErrorReporter.report`, before it's caught. Set its severity with `[ErrorReporter.severity]`.
 - Comments explain why, not what.
 
-`pnpm vp run check` checks formatting with Oxfmt and lints with Oxlint and the vendored [anti-slop](tools/oxlint/anti-slop/UPSTREAM.md) rules, both configured in the root [`vite.config.ts`](vite.config.ts). `pnpm vp check --fix` formats every file and applies the lint fixes it can. In VS Code, the recommended Vite+ extension pack formats on save with the same config.
+`pnpm vp run check` checks formatting with Oxfmt and lints with Oxlint and the vendored [anti-slop](tools/oxlint/anti-slop/UPSTREAM.md) rules, both configured in the root [`vite.config.ts`](vite.config.ts). `pnpm vp check --fix` formats every file and applies the lint fixes it can. In VS Code, the recommended Vite+ extension pack formats on save with the same config. The pre-commit hook that `pnpm install` sets up runs `vp check --fix` on what you stage, so a commit is already formatted. `VP_GIT_HOOKS=0 git commit` skips it once.
 
 The one-off reformat that turned Oxfmt on is listed in [`.git-blame-ignore-revs`](.git-blame-ignore-revs). GitHub skips it in blame views, and `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes your local `git blame` skip it too.
 
