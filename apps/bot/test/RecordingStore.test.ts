@@ -119,6 +119,7 @@ describe("RecordingStore", () => {
         summaryModel: null,
         slackChannelId: null,
         slackTs: null,
+        slackPermalink: null,
         finishedAt: minute(6),
       });
       assert.deepStrictEqual(yield* store.unfinishedRecordings, []);
@@ -282,11 +283,12 @@ describe("RecordingStore", () => {
         summaryModel: "model",
         slackChannelId: "C1",
         slackTs: "1.2",
+        slackPermalink: "https://office.slack.com/archives/C1/p12",
         finishedAt: minute(31),
       });
 
       const [row] =
-        yield* sql`SELECT transcript, summary, summary_model, slack_channel_id, slack_ts FROM office.recordings`;
+        yield* sql`SELECT transcript, summary, summary_model, slack_channel_id, slack_ts, slack_permalink FROM office.recordings`;
 
       assert.deepStrictEqual(row, {
         transcript: "10:00 Ada: Hello",
@@ -294,8 +296,45 @@ describe("RecordingStore", () => {
         summaryModel: "model",
         slackChannelId: "C1",
         slackTs: "1.2",
+        slackPermalink: "https://office.slack.com/archives/C1/p12",
       });
     }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "lists the posted recordings without a link to their summary until they're linked",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* started;
+
+        yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+
+        assert.deepStrictEqual(yield* store.unlinkedPosts, []);
+
+        yield* store.finishRecording(RECORDING, {
+          transcript: "10:00 Ada: Hello",
+          summary: null,
+          summaryModel: null,
+          slackChannelId: "C1",
+          slackTs: "1.2",
+          slackPermalink: null,
+          finishedAt: minute(31),
+        });
+
+        assert.deepStrictEqual(yield* store.unlinkedPosts, [
+          { id: RECORDING, slackChannelId: "C1", slackTs: "1.2" },
+        ]);
+
+        yield* store.linkPost(RECORDING, "https://office.slack.com/archives/C1/p12");
+        yield* store.linkPost(RECORDING, "https://office.slack.com/archives/C1/other");
+
+        assert.deepStrictEqual(yield* store.unlinkedPosts, []);
+
+        const sql = yield* SqlClient.SqlClient;
+        const [row] = yield* sql`SELECT slack_permalink FROM office.recordings`;
+
+        assert.deepStrictEqual(row, { slackPermalink: "https://office.slack.com/archives/C1/p12" });
+      }).pipe(Effect.provide(TestLayer)),
   );
 
   it.effect("records nothing and says so when there's no database", () =>

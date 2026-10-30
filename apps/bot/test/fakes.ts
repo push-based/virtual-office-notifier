@@ -10,6 +10,7 @@ import {
   Random,
   Ref,
   Schema,
+  String,
 } from "effect";
 import {
   HttpBody,
@@ -299,7 +300,11 @@ export interface FakeSlackClientOptions {
   readonly threads?: ReadonlyMap<string, ReadonlyArray<ThreadMessage>> | undefined;
   readonly profiles?: ReadonlyMap<string, SlackProfile> | undefined;
   readonly postFailure?: SlackErrorReason | undefined;
+  readonly permalinkFailure?: SlackErrorReason | undefined;
 }
+
+export const permalinkOf = (channel: string, ts: string) =>
+  `https://office.slack.com/archives/${channel}/p${String.replace(".", "")(ts)}`;
 
 // Slack in memory: posts land in their thread, so later reads see them.
 export const makeFakeSlackClient = Effect.fnUntraced(function* (
@@ -341,6 +346,10 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
         Ref.get(threads).pipe(Effect.map((all) => all.get(threadTs) ?? [])),
       userProfile: (userId) =>
         Effect.succeed(profiles.get(userId) ?? { displayName: userId, realName: "" }),
+      permalink: (channel, ts) =>
+        options.permalinkFailure === undefined
+          ? Effect.succeed(permalinkOf(channel, ts))
+          : Effect.fail(SlackError.make({ reason: options.permalinkFailure })),
       botUserId: Effect.succeed(BOT_USER_ID),
       openConnection: Effect.never,
     }),

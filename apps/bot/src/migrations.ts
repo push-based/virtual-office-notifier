@@ -408,4 +408,10 @@ export const migrations = Migrator.fromRecord({
       ADD CONSTRAINT slack_posts_kind_check CHECK (kind IN ('Opened', 'Emptied', 'Reminder', 'Banter', 'Reply', 'Recording'))
     `;
   }),
+
+  "0006_link_recording_posts": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`ALTER TABLE office.recordings ADD COLUMN slack_permalink text`;
+  }),
 });

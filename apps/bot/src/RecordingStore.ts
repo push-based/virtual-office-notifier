@@ -67,7 +67,14 @@ export interface FinishedRecording {
   readonly summaryModel: string | null;
   readonly slackChannelId: string | null;
   readonly slackTs: string | null;
+  readonly slackPermalink: string | null;
   readonly finishedAt: DateTime.Utc;
+}
+
+export interface UnlinkedPost {
+  readonly id: string;
+  readonly slackChannelId: string;
+  readonly slackTs: string;
 }
 
 const decodeActive = Schema.decodeUnknownEffect(
@@ -118,6 +125,12 @@ const decodeDetails = Schema.decodeUnknownEffect(
   ),
 );
 
+const decodeUnlinked = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({ id: Schema.String, slackChannelId: Schema.String, slackTs: Schema.String }),
+  ),
+);
+
 const decodeIds = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: Schema.String })));
 
 const decodeCount = Schema.decodeUnknownEffect(
@@ -152,6 +165,8 @@ export class RecordingStore extends Context.Service<
     clipsOf(recordingId: string): Effect.Effect<ReadonlyArray<ClipLine>, StoreUnavailable>;
     recordingDetails(id: string): Effect.Effect<Option.Option<RecordingDetails>, StoreUnavailable>;
     finishRecording(id: string, finished: FinishedRecording): Effect.Effect<void, StoreUnavailable>;
+    readonly unlinkedPosts: Effect.Effect<ReadonlyArray<UnlinkedPost>, StoreUnavailable>;
+    linkPost(id: string, permalink: string): Effect.Effect<void, StoreUnavailable>;
   }
 >()("bot/RecordingStore") {
   static readonly layer = Layer.effect(
@@ -352,8 +367,28 @@ export class RecordingStore extends Context.Service<
               UPDATE office.recordings
               SET transcript = ${finished.transcript}, summary = ${finished.summary},
                   summary_model = ${finished.summaryModel}, slack_channel_id = ${finished.slackChannelId},
-                  slack_ts = ${finished.slackTs}, finished_at = ${DateTime.toDate(finished.finishedAt)}
+                  slack_ts = ${finished.slackTs}, slack_permalink = ${finished.slackPermalink},
+                  finished_at = ${DateTime.toDate(finished.finishedAt)}
               WHERE id = ${id}
+            `,
+          ),
+        Effect.asVoid,
+      );
+
+      const unlinkedPosts = onceReady(
+        sql`
+          SELECT id, slack_channel_id, slack_ts FROM office.recordings
+          WHERE slack_ts IS NOT NULL AND slack_channel_id IS NOT NULL AND slack_permalink IS NULL
+          ORDER BY started_at
+        `.pipe(Effect.flatMap(decodeUnlinked)),
+      ).pipe(Effect.withSpan("RecordingStore.unlinkedPosts"));
+
+      const linkPost = Effect.fn("RecordingStore.linkPost")(
+        (id: string, permalink: string) =>
+          onceReady(
+            sql`
+              UPDATE office.recordings SET slack_permalink = ${permalink}
+              WHERE id = ${id} AND slack_permalink IS NULL
             `,
           ),
         Effect.asVoid,
@@ -373,6 +408,8 @@ export class RecordingStore extends Context.Service<
         clipsOf,
         recordingDetails,
         finishRecording,
+        unlinkedPosts,
+        linkPost,
       });
     }),
   );
@@ -393,6 +430,8 @@ export class RecordingStore extends Context.Service<
       clipsOf: notRecording,
       recordingDetails: notRecording,
       finishRecording: notRecording,
+      unlinkedPosts: notRecording(),
+      linkPost: notRecording,
     }),
   );
 }
