@@ -25,11 +25,19 @@ import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import { FINISH_POLL, POLL_INTERVAL, Recorder, STATUS_INTERVAL } from "../src/Recorder.ts";
 import { RecordingStore, type StoreUnavailable } from "../src/RecordingStore.ts";
+import { InvalidPayload } from "../src/SlackClient.ts";
 import { SummaryWriter, type WrittenSummary } from "../src/SummaryWriter.ts";
 import { type Transcript, Transcriber, TranscriptionError } from "../src/Transcriber.ts";
 import { SPEAKING_HOLD } from "../src/Speaking.ts";
 import { type CaptureError, type Clip, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
-import { makeFakeSlackClient, makeFakeSlackHistory, SLACK_ENV, withEnv } from "./fakes.ts";
+import {
+  type FakeSlackClientOptions,
+  makeFakeSlackClient,
+  makeFakeSlackHistory,
+  permalinkOf,
+  SLACK_ENV,
+  withEnv,
+} from "./fakes.ts";
 
 const OFFICE = "office";
 
@@ -72,6 +80,7 @@ interface HarnessOptions {
   readonly transcribe?: (audio: Uint8Array) => Effect.Effect<Transcript, TranscriptionError>;
   readonly summary?: Option.Option<WrittenSummary>;
   readonly before?: Effect.Effect<void, StoreUnavailable, RecordingStore>;
+  readonly slack?: FakeSlackClientOptions;
 }
 
 const transcribeAll = () => Effect.succeed({ text: "hello world", model: "whisper" });
@@ -83,7 +92,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
   const heard = yield* Queue.unbounded<Heard, Cause.Done | CaptureError>();
   const recordings = yield* Queue.unbounded<RecordingMode>();
-  const slack = yield* makeFakeSlackClient();
+  const slack = yield* makeFakeSlackClient(options.slack);
   const history = yield* makeFakeSlackHistory();
 
   const transcriber = Layer.succeed(
@@ -174,7 +183,8 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     readonly finishedAt: Date | null;
     readonly summary: string | null;
     readonly transcript: string | null;
-  }>`SELECT id, stopped_at, stop_reason, stopped_by, finished_at, summary, transcript FROM office.recordings ORDER BY started_at`;
+    readonly slackPermalink: string | null;
+  }>`SELECT id, stopped_at, stop_reason, stopped_by, finished_at, summary, transcript, slack_permalink FROM office.recordings ORDER BY started_at`;
 
   const clipRows = sql<{
     readonly userId: string;
@@ -272,6 +282,10 @@ describe("Recorder", () => {
         assert.strictEqual(recording?.stoppedBy, "u1");
         assert.strictEqual(recording?.summary, "• They said hello");
         assert.include(recording?.transcript, "Ada: hello world");
+        assert.strictEqual(
+          recording?.slackPermalink,
+          permalinkOf(SLACK_ENV.SLACK_CHANNEL_ID, "900.0"),
+        );
 
         const [post] = yield* h.posts;
         assert.strictEqual(post?.channel, SLACK_ENV.SLACK_CHANNEL_ID);
@@ -294,6 +308,117 @@ describe("Recorder", () => {
           ["started", "stopped"],
         );
       }),
+  );
+
+  it.effect("still finishes the recording when Slack won't give a link to the summary", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({
+        present: [ada],
+        slack: { permalinkFailure: InvalidPayload.make({ error: "message_not_found" }) },
+      });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.speak(clip("u1", 2));
+      yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
+      yield* h.request("u1", "stop");
+      yield* h.tick;
+      yield* recordingStopped(h);
+      yield* TestClock.adjust(FINISH_POLL);
+
+      const [recording] = yield* recordingFinished(h);
+      assert.strictEqual(recording?.summary, "• They said hello");
+      assert.isNull(recording?.slackPermalink);
+      assert.strictEqual((yield* h.posts).length, 1);
+    }),
+  );
+
+  it.effect("links recordings posted before it stored links, once, at startup", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({
+        before: Effect.gen(function* () {
+          const store = yield* RecordingStore;
+          const now = yield* DateTime.now;
+
+          yield* store.startRecording({
+            id: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+            guildId: "guild",
+            channelId: OFFICE,
+            startedAt: now,
+            startedBy: "u1",
+            startedByName: "Ada",
+          });
+          yield* store.stopRecording(
+            "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+            now,
+            "requested",
+            "u1",
+          );
+          yield* store.finishRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", {
+            transcript: "12:00 Ada: hello",
+            summary: "• Ada said hello",
+            summaryModel: "m",
+            slackChannelId: "C1",
+            slackTs: "123.456",
+            slackPermalink: null,
+            finishedAt: now,
+          });
+        }),
+      });
+
+      const [recording] = yield* h.eventually(
+        h.recordingRows,
+        (rows) => rows[0]?.slackPermalink !== null,
+      );
+
+      assert.strictEqual(recording?.slackPermalink, permalinkOf("C1", "123.456"));
+      assert.deepStrictEqual(yield* h.posts, []);
+    }),
+  );
+
+  it.effect("carries on when it can't link earlier recordings", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({
+        present: [ada],
+        slack: { permalinkFailure: InvalidPayload.make({ error: "channel_not_found" }) },
+        before: Effect.gen(function* () {
+          const store = yield* RecordingStore;
+          const now = yield* DateTime.now;
+
+          yield* store.startRecording({
+            id: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+            guildId: "guild",
+            channelId: OFFICE,
+            startedAt: now,
+            startedBy: "u1",
+            startedByName: "Ada",
+          });
+          yield* store.stopRecording(
+            "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+            now,
+            "requested",
+            "u1",
+          );
+          yield* store.finishRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", {
+            transcript: "12:00 Ada: hello",
+            summary: null,
+            summaryModel: null,
+            slackChannelId: "C1",
+            slackTs: "123.456",
+            slackPermalink: null,
+            finishedAt: now,
+          });
+        }),
+      });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+
+      const rows = yield* h.eventually(h.recordingRows, (found) => found.length === 2);
+      assert.strictEqual(rows.length, 2);
+      assert.isNull(rows[0]?.slackPermalink);
+    }),
   );
 
   it.effect("ignores requests from people who aren't in the office, and says why", () =>

@@ -9,7 +9,7 @@ import {
   explain,
   IgnoreReason,
   type Occupant,
-  OfficeMember,
+  PersonInOffice,
   type RecordingRequest,
   type RecordingStatus,
   RequestAction,
@@ -82,7 +82,7 @@ const decodePending = Schema.decodeUnknownEffect(
 );
 
 const StoredOccupant = Schema.Struct({
-  ...OfficeMember.fields,
+  ...PersonInOffice.fields,
   speaking: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
 });
 

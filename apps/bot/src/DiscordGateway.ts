@@ -29,7 +29,7 @@ import {
   type VoiceChannelEffect,
   type VoiceState,
 } from "discord.js";
-import type { OfficeMember } from "recording-requests/RecordingRequest";
+import type { PersonInOffice } from "recording-requests/RecordingRequest";
 
 import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
 import { DiscordConfig } from "./Config.ts";
@@ -152,7 +152,7 @@ const alreadyPresent = (member: GuildMember): VoiceStateUpdate => ({
   newDetails: detailsOf(member.voice),
 });
 
-const occupantOfUpdate = (update: VoiceStateUpdate): OfficeMember => ({
+const occupantOfUpdate = (update: VoiceStateUpdate): PersonInOffice => ({
   userId: update.userId,
   displayName: update.displayName,
   avatarUrl: update.avatarUrl,
@@ -313,7 +313,7 @@ const setNickname = (guild: Guild, nickname: string | null) =>
     ),
   );
 
-const occupantOf = (member: GuildMember): OfficeMember => ({
+const occupantOf = (member: GuildMember): PersonInOffice => ({
   userId: member.id,
   displayName: member.displayName,
   avatarUrl: member.displayAvatarURL({ extension: "png", size: 128 }),
@@ -349,7 +349,7 @@ export class DiscordGateway extends Context.Service<
     moveBot(presence: BotPresence): Effect.Effect<void>;
     // Un-deafens and renames the bot while it records, and back afterwards.
     setRecording(mode: RecordingMode): Effect.Effect<void>;
-    readonly occupants: Effect.Effect<ReadonlyArray<OfficeMember>>;
+    readonly occupants: Effect.Effect<ReadonlyArray<PersonInOffice>>;
     readonly selfUserId: string;
     readonly voiceAdapter: Option.Option<DiscordGatewayAdapterCreator>;
     // None when the office channel wasn't found at startup.
@@ -465,7 +465,7 @@ export class DiscordGateway extends Context.Service<
             ),
         });
 
-      const whoIsIn = Effect.sync((): ReadonlyArray<OfficeMember> =>
+      const whoIsIn = Effect.sync((): ReadonlyArray<PersonInOffice> =>
         Option.match(office, {
           onNone: () => [],
           onSome: (channel) =>
@@ -531,7 +531,7 @@ export class DiscordGateway extends Context.Service<
           Stream.broadcast({ capacity: "unbounded", replay: 1000 }),
         );
 
-        const inOffice = yield* Ref.make<ReadonlyMap<string, OfficeMember>>(
+        const inOffice = yield* Ref.make<ReadonlyMap<string, PersonInOffice>>(
           new Map(Array.map(present, (update) => [update.userId, occupantOfUpdate(update)])),
         );
 

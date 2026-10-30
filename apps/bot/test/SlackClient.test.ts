@@ -161,6 +161,29 @@ describe("SlackClient", () => {
     }),
   );
 
+  it.effect("asks Slack for the link to a message", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([
+        slackOk({
+          channel: "C-OFFICE",
+          permalink: "https://office.slack.com/archives/C-OFFICE/p1700000000000100",
+        }),
+      ]);
+
+      assert.strictEqual(
+        yield* slack.client.permalink("C-OFFICE", "1700000000.000100"),
+        "https://office.slack.com/archives/C-OFFICE/p1700000000000100",
+      );
+
+      const [request] = yield* slack.requests;
+      assert.include(request?.url, "https://slack.com/api/chat.getPermalink");
+      assert.deepStrictEqual(request?.urlParams.params, [
+        ["channel", "C-OFFICE"],
+        ["message_ts", "1700000000.000100"],
+      ]);
+    }),
+  );
+
   it.effect("learns the bot's own user ID", () =>
     Effect.gen(function* () {
       const slack = yield* makeClient([slackOk({ user_id: "UBOT" })]);
