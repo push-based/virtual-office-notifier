@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Match, Option, Schema } from "effect";
-import { SqlClient, SqlError } from "effect/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/sql";
 
 import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
 import { NO_PLAN, type RecordingPlan, SummaryStyle } from "./Recording.ts";
@@ -62,53 +62,117 @@ const SubmittedRow = Schema.Union([
   Schema.Struct({ id: RowId, outcome: Schema.Literal("ignored"), reason: IgnoreReason }),
 ]);
 
-const decodeSubmitted = Schema.decodeUnknownEffect(Schema.Array(SubmittedRow));
-
 const toSubmitted = (row: typeof SubmittedRow.Type): SubmittedRequest =>
   row.outcome === "ignored"
     ? { id: row.id, outcome: row.outcome, reason: row.reason, explanation: explain(row.reason) }
     : { id: row.id, outcome: row.outcome };
 
-const decodePending = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({
-      id: RowId,
-      requestedAt: Schema.DateTimeUtcFromDate,
-      requestedBy: Schema.String,
-      requestedByName: Schema.String,
-      action: RequestAction,
-      title: Schema.NullOr(Schema.String),
-      agenda: Schema.NullOr(Schema.String),
-      summaryStyle: Schema.NullOr(SummaryStyle),
-      checkedAt: Schema.DateTimeUtcFromDate,
-    }),
-  ),
-);
+const PendingRow = Schema.Struct({
+  id: RowId,
+  requestedAt: Schema.DateTimeUtcFromDate,
+  requestedBy: Schema.String,
+  requestedByName: Schema.String,
+  action: RequestAction,
+  title: Schema.NullOr(Schema.String),
+  agenda: Schema.NullOr(Schema.String),
+  summaryStyle: Schema.NullOr(SummaryStyle),
+  checkedAt: Schema.DateTimeUtcFromDate,
+});
 
 const StoredOccupant = Schema.Struct({
   ...PersonInOffice.fields,
   speaking: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
 });
 
-const decodeStatus = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({
-      botInOffice: Schema.Boolean,
-      occupants: Schema.Array(StoredOccupant),
-      updatedAt: Schema.DateTimeUtcFromDate,
-      recordingId: Schema.NullOr(Schema.String),
-      startedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
-      startedBy: Schema.NullOr(Schema.String),
-      startedByName: Schema.NullOr(Schema.String),
-      pausedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
-      pausedBy: Schema.NullOr(Schema.String),
-      pausedByName: Schema.NullOr(Schema.String),
-      title: Schema.NullOr(Schema.String),
-      agenda: Schema.NullOr(Schema.String),
-      summaryStyle: Schema.NullOr(SummaryStyle),
-    }),
-  ),
-);
+const StatusRow = Schema.Struct({
+  botInOffice: Schema.Boolean,
+  occupants: Schema.Array(StoredOccupant),
+  updatedAt: Schema.DateTimeUtcFromDate,
+  recordingId: Schema.NullOr(Schema.String),
+  startedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
+  startedBy: Schema.NullOr(Schema.String),
+  startedByName: Schema.NullOr(Schema.String),
+  pausedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
+  pausedBy: Schema.NullOr(Schema.String),
+  pausedByName: Schema.NullOr(Schema.String),
+  title: Schema.NullOr(Schema.String),
+  agenda: Schema.NullOr(Schema.String),
+  summaryStyle: Schema.NullOr(SummaryStyle),
+});
+
+const NewRequest = Schema.Struct({
+  requestedBy: Schema.String,
+  requestedByName: Schema.String,
+  action: RequestAction,
+  title: Schema.NullOr(Schema.String),
+  agenda: Schema.NullOr(Schema.String),
+  summaryStyle: Schema.NullOr(SummaryStyle),
+});
+
+const PublishedStatus = Schema.Struct({
+  recordingId: Schema.NullOr(Schema.String),
+  botInOffice: Schema.Boolean,
+  occupants: Schema.fromJsonString(Schema.Array(StoredOccupant)),
+});
+
+const insertRequest = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findOneOption({
+    Request: NewRequest,
+    Result: SubmittedRow,
+    execute: (request) => sql`
+      INSERT INTO office.recording_requests ${sql.insert(request)}
+      RETURNING id, outcome, reason
+    `,
+  });
+
+const findRequest = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findOneOption({
+    Request: Schema.Struct({ id: Schema.Finite, requestedBy: Schema.String }),
+    Result: SubmittedRow,
+    execute: ({ id, requestedBy }) => sql`
+      SELECT id, outcome, reason FROM office.recording_requests
+      WHERE id = ${id} AND requested_by = ${requestedBy}
+    `,
+  });
+
+const readStatus = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findOneOption({
+    Request: Schema.Void,
+    Result: StatusRow,
+    execute: () => sql`
+      SELECT s.bot_in_office, s.occupants, s.updated_at, r.id AS recording_id, r.started_at, r.started_by,
+             coalesce(m.real_name, m.display_name) AS started_by_name,
+             r.paused_at, r.paused_by, coalesce(p.real_name, p.display_name) AS paused_by_name,
+             r.title, r.agenda, r.summary_style
+      FROM office.recording_status s
+      LEFT JOIN office.recordings r ON r.id = s.recording_id AND r.stopped_at IS NULL
+      LEFT JOIN office.members m ON m.user_id = r.started_by
+      LEFT JOIN office.members p ON p.user_id = r.paused_by
+    `,
+  });
+
+const findPending = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: PendingRow,
+    execute: () => sql`
+      SELECT id, requested_at, requested_by, requested_by_name, action, title, agenda,
+             summary_style, now() AS checked_at
+      FROM office.recording_requests
+      WHERE handled_at IS NULL
+      ORDER BY id
+    `,
+  });
+
+const writeStatus = (sql: SqlClient.SqlClient) =>
+  SqlSchema.void({
+    Request: PublishedStatus,
+    execute: ({ recordingId, botInOffice, occupants }) => sql`
+      UPDATE office.recording_status
+      SET recording_id = ${recordingId}, bot_in_office = ${botInOffice},
+          occupants = ${occupants}::jsonb, updated_at = now()
+    `,
+  });
 
 export const recordingUnavailable = (reason: string) => RecordingUnavailable.make({ reason });
 
@@ -145,51 +209,37 @@ export class RecordingRequests extends Context.Service<
           Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
             const { title, agenda, summaryStyle = null } = action === "start" ? plan : NO_PLAN;
 
-            const rows = yield* onceReady(
-              sql`
-                INSERT INTO office.recording_requests ${sql.insert({ requestedBy: requester.id, requestedByName: requester.name, action, title, agenda, summaryStyle })}
-                RETURNING id, outcome, reason
-              `.pipe(Effect.flatMap(decodeSubmitted)),
+            const row = yield* onceReady(
+              insertRequest(sql)({
+                requestedBy: requester.id,
+                requestedByName: requester.name,
+                action,
+                title,
+                agenda,
+                summaryStyle,
+              }),
             );
 
-            const [row] = rows;
-
-            return row === undefined
+            return Option.isNone(row)
               ? yield* unavailable("The request wasn't stored")
-              : toSubmitted(row);
+              : toSubmitted(row.value);
           }),
         ),
     );
 
-    const find = Effect.fn("RecordingRequests.find")((requester: Requester, id: number) =>
-      connected((sql) =>
-        onceReady(
-          sql`
-            SELECT id, outcome, reason FROM office.recording_requests
-            WHERE id = ${id} AND requested_by = ${requester.id}
-          `.pipe(Effect.flatMap(decodeSubmitted)),
-        ),
-      ).pipe(Effect.map((rows) => Option.map(Option.fromUndefinedOr(rows[0]), toSubmitted))),
+    const find = Effect.fn("RecordingRequests.find")(
+      (requester: Requester, id: number) =>
+        connected((sql) => onceReady(findRequest(sql)({ id, requestedBy: requester.id }))),
+      Effect.map(Option.map(toSubmitted)),
     );
 
     const status = connected(
       Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
-        const rows = yield* onceReady(
-          sql`
-            SELECT s.bot_in_office, s.occupants, s.updated_at, r.id AS recording_id, r.started_at, r.started_by,
-                   coalesce(m.real_name, m.display_name) AS started_by_name,
-                   r.paused_at, r.paused_by, coalesce(p.real_name, p.display_name) AS paused_by_name,
-                   r.title, r.agenda, r.summary_style
-            FROM office.recording_status s
-            LEFT JOIN office.recordings r ON r.id = s.recording_id AND r.stopped_at IS NULL
-            LEFT JOIN office.members m ON m.user_id = r.started_by
-            LEFT JOIN office.members p ON p.user_id = r.paused_by
-          `.pipe(Effect.flatMap(decodeStatus)),
-        );
+        const found = yield* onceReady(readStatus(sql)());
 
-        const [row] = rows;
+        if (Option.isNone(found)) return yield* unavailable("The recording status row is missing");
 
-        if (row === undefined) return yield* unavailable("The recording status row is missing");
+        const row = found.value;
 
         const pause =
           row.pausedAt === null || row.pausedBy === null
@@ -261,15 +311,7 @@ export class RecordingRequests extends Context.Service<
       <E, R>(handler: RequestHandler<E, R>) =>
         connected(
           Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
-            const pending = yield* onceReady(
-              sql`
-                SELECT id, requested_at, requested_by, requested_by_name, action, title, agenda,
-                       summary_style, now() AS checked_at
-                FROM office.recording_requests
-                WHERE handled_at IS NULL
-                ORDER BY id
-              `.pipe(Effect.flatMap(decodePending)),
-            );
+            const pending = yield* onceReady(findPending(sql)());
 
             for (const request of pending) {
               const { occupants, active } = yield* handler.situation;
@@ -296,18 +338,8 @@ export class RecordingRequests extends Context.Service<
         ),
     );
 
-    const publishStatus = Effect.fn("RecordingRequests.publishStatus")(
-      (update: StatusUpdate) =>
-        connected((sql) =>
-          onceReady(
-            sql`
-              UPDATE office.recording_status
-              SET recording_id = ${update.recordingId}, bot_in_office = ${update.botInOffice},
-                  occupants = ${JSON.stringify(update.occupants)}::jsonb, updated_at = now()
-            `,
-          ),
-        ),
-      Effect.asVoid,
+    const publishStatus = Effect.fn("RecordingRequests.publishStatus")((update: StatusUpdate) =>
+      connected((sql) => onceReady(writeStatus(sql)(update))),
     );
 
     return RecordingRequests.of({ submit, find, status, handlePending, publishStatus });

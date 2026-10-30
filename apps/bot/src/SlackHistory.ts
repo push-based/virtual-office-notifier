@@ -1,8 +1,9 @@
 import { Array, Context, DateTime, Duration, Effect, Layer, Option, Schema } from "effect";
-import { SqlClient } from "effect/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
+import { guardQuery } from "recording-requests/Query";
+import { RowId } from "recording-requests/RecordingRequest";
 
 import type { ClefRequest } from "./CloudflareDecisionModel.ts";
-import { guardQuery } from "recording-requests/Query";
 
 import { Database, describeError } from "./Database.ts";
 import { HistoryUnavailable } from "./OfficeHistory.ts";
@@ -32,8 +33,6 @@ const SettingsRow = Schema.Struct({
   writerThreadMessages: Schema.Int,
   reactionEmoji: Schema.NonEmptyArray(Schema.NonEmptyString),
 });
-
-const decodeSettings = Schema.decodeUnknownEffect(SettingsRow);
 
 export type PostKind = "Opened" | "Emptied" | "Reminder" | "Banter" | "Reply" | "Recording";
 
@@ -113,8 +112,47 @@ export interface LinkedMember {
   readonly name: string;
 }
 
-const jsonb = (value: ClefRequest | Readonly<Record<string, number>>): string =>
-  JSON.stringify(value);
+const MessageRow = Schema.Struct({
+  channel: Schema.String,
+  ts: Schema.String,
+  threadTs: Schema.String,
+  userId: Schema.String,
+  displayName: Schema.String,
+  memberUserId: Schema.NullOr(Schema.String),
+  text: Schema.String,
+  isMention: Schema.Boolean,
+  receivedAt: Schema.DateTimeUtcFromDate,
+});
+
+const JsonColumn = Schema.fromJsonString(Schema.Unknown);
+
+const DecisionRow = Schema.Struct({
+  messageId: Schema.Finite,
+  decidedAt: Schema.DateTimeUtcFromDate,
+  clef: Schema.OptionFromNullOr(
+    Schema.Struct({
+      model: Schema.String,
+      request: JsonColumn,
+      action: Schema.String,
+      actionProbabilities: JsonColumn,
+      actionConfidence: Schema.Finite,
+      reaction: Schema.String,
+      reactionProbabilities: JsonColumn,
+      reactionConfidence: Schema.Finite,
+      latencyMs: Schema.Finite,
+    }),
+  ),
+  minConfidence: Schema.Finite,
+  maxRepliesPerDay: Schema.Finite,
+  maxReactionsPerDay: Schema.Finite,
+  maxRepliesPerThread: Schema.Finite,
+  outcome: Schema.String,
+  reason: Schema.String,
+});
+
+const Since = Schema.Struct({ from: Schema.DateTimeUtcFromDate });
+
+const Total = Schema.Struct({ total: Schema.Int });
 
 const notRecording = () => Effect.fail(HistoryUnavailable.make({ reason: "Nothing is recorded" }));
 
@@ -147,18 +185,109 @@ export class SlackHistory extends Context.Service<
         describe: describeError,
       });
 
-      const count = (query: Effect.Effect<ReadonlyArray<{ readonly total: number }>, Error>) =>
-        onceReady(query).pipe(Effect.map(([row]) => row?.total ?? 0));
+      const readSettings = SqlSchema.findOneOption({
+        Request: Schema.Void,
+        Result: SettingsRow,
+        execute: () => sql`SELECT * FROM office.responder_settings`,
+      });
 
-      const settings = onceReady(
-        sql`SELECT * FROM office.responder_settings`.pipe(
-          Effect.flatMap(([row]) => decodeSettings(row)),
+      const insertMessage = SqlSchema.findOne({
+        Request: MessageRow,
+        Result: Schema.Struct({ id: RowId }),
+        execute: ({ channel, ...message }) => sql`
+          INSERT INTO office.slack_messages ${sql.insert({ channelId: channel, ...message })}
+          RETURNING id
+        `,
+      });
+
+      const insertDecision = SqlSchema.void({
+        Request: DecisionRow,
+        execute: ({ clef, ...decision }) => sql`
+          INSERT INTO office.slack_decisions (
+            message_id, decided_at, clef_model, clef_request, action, action_probabilities, action_confidence,
+            reaction, reaction_probabilities, reaction_confidence, latency_ms, min_confidence,
+            max_replies_per_day, max_reactions_per_day, max_replies_per_thread, outcome, reason
+          ) VALUES (
+            ${decision.messageId},
+            ${decision.decidedAt},
+            ${clef?.model ?? null},
+            ${clef?.request ?? null}::jsonb,
+            ${clef?.action ?? null},
+            ${clef?.actionProbabilities ?? null}::jsonb,
+            ${clef?.actionConfidence ?? null},
+            ${clef?.reaction ?? null},
+            ${clef?.reactionProbabilities ?? null}::jsonb,
+            ${clef?.reactionConfidence ?? null},
+            ${clef?.latencyMs ?? null},
+            ${decision.minConfidence},
+            ${decision.maxRepliesPerDay},
+            ${decision.maxReactionsPerDay},
+            ${decision.maxRepliesPerThread},
+            ${decision.outcome},
+            ${decision.reason}
+          )
+        `,
+      });
+
+      const countRepliesSince = SqlSchema.findOneOption({
+        Request: Since,
+        Result: Total,
+        execute: ({ from }) => sql`
+          SELECT count(*)::int AS total FROM office.slack_posts
+          WHERE kind = 'Reply' AND posted_at >= ${from}
+        `,
+      });
+
+      const countReactionsSince = SqlSchema.findOneOption({
+        Request: Since,
+        Result: Total,
+        execute: ({ from }) => sql`
+          SELECT count(*)::int AS total FROM office.slack_decisions
+          WHERE outcome = 'reacted' AND decided_at >= ${from}
+        `,
+      });
+
+      const countRepliesInThread = SqlSchema.findOneOption({
+        Request: Schema.Struct({ channel: Schema.String, threadTs: Schema.String }),
+        Result: Total,
+        execute: ({ channel, threadTs }) => sql`
+          SELECT count(*)::int AS total FROM office.slack_posts
+          WHERE kind = 'Reply' AND channel_id = ${channel} AND thread_ts = ${threadTs}
+        `,
+      });
+
+      const findMember = SqlSchema.findOneOption({
+        Request: Schema.Struct({ slackUserId: Schema.String, realName: Schema.String }),
+        Result: Schema.Struct({ memberUserId: Schema.String, name: Schema.String }),
+        execute: ({ slackUserId, realName }) => sql`
+          SELECT user_id AS member_user_id, coalesce(real_name, display_name) AS name
+          FROM office.members
+          WHERE slack_user_id = ${slackUserId}
+            OR (${realName} <> '' AND lower(real_name) = lower(${realName}))
+          ORDER BY slack_user_id = ${slackUserId} DESC NULLS LAST, user_id
+          LIMIT 1
+        `,
+      });
+
+      const count = <E extends Error>(query: Effect.Effect<Option.Option<typeof Total.Type>, E>) =>
+        onceReady(query).pipe(
+          Effect.map(Option.match({ onNone: () => 0, onSome: ({ total }) => total })),
+        );
+
+      const settings = onceReady(readSettings()).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () =>
+              Effect.fail(
+                HistoryUnavailable.make({ reason: "The responder settings are missing" }),
+              ),
+            onSome: ({ staleAfterSeconds, ...row }) =>
+              Effect.succeed<ResponderSettings>({
+                ...row,
+                staleAfter: Duration.seconds(staleAfterSeconds),
+              }),
+          }),
         ),
-      ).pipe(
-        Effect.map(({ staleAfterSeconds, ...row }): ResponderSettings => ({
-          ...row,
-          staleAfter: Duration.seconds(staleAfterSeconds),
-        })),
         Effect.withSpan("SlackHistory.settings"),
       );
 
@@ -180,62 +309,13 @@ export class SlackHistory extends Context.Service<
         Effect.asVoid,
       );
 
-      const recordMessage = Effect.fn("SlackHistory.recordMessage")(function* (
-        message: ConsideredMessage,
-      ) {
-        const [row] = yield* onceReady(
-          sql<{ readonly id: string }>`
-            INSERT INTO office.slack_messages ${sql.insert({
-              channelId: message.channel,
-              ts: message.ts,
-              threadTs: message.threadTs,
-              userId: message.userId,
-              displayName: message.displayName,
-              memberUserId: message.memberUserId,
-              text: message.text,
-              isMention: message.isMention,
-              receivedAt: DateTime.toDate(message.receivedAt),
-            })}
-            RETURNING id
-          `,
-        );
+      const recordMessage = Effect.fn("SlackHistory.recordMessage")(
+        (message: ConsideredMessage) => onceReady(insertMessage(message)),
+        Effect.map(({ id }) => id),
+      );
 
-        return Number(row?.id);
-      });
-
-      const recordDecision = Effect.fn("SlackHistory.recordDecision")(
-        (decision: DecisionRecord) => {
-          const clef = Option.getOrNull(decision.clef);
-
-          return onceReady(
-            sql`
-            INSERT INTO office.slack_decisions (
-              message_id, decided_at, clef_model, clef_request, action, action_probabilities, action_confidence,
-              reaction, reaction_probabilities, reaction_confidence, latency_ms, min_confidence,
-              max_replies_per_day, max_reactions_per_day, max_replies_per_thread, outcome, reason
-            ) VALUES (
-              ${decision.messageId},
-              ${DateTime.toDate(decision.decidedAt)},
-              ${clef?.model ?? null},
-              ${clef === null ? null : jsonb(clef.request)}::jsonb,
-              ${clef?.action ?? null},
-              ${clef === null ? null : jsonb(clef.actionProbabilities)}::jsonb,
-              ${clef?.actionConfidence ?? null},
-              ${clef?.reaction ?? null},
-              ${clef === null ? null : jsonb(clef.reactionProbabilities)}::jsonb,
-              ${clef?.reactionConfidence ?? null},
-              ${clef?.latencyMs ?? null},
-              ${decision.minConfidence},
-              ${decision.maxRepliesPerDay},
-              ${decision.maxReactionsPerDay},
-              ${decision.maxRepliesPerThread},
-              ${decision.outcome},
-              ${decision.reason}
-            )
-          `,
-          );
-        },
-        Effect.asVoid,
+      const recordDecision = Effect.fn("SlackHistory.recordDecision")((decision: DecisionRecord) =>
+        onceReady(insertDecision(decision)),
       );
 
       const recordReaction = Effect.fn("SlackHistory.recordReaction")(
@@ -257,53 +337,21 @@ export class SlackHistory extends Context.Service<
       );
 
       const repliesSince = Effect.fn("SlackHistory.repliesSince")((from: DateTime.Utc) =>
-        count(
-          sql`
-            SELECT count(*)::int AS total FROM office.slack_posts
-            WHERE kind = 'Reply' AND posted_at >= ${DateTime.toDate(from)}
-          `,
-        ),
+        count(countRepliesSince({ from })),
       );
 
       const reactionsSince = Effect.fn("SlackHistory.reactionsSince")((from: DateTime.Utc) =>
-        count(
-          sql`
-            SELECT count(*)::int AS total FROM office.slack_decisions
-            WHERE outcome = 'reacted' AND decided_at >= ${DateTime.toDate(from)}
-          `,
-        ),
+        count(countReactionsSince({ from })),
       );
 
       const repliesInThread = Effect.fn("SlackHistory.repliesInThread")(
-        (channel: string, threadTs: string) =>
-          count(
-            sql`
-            SELECT count(*)::int AS total FROM office.slack_posts
-            WHERE kind = 'Reply' AND channel_id = ${channel} AND thread_ts = ${threadTs}
-          `,
-          ),
+        (channel: string, threadTs: string) => count(countRepliesInThread({ channel, threadTs })),
       );
 
-      const linkMember = Effect.fn("SlackHistory.linkMember")(function* (
-        slackUserId: string,
-        realName: string,
-      ) {
-        const rows = yield* onceReady(
-          sql<{ readonly memberUserId: string; readonly name: string }>`
-            SELECT user_id AS member_user_id, coalesce(real_name, display_name) AS name
-            FROM office.members
-            WHERE slack_user_id = ${slackUserId}
-              OR (${realName} <> '' AND lower(real_name) = lower(${realName}))
-            ORDER BY slack_user_id = ${slackUserId} DESC NULLS LAST, user_id
-            LIMIT 1
-          `,
-        );
-
-        return Option.map(Array.head(rows), ({ memberUserId, name }): LinkedMember => ({
-          memberUserId,
-          name,
-        }));
-      });
+      const linkMember = Effect.fn("SlackHistory.linkMember")(
+        (slackUserId: string, realName: string) => onceReady(findMember({ slackUserId, realName })),
+        Effect.map(Option.map(({ memberUserId, name }): LinkedMember => ({ memberUserId, name }))),
+      );
 
       return SlackHistory.of({
         settings,
