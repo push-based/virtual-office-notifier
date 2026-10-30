@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatElapsed, formatTimeLeft } from "./duration";
+import { formatDuration, formatElapsed, formatTimeLeft } from "./duration";
 
 describe("formatElapsed", () => {
   const since = "2026-10-27T12:00:00Z";
@@ -34,5 +34,20 @@ describe("formatTimeLeft", () => {
 
   it("never goes below zero once the limit has passed", () => {
     expect(formatTimeLeft(until, before(-60_000))).toBe("0m");
+  });
+});
+
+describe("formatDuration", () => {
+  it("shows minutes under an hour", () => {
+    expect(formatDuration(45 * 60)).toBe("45m");
+  });
+
+  it("shows hours and minutes from an hour", () => {
+    expect(formatDuration(5.5 * 3600)).toBe("5h 30m");
+  });
+
+  it("rounds to the nearest minute", () => {
+    expect(formatDuration(89)).toBe("1m");
+    expect(formatDuration(29)).toBe("0m");
   });
 });

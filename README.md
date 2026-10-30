@@ -31,6 +31,7 @@ Posts to Slack when someone opens our Discord "virtual office" voice channel, an
 - **Keeps going when Slack doesn't.** Failed posts are retried with backoff and logged, and never crash the process.
 - **Records voice activity** in the office channel to a [database](#database): joins, leaves, mute, deafen, camera and streaming, exactly as Discord reports them, plus soundboard sounds and emoji reactions. The database can never stop the announcements.
 - **Records the office on demand.** Anyone in the office can press a button in a Discord Activity to record what's said. Each person's speech is kept as audio, transcribed with Whisper, and the summary lands in Slack with the full transcript. See [Recording the office](#recording-the-office).
+- **Office stats** in the same Activity, for this week, this month or all time: time in the office per person, who's first in and last out, the busiest days and hours, the soundboard leaderboard, the top emoji reactions and how much was recorded. See [Office stats](#office-stats).
 - **Optional Sentry monitoring** of errors, traces and logs.
 
 ## What it posts
@@ -442,6 +443,7 @@ Needs the [database](#database), the bot's Cloudflare account for Whisper, and a
    CREATE ROLE activity LOGIN PASSWORD 'change-me';
    GRANT USAGE ON SCHEMA office TO activity;
    GRANT SELECT ON office.recording_status, office.recordings, office.members TO activity;
+   GRANT SELECT ON office.voice_activity, office.office_activity TO activity;
    GRANT SELECT, INSERT ON office.recording_requests TO activity;
    GRANT USAGE ON SEQUENCE office.recording_requests_id_seq TO activity;
    ```
@@ -466,6 +468,8 @@ Needs the [database](#database), the bot's Cloudflare account for Whisper, and a
 
    `SESSION_SECRET` is any long random string; it signs the sessions the page gets after Discord's login. The first deploy prints the `workers.dev` host for the URL mapping above.
 
+   The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the second `GRANT`, the [Stats](#office-stats) tab answers `503` and the rest of the Activity works as before.
+
 **Trying the two things it depends on**
 
 Received audio has to decrypt, since Discord's voice is end-to-end encrypted (DAVE), and Whisper has to accept Ogg/Opus as is. [`apps/bot/scripts/try-recording.ts`](apps/bot/scripts/try-recording.ts) checks both: it joins the office with audio on for a minute, writes one `.ogg` per stretch of speech into `recordings-check/`, and sends the first one to Whisper. Have someone say a few words while it runs. It needs the Discord token and channel, and the Cloudflare account and token for the Whisper step; it never touches the database or Slack.
@@ -473,6 +477,16 @@ Received audio has to decrypt, since Discord's voice is end-to-end encrypted (DA
 ```bash
 node --env-file=.env apps/bot/scripts/try-recording.ts --seconds 60
 ```
+
+### Office stats
+
+The Office Recorder has two tabs: **Now**, with the recording status and who's in the office, and **Stats**, with the office stats for this week, this month or all time. The Stats tab counts everything when it's opened or the range changes, and never polls. Each total is worked out in SQL from the `office.voice_activity` and `office.office_activity` views and `office.recordings`, so it needs the second `GRANT` in step 4 of [setup](#recording-the-office).
+
+- Weeks start on Monday and months on the 1st, both at midnight in office time, UTC+2.
+- **Time in the office** runs from `Joined` (or `AlreadyThere`, for anyone in when the bot started) to that person's next `Left`. Someone who's still in counts until now. When the bot stopped without seeing them leave, the stay ends at the last thing that run of the bot saw. Stays that cross the start of the range only count from the start.
+- **First in** and **last out** count, for each day, who arrived first and who left last. A day where someone's still in has no last out yet.
+- **Busiest hours** is a weekday × hour grid of how many people were in on average, over every such hour in the range.
+- **Soundboard**, **reactions** and **recordings** count what happened in the range, with the top 10 of each list.
 
 ## Development
 
