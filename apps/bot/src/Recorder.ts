@@ -43,7 +43,7 @@ import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
 import { ClipAudio } from "./ClipAudio.ts";
 import type { Clip } from "./ClipCutter.ts";
 import { SlackConfig } from "./Config.ts";
-import { reconnectDelay } from "./Database.ts";
+import { reconnectSchedule } from "./Database.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
 import { oggOpusFile, opusPacketsDuration } from "./OggOpus.ts";
@@ -67,7 +67,7 @@ import {
   SummaryWriter,
   transcriptText,
 } from "./SummaryWriter.ts";
-import { Transcriber } from "./Transcriber.ts";
+import { Transcriber, type TranscriptionError } from "./Transcriber.ts";
 import { type CaptureError, Heard, VoiceCapture } from "./VoiceCapture.ts";
 
 export const POLL_INTERVAL = CHECK_INTERVAL;
@@ -146,6 +146,15 @@ const fileDate = (at: DateTime.Utc): string =>
     String.replaceAll(":", ""),
   );
 
+const transcriberRetry = reconnectSchedule.pipe(
+  Schedule.setInputType<TranscriptionError>(),
+  Schedule.tap(({ input, attempt }) =>
+    Effect.logWarning("Couldn't reach the transcriber, retrying").pipe(
+      Effect.annotateLogs({ reason: input.detail, attempt }),
+    ),
+  ),
+);
+
 const encodeStatusKey = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const untilTomorrow = Effect.gen(function* () {
@@ -190,7 +199,6 @@ export class Recorder extends Context.Service<
         const voices = yield* Ref.make<Voices>(noVoices);
         const statusChanged = yield* Queue.dropping<void>(1);
         const storeHealth = yield* StoreHealth.make;
-        const unavailableAttempts = yield* Ref.make(0);
         const mutex = yield* Semaphore.make(1);
         const updatingPost = yield* Semaphore.make(1);
 
@@ -382,9 +390,16 @@ export class Recorder extends Context.Service<
           yield* gateway.setRecording("Paused");
         });
 
-        const awaitClips = Effect.fn("Recorder.awaitClips")(function* (id: string) {
-          while ((yield* store.outstandingClips(id)) > 0) yield* Effect.sleep(FINISH_POLL);
-        });
+        const awaitClips = Effect.fn("Recorder.awaitClips")(
+          (id: string) =>
+            store.outstandingClips(id).pipe(
+              Effect.repeat({
+                schedule: Schedule.spaced(FINISH_POLL),
+                until: (outstanding) => outstanding === 0,
+              }),
+            ),
+          Effect.asVoid,
+        );
 
         const postedMessage = Effect.fn("Recorder.postedMessage")(function* (id: string) {
           const details = yield* store.recordingDetails(id);
@@ -1003,11 +1018,14 @@ export class Recorder extends Context.Service<
 
         const transcribeClip = (clip: PendingClip, bytes: Uint8Array) =>
           transcriber.transcribe(bytes).pipe(
+            Effect.retry({
+              schedule: transcriberRetry,
+              while: (error) => error.failure === "Unavailable",
+            }),
             Effect.flatMap(({ text, model }) =>
               DateTime.now.pipe(
                 Effect.flatMap((at) => store.clipTranscribed(clip.id, at, text, model)),
                 Effect.andThen(audio.remove(clip.id)),
-                Effect.andThen(Ref.set(unavailableAttempts, 0)),
                 Effect.andThen(
                   Effect.logInfo("Transcribed a clip").pipe(
                     Effect.annotateLogs({ model, characters: text.length }),
@@ -1021,16 +1039,6 @@ export class Recorder extends Context.Service<
                   Effect.logWarning(
                     "Workers AI's daily allocation is used up, transcription waits for the reset",
                   ).pipe(Effect.andThen(untilTomorrow)),
-                ),
-                Match.when("Unavailable", () =>
-                  Ref.updateAndGet(unavailableAttempts, (attempts) => attempts + 1).pipe(
-                    Effect.flatMap((attempts) =>
-                      Effect.logWarning("Couldn't reach the transcriber, retrying").pipe(
-                        Effect.annotateLogs({ reason: error.detail, attempt: attempts }),
-                        Effect.andThen(Effect.sleep(reconnectDelay(attempts))),
-                      ),
-                    ),
-                  ),
                 ),
                 Match.orElse(() =>
                   store.clipFailed(clip.id, error.detail, false).pipe(
@@ -1083,7 +1091,7 @@ export class Recorder extends Context.Service<
         yield* publishStatuses.pipe(Effect.forkScoped);
 
         const follow = Stream.runForEach(gateway.botPresence, onPresence);
-        const poll = Effect.forever(Effect.sleep(POLL_INTERVAL).pipe(Effect.andThen(tick)));
+        const poll = Effect.schedule(tick, Schedule.spaced(POLL_INTERVAL));
 
         yield* Effect.raceFirst(follow, poll);
       }, Effect.scoped);
