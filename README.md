@@ -150,8 +150,7 @@ The one exception is a [recording](#recording-the-office): for as long as one is
 | [`apps/bot/src/ClipArchive.ts`](apps/bot/src/ClipArchive.ts) | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back. |
 | [`apps/bot/src/Transcriber.ts`](apps/bot/src/Transcriber.ts) | Whisper on Workers AI. |
 | [`apps/bot/src/SummaryWriter.ts`](apps/bot/src/SummaryWriter.ts) | Builds the transcript and asks the AI providers for a summary. |
-| [`apps/office-recorder-worker/`](apps/office-recorder-worker) | The Discord Activity's Cloudflare Worker: signs people in, serves the recording requests and the page. |
-| [`apps/office-recorder-page/`](apps/office-recorder-page) | The Discord Activity's Angular page, with the button. |
+| [`apps/office-recorder/`](apps/office-recorder) | The Discord Activity: the Angular page with the button in `src/`, and the Cloudflare Worker in `worker/` that signs people in, serves the recording requests and the page. One Vite config builds and serves both, through the [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/). |
 | [`libs/design-system/`](libs/design-system) | The page's components, pipes and design tokens. |
 | [`libs/recording-requests/`](libs/recording-requests) | The recording requests and the recording status, shared by the bot, the Worker and the page: the rules for a request, the SQL on both sides, the Activity's HTTP API and the types the page reads. The words it uses are in [`CONTEXT.md`](CONTEXT.md). |
 | [`apps/bot/src/ActivityRecorder.ts`](apps/bot/src/ActivityRecorder.ts) | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects. |
@@ -449,19 +448,19 @@ Needs the [database](#database), the bot's Cloudflare account for Whisper, and a
 5. **Hyperdrive.** Workers can't open a TLS connection to Supabase themselves, because they only trust public certificate authorities and Supabase signs its database certificates with its own. So the Worker reaches the database through [Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which connects to Supabase as the `activity` role and checks Supabase's certificate against its root CA. From the repo root, with `wrangler login`, upload the CA (the one in [`apps/bot/src/SupabaseCa.ts`](apps/bot/src/SupabaseCa.ts), saved as a `.pem`) and create the config with caching off, so the Activity always sees the current state:
 
    ```bash
-   pnpm --filter office-recorder-worker exec wrangler cert upload certificate-authority --name supabase-root-2021 --ca-cert supabase-root.pem
+   pnpm --filter office-recorder exec wrangler cert upload certificate-authority --name supabase-root-2021 --ca-cert supabase-root.pem
    ```
 
    ```bash
-   pnpm --filter office-recorder-worker exec wrangler hyperdrive create virtual-office-recorder-db --origin-host <pooler host> --origin-port 5432 --database postgres --origin-user activity.<ref> --origin-password <password> --sslmode verify-full --ca-certificate-id <CA ID> --caching-disabled
+   pnpm --filter office-recorder exec wrangler hyperdrive create virtual-office-recorder-db --origin-host <pooler host> --origin-port 5432 --database postgres --origin-user activity.<ref> --origin-password <password> --sslmode verify-full --ca-certificate-id <CA ID> --caching-disabled
    ```
 
-   Put the new config's ID under `hyperdrive` in [`apps/office-recorder-worker/wrangler.jsonc`](apps/office-recorder-worker/wrangler.jsonc). The pooler host and `<ref>` are the ones in the bot's `DATABASE_URL`. Right after the role's password changes, the pooler can refuse it for a few seconds, so a failed create is worth retrying.
+   Put the new config's ID under `hyperdrive` in [`apps/office-recorder/wrangler.jsonc`](apps/office-recorder/wrangler.jsonc). The pooler host and `<ref>` are the ones in the bot's `DATABASE_URL`. Right after the role's password changes, the pooler can refuse it for a few seconds, so a failed create is worth retrying.
 
-6. **The Worker.** It lives in [`apps/office-recorder-worker/`](apps/office-recorder-worker) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Without it, the deploy job fails before shipping anything, so the bot and the Activity always go out together. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
+6. **The Worker.** It lives in [`apps/office-recorder/worker/`](apps/office-recorder/worker) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Without it, the deploy job fails before shipping anything, so the bot and the Activity always go out together. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
 
    ```bash
-   for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SESSION_SECRET; do pnpm --filter office-recorder-worker exec wrangler secret put $name; done
+   for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SESSION_SECRET; do pnpm --filter office-recorder exec wrangler secret put $name; done
    ```
 
    `SESSION_SECRET` is any long random string; it signs the sessions the page gets after Discord's login. The first deploy prints the `workers.dev` host for the URL mapping above.
@@ -483,16 +482,17 @@ The workspace runs on [Vite+](https://viteplus.dev). Each package defines its ta
 | `pnpm vp run -r typecheck` | Type-check every package with TypeScript 7 and the Effect diagnostics. |
 | `pnpm vp run lint` | Lint the whole repo with Oxlint and the rules in the root `vite.config.ts`. `pnpm vp lint --fix` applies the automatic fixes. |
 | `pnpm vp run -r test` | Run every package's tests with Vitest. |
-| `pnpm vp run -r build` | Bundle the bot to `apps/bot/dist/main.js` with a source map, and build the Activity's page to `apps/office-recorder-page/dist`, type-checking it on the way. |
-| `pnpm vp run office-recorder-worker#check` | Build the page and bundle the Activity's Worker without deploying it. |
+| `pnpm vp run -r build` | Bundle the bot to `apps/bot/dist/main.js` with a source map, and build the Activity to `apps/office-recorder/dist`: the page in `client/`, type-checked on the way, and the Worker with its generated `wrangler.json` in `worker/`. |
+| `pnpm vp run office-recorder#check` | Build the Activity and run `wrangler deploy --dry-run` on the result. |
 | `pnpm --filter bot dev` | Run the bot from source with `.env`. |
 | `pnpm --filter bot start` | Run the bot's bundle with `.env`. |
-| `pnpm --filter office-recorder-page dev` | Serve the Activity's page from Vite with live reload, sending `/api` to the Worker on port 8787. |
-| `pnpm --filter office-recorder-worker dev` | Run the Activity's Worker locally with `wrangler dev`, serving the last built page. |
+| `pnpm --filter office-recorder dev` | Serve the Activity's page with live reload and run its Worker in the Workers runtime on the same origin. See below for the database. |
 
 Run a single package's task with `pnpm vp run <package>#<task>`, for example `pnpm vp run bot#test`. `pnpm vp cache clean` clears the task cache.
 
-CI runs the same typecheck, lint, test and build tasks on every push and pull request, and bundles the Activity's Worker. It keeps the task cache between runs.
+CI runs the same typecheck, lint, test and build tasks on every push and pull request, and dry-runs the Activity's deploy. It keeps the task cache between runs.
+
+Running the Activity locally needs a Postgres for its `DATABASE` Hyperdrive binding, with a password in the URL, even if you never record. Set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE`, for example to `postgres://postgres:postgres@localhost:5432/postgres` (the `office-recorder` preview in [`.claude/launch.json`](.claude/launch.json) uses that), and put the Worker's secrets in `apps/office-recorder/.dev.vars`.
 
 The tests run the program against fakes for Discord, Slack and the AI models, so they need no tokens or network access. `DiscordGateway.layerTest` feeds voice-state updates from a queue through the same occupancy tracking the real gateway uses. The database tests run the real migrations and SQL against an in-process Postgres ([PGlite](https://pglite.dev)), so they need no database either.
 
@@ -500,7 +500,7 @@ TypeScript is pinned to the exact version `@effect/tsgo` supports, so upgrade th
 
 Vite, Vitest and Oxlint come from Vite+. The catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml) points `vite` at Vite+'s core, and its overrides keep a single copy of Vite and Vitest across the workspace, which `@effect/vitest` needs to register its tests with the runner `vp test` starts. Upgrade them by bumping `vite-plus` and `vitest` there together.
 
-The Activity's page and the design system are compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package is pinned to exactly that version in the `angular` catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml), with the plugin and the TypeScript 6 that Angular's compiler needs. Upgrade them together there.
+The Activity's page and the design system are compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package is pinned to exactly that version in the `angular` catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml), with the plugin and the TypeScript 6 that Angular's compiler needs. Upgrade them together there. The Activity's Worker is type-checked with the root's TypeScript 7 instead, from its own [`tsconfig.json`](apps/office-recorder/worker/tsconfig.json), and ngp only compiles the browser build, not the Worker.
 
 The lint rules in `tools/oxlint/anti-slop` are vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop). [`UPSTREAM.md`](tools/oxlint/anti-slop/UPSTREAM.md) records the commit they were copied from.
 
@@ -564,7 +564,7 @@ gh secret set SLACK_BOT_TOKEN
 
 ### What a deploy does
 
-The `deploy` job builds the Activity's page first, so nothing ships if it fails. It then runs the bot's `deploy` task, which bundles the bot and runs [`apps/bot/scripts/deploy.ts`](apps/bot/scripts/deploy.ts):
+The `deploy` job builds the Activity first, page and Worker, so nothing ships if it fails. It then runs the bot's `deploy` task, which bundles the bot and runs [`apps/bot/scripts/deploy.ts`](apps/bot/scripts/deploy.ts):
 
 1. Writes the env file from the configuration variables into a temporary directory, so secrets never land in the working tree.
 2. Downloads the one dependency that can't be bundled, DAVE's native add-on for Linux x64 (`@snazzah/davey`, which `@discordjs/voice` needs to decrypt [recorded](#recording-the-office) audio), with `npm pack`, and packs it as a small `node_modules` tree.
@@ -572,7 +572,7 @@ The `deploy` job builds the Activity's page first, so nothing ships if it fails.
 4. Installs them under `/opt/virtual-office-notifier` and `/etc`, replacing the previous `node_modules`, reloads systemd and restarts the service.
 5. Waits 15 seconds and fails, printing the last log lines, if the service isn't running.
 
-Last, the Worker's `deploy` task runs `wrangler deploy` with the page that was just built.
+Last, the Activity's `deploy` task runs `wrangler deploy`, which picks up the Worker and page that were just built through the `wrangler.json` the build generates.
 
 The [unit](apps/bot/deploy/virtual-office-notifier.service) runs as the unprivileged `notifier` user with systemd's sandboxing turned on. It restarts 30 seconds after a crash and gives up after 5 failed starts in 10 minutes, so a bad token doesn't keep hammering Discord's login.
 
