@@ -2,21 +2,16 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import { ngp } from "@push-based/vite-plugin-ngp";
 import { defineConfig, lazyPlugins, type Plugin } from "vite-plus";
 
-const inTheBrowser = (plugins: ReadonlyArray<Plugin>): Array<Plugin> =>
-  plugins.map((plugin) => ({
-    ...plugin,
-    applyToEnvironment: (environment) => environment.config.consumer === "client",
-  }));
+const onlyInTheBrowser = (plugin: Plugin): Plugin => ({
+  ...plugin,
+  applyToEnvironment: (environment) => environment.config.consumer === "client",
+});
 
 export default defineConfig(({ mode }) => ({
-  plugins: lazyPlugins(() =>
-    mode === "test"
-      ? ngp()
-      : [
-          ...inTheBrowser(ngp({ typeChecker: "tsrs", typeCheck: true })),
-          ...cloudflare({ viteEnvironment: { name: "worker" } }),
-        ],
-  ),
+  plugins: lazyPlugins(() => [
+    ngp({ typeChecker: "tsrs" }).map(onlyInTheBrowser),
+    mode === "test" ? [] : cloudflare({ viteEnvironment: { name: "worker" } }),
+  ]),
   test: {
     environment: "jsdom",
     include: ["src/**/*.spec.ts"],
