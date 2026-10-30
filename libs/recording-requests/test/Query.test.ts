@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Deferred, Duration, Effect, Exit, Fiber, Schema } from "effect";
+import { Deferred, Duration, Effect, Exit, Fiber, Schema, String } from "effect";
 import { TestClock } from "effect/testing";
 
 import { guardQuery, QUERY_TIMEOUT } from "../src/Query.ts";
@@ -57,6 +57,20 @@ describe("guardQuery", () => {
       const exit = yield* guarded(Effect.fail(Refused.make())).pipe(Effect.exit);
 
       assert.deepStrictEqual(exit, Exit.fail(unavailable("connection refused")));
+    }),
+  );
+
+  it.effect("tells a row that doesn't decode apart from a failed query", () =>
+    Effect.gen(function* () {
+      const unreadable = (reason: string) => Unavailable.make({ reason: `unreadable: ${reason}` });
+      const guarded = guardQuery({ ready: Effect.void, unavailable, unreadable });
+      const decodeNumber = Schema.decodeUnknownEffect(Schema.Finite);
+
+      const failed = yield* guarded(Effect.fail(Refused.make())).pipe(Effect.flip);
+      const undecodable = yield* guarded(decodeNumber("1")).pipe(Effect.flip);
+
+      assert.strictEqual(failed.reason, "connection refused");
+      assert.isTrue(String.startsWith("unreadable: ")(undecodable.reason));
     }),
   );
 

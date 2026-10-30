@@ -32,14 +32,11 @@ export const DEFAULT_OPENROUTER_MODELS: Array.NonEmptyReadonlyArray<string> = [
   "openrouter/free",
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
-  "inclusionai/ling-3.0-flash-sante:free",
-  "dots-studio/dots-3-note-preview:free",
 ];
 
 export const DEFAULT_OPENROUTER_BANTER_MODELS: Array.NonEmptyReadonlyArray<string> = [
   "nvidia/nemotron-3-ultra-550b-a55b:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
-  "inclusionai/ling-3.0-flash-sante:free",
 ];
 
 // All within Workers AI's free daily allocation.

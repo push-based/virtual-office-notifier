@@ -1,4 +1,4 @@
-import { Context, Duration, Effect, Layer } from "effect";
+import { Context, Duration, Effect, Layer, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 
 export const QUERY_TIMEOUT = Duration.seconds(10);
@@ -8,6 +8,7 @@ const TIMED_OUT = `Timed out after ${Duration.toSeconds(QUERY_TIMEOUT)} seconds`
 export interface QueryGuard<U> {
   readonly ready: Effect.Effect<void>;
   readonly unavailable: (reason: string) => U;
+  readonly unreadable?: (reason: string) => U;
   readonly describe?: (error: Error) => string;
 }
 
@@ -18,11 +19,13 @@ export interface Connected<U> {
 const messageOf = (error: Error): string => error.message;
 
 export const guardQuery =
-  <U>({ ready, unavailable, describe = messageOf }: QueryGuard<U>) =>
+  <U>({ ready, unavailable, unreadable = unavailable, describe = messageOf }: QueryGuard<U>) =>
   <A, E extends Error, R>(query: Effect.Effect<A, E, R>): Effect.Effect<A, U, R> =>
     ready.pipe(
       Effect.andThen(query),
-      Effect.mapError((error) => unavailable(describe(error))),
+      Effect.mapError((error) =>
+        (Schema.isSchemaError(error) ? unreadable : unavailable)(describe(error)),
+      ),
       Effect.timeoutOrElse({
         duration: QUERY_TIMEOUT,
         orElse: () => Effect.fail(unavailable(TIMED_OUT)),

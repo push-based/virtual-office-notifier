@@ -12,7 +12,11 @@ import {
 } from "./RecordingEdit.ts";
 import { RowId } from "./RecordingRequest.ts";
 import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
-import { recordingUnavailable, RecordingUnavailable } from "./RecordingRequests.ts";
+import {
+  recordingUnavailable,
+  RecordingUnavailable,
+  recordingUnreadable,
+} from "./RecordingRequests.ts";
 
 export interface AppliedEdit<E, R> {
   readonly afterCommit: Effect.Effect<void, E, R>;
@@ -144,7 +148,11 @@ export class RecordingEdits extends Context.Service<
     ready: Effect.Effect<void>,
     connected: Connected<RecordingUnavailable>,
   ) => {
-    const onceReady = guardQuery({ ready, unavailable: recordingUnavailable });
+    const onceReady = guardQuery({
+      ready,
+      unavailable: recordingUnavailable,
+      unreadable: recordingUnreadable,
+    });
 
     const submit = Effect.fn("RecordingEdits.submit")(
       (editor: Requester, recordingId: string, change: RecordingChange) =>
@@ -213,12 +221,16 @@ export class RecordingEdits extends Context.Service<
       yield* applied.afterCommit;
     });
 
-    const handlePending = Effect.fn("RecordingEdits.handlePending")(
-      <E, R>(handler: EditHandler<E, R>) =>
-        connected(
-          Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
-            const pending = yield* onceReady(findPending(sql)());
+    const handlePending = <E, R>(handler: EditHandler<E, R>) =>
+      connected(
+        Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+          const pending = yield* onceReady(findPending(sql)()).pipe(
+            Effect.withTracerEnabled(false),
+          );
 
+          if (pending.length === 0) return;
+
+          yield* Effect.gen(function* () {
             for (const row of pending) {
               const change = decodeChange(row.change);
 
@@ -249,9 +261,9 @@ export class RecordingEdits extends Context.Service<
                 }),
               );
             }
-          }),
-        ),
-    );
+          }).pipe(Effect.withSpan("RecordingEdits.handlePending"));
+        }),
+      );
 
     return RecordingEdits.of({ submit, find, handlePending });
   };

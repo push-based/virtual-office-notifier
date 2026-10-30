@@ -39,6 +39,7 @@ import { type Transcript, Transcriber, TranscriptionError } from "../src/Transcr
 import { SPEAKING_HOLD } from "../src/Speaking.ts";
 import { type CaptureError, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
 import {
+  captureReports,
   type FakeSlackClientOptions,
   makeFakeSlackClient,
   makeFakeSlackHistory,
@@ -1728,4 +1729,47 @@ describe("Recorder", () => {
       yield* Fiber.interrupt(h.fiber);
     }),
   );
+  it.effect("reports a request it can't read once, and again only after it recovered", () => {
+    const { reports, layer } = captureReports();
+
+    return Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada] });
+
+      const reported = (count: number) =>
+        h.eventually(
+          Effect.sync(() => reports),
+          (found) => found.length >= count,
+        );
+
+      const unreadableRequest = h.sql`
+        INSERT INTO office.recording_requests (requested_by, requested_by_name, action)
+        VALUES ('u1', 'Ada', 'dance')
+      `;
+
+      yield* h.sql`
+        ALTER TABLE office.recording_requests DROP CONSTRAINT recording_requests_action_check
+      `;
+      yield* unreadableRequest;
+      yield* h.tick;
+      yield* reported(1);
+      yield* h.tick;
+      yield* h.settle;
+      yield* h.tick;
+      yield* h.settle;
+
+      assert.deepStrictEqual(
+        Array.map(reports, ({ name, severity }) => ({ name, severity })),
+        [{ name: "RecordingUnavailable", severity: "Error" }],
+      );
+
+      yield* h.sql`DELETE FROM office.recording_requests`;
+      yield* h.tick;
+      yield* h.settle;
+      yield* unreadableRequest;
+      yield* h.tick;
+      yield* reported(2);
+
+      assert.strictEqual(reports.length, 2);
+    }).pipe(Effect.provide(layer));
+  });
 });

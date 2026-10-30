@@ -9,7 +9,7 @@ import {
   type LogLevel,
   Option,
   Queue,
-  Schedule,
+  Ref,
   Schema,
   Stream,
 } from "effect";
@@ -39,25 +39,33 @@ export class SlackSocketDropped extends Schema.TaggedError<
 
 const MAX_RECONNECT_DELAY = Duration.minutes(5);
 
+const REPORT_AFTER_FAILURES = 3;
+
 const dropped = (error: Socket.SocketError) =>
   SlackSocketDropped.make({ reason: error.reason._tag });
 
-const reconnectSchedule = Schedule.exponential("1 second").pipe(
-  Schedule.setInputType<SlackError | SlackSocketDropped>(),
-  Schedule.modifyDelay(({ duration }) =>
-    Effect.succeed(Duration.min(duration, MAX_RECONNECT_DELAY)),
-  ),
-  Schedule.tap(({ input, attempt, duration }) =>
-    Effect.logWarning("Lost the Slack connection, reconnecting").pipe(
-      Effect.annotateLogs({
-        reason: Schema.is(SlackSocketDropped)(input) ? input.reason : input.reason._tag,
-        attempt,
-        delayMs: Duration.toMillis(duration),
-      }),
-      Effect.andThen(ErrorReporter.report(Cause.fail(input))),
-    ),
-  ),
-);
+const backoff = (attempt: number): Duration.Duration =>
+  Duration.min(Duration.seconds(2 ** (attempt - 1)), MAX_RECONNECT_DELAY);
+
+const reconnectAfter = Effect.fnUntraced(function* (
+  error: SlackError | SlackSocketDropped,
+  failures: Ref.Ref<number>,
+) {
+  const attempt = yield* Ref.updateAndGet(failures, (count) => count + 1);
+  const delay = backoff(attempt);
+
+  yield* Effect.logWarning("Lost the Slack connection, reconnecting").pipe(
+    Effect.annotateLogs({
+      reason: Schema.is(SlackSocketDropped)(error) ? error.reason : error.reason._tag,
+      attempt,
+      delayMs: Duration.toMillis(delay),
+    }),
+  );
+
+  if (attempt === REPORT_AFTER_FAILURES) yield* ErrorReporter.report(Cause.fail(error));
+
+  yield* Effect.sleep(delay);
+});
 
 const ack = (writer: Socket.Writer, envelope: Envelope) =>
   Option.match(envelope.envelopeId, {
@@ -109,7 +117,7 @@ export class SlackSocket extends Context.Service<
       });
 
       const session = Effect.fn("SlackSocket.session")(
-        function* (queue: Queue.Queue<Envelope, Cause.Done>) {
+        function* (queue: Queue.Queue<Envelope, Cause.Done>, failures: Ref.Ref<number>) {
           const url = yield* slack.openConnection;
           const socket = yield* Socket.makeWebSocket(url);
           const pull = yield* Socket.readerString(socket).pipe(Effect.mapError(dropped));
@@ -119,6 +127,8 @@ export class SlackSocket extends Context.Service<
 
           while (true) {
             const frames = yield* pull.pipe(Effect.mapError(dropped));
+
+            yield* Ref.set(failures, 0);
 
             for (const frame of frames) {
               if (yield* handle(frame, writer, queue)) return;
@@ -130,7 +140,14 @@ export class SlackSocket extends Context.Service<
       );
 
       const envelopes = Stream.callback<Envelope>((queue) =>
-        session(queue).pipe(Effect.retry(reconnectSchedule), Effect.forever, Effect.orDie),
+        Ref.make(0).pipe(
+          Effect.flatMap((failures) =>
+            session(queue, failures).pipe(
+              Effect.catch((error) => reconnectAfter(error, failures)),
+              Effect.forever,
+            ),
+          ),
+        ),
       );
 
       return SlackSocket.of({ envelopes });

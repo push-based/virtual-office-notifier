@@ -1,22 +1,36 @@
-import { Effect, Ref } from "effect";
+import { Cause, Effect, ErrorReporter, HashSet, Ref } from "effect";
 
-export interface StoreHealth {
-  readonly issue: (what: string) => (error: { readonly reason: string }) => Effect.Effect<void>;
-  readonly ok: Effect.Effect<void>;
+export interface StoreFailure extends Error {
+  readonly reason: string;
+  readonly unreadable: boolean;
 }
 
-const make: Effect.Effect<StoreHealth> = Effect.map(Ref.make(true), (healthy) => ({
-  issue: (what) => (error) =>
-    Ref.getAndSet(healthy, false).pipe(
-      Effect.flatMap((wasHealthy) =>
-        wasHealthy
-          ? Effect.logWarning(`${what}, the database isn't available`).pipe(
-              Effect.annotateLogs({ reason: error.reason }),
-            )
-          : Effect.void,
-      ),
-    ),
-  ok: Ref.set(healthy, true),
-}));
+export interface StoreHealth {
+  readonly issue: (what: string) => (error: StoreFailure) => Effect.Effect<void>;
+  readonly ok: (what: string) => Effect.Effect<void>;
+}
 
-export const StoreHealth = { make };
+const report =
+  (what: string) =>
+  (error: StoreFailure): Effect.Effect<void> =>
+    (error.unreadable
+      ? Effect.logError(`${what}, a row couldn't be read`)
+      : Effect.logWarning(`${what}, the database isn't available`)
+    ).pipe(
+      Effect.annotateLogs({ reason: error.reason }),
+      Effect.andThen(ErrorReporter.report(Cause.fail(error))),
+    );
+
+const make: Effect.Effect<StoreHealth> = Effect.map(
+  Ref.make(HashSet.empty<string>()),
+  (failing) => ({
+    issue: (what) => (error) =>
+      Ref.modify(failing, (current) => [
+        !HashSet.has(current, what),
+        HashSet.add(current, what),
+      ]).pipe(Effect.flatMap((wasOk) => (wasOk ? report(what)(error) : Effect.void))),
+    ok: (what) => Ref.update(failing, HashSet.remove(what)),
+  }),
+);
+
+export const StoreHealth = { make, report };

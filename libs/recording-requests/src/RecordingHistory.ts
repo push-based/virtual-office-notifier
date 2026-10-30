@@ -13,7 +13,11 @@ import {
 } from "./Recording.ts";
 import { PersonInOffice, RowId } from "./RecordingRequest.ts";
 import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
-import { recordingUnavailable, RecordingUnavailable } from "./RecordingRequests.ts";
+import {
+  recordingUnavailable,
+  RecordingUnavailable,
+  recordingUnreadable,
+} from "./RecordingRequests.ts";
 
 export const PAGE_SIZE = 20;
 
@@ -202,7 +206,11 @@ export class RecordingHistory extends Context.Service<
   }
 >()("recording-requests/RecordingHistory") {
   static readonly makeWith = (connected: Connected<RecordingUnavailable>) => {
-    const timed = guardQuery({ ready: Effect.void, unavailable: recordingUnavailable });
+    const timed = guardQuery({
+      ready: Effect.void,
+      unavailable: recordingUnavailable,
+      unreadable: recordingUnreadable,
+    });
 
     const avatarsFrom = (sql: SqlClient.SqlClient) =>
       findOccupants(sql)().pipe(

@@ -6,7 +6,15 @@ import { TestClock } from "effect/testing";
 import { SlackClient } from "../src/SlackClient.ts";
 import type { Envelope } from "../src/SlackEvent.ts";
 import { SlackSocket } from "../src/SlackSocket.ts";
-import { makeFakeSlackHttp, type Reply, SLACK_ENV, slackError, slackOk, withEnv } from "./fakes.ts";
+import {
+  captureReports,
+  makeFakeSlackHttp,
+  type Reply,
+  SLACK_ENV,
+  slackError,
+  slackOk,
+  withEnv,
+} from "./fakes.ts";
 
 type Listener = (event: Socket.WebSocketEvent) => void;
 
@@ -202,6 +210,53 @@ describe("SlackSocket", () => {
       assert.strictEqual(slack.sockets.length, 2);
     }),
   );
+
+  it.effect("starts the backoff over once a connection has worked", () =>
+    Effect.gen(function* () {
+      const slack = yield* connect([
+        connection("first"),
+        connection("second"),
+        connection("third"),
+      ]);
+
+      slack.latest().receive({ type: "hello" });
+      yield* settle;
+      slack.latest().close(1006);
+      yield* TestClock.adjust("1 second");
+
+      assert.strictEqual(slack.sockets.length, 2);
+
+      slack.latest().receive({ type: "hello" });
+      yield* settle;
+      slack.latest().close(1006);
+      yield* TestClock.adjust("1 second");
+
+      assert.strictEqual(slack.sockets.length, 3);
+    }),
+  );
+
+  it.effect("reports a lost connection only when reconnecting keeps failing", () => {
+    const { reports, layer } = captureReports();
+
+    return Effect.gen(function* () {
+      const slack = yield* connect([
+        connection("first"),
+        slackError("internal_error"),
+        slackError("internal_error"),
+        connection("fourth"),
+      ]);
+
+      slack.latest().close(1006);
+      yield* TestClock.adjust("1 second");
+
+      assert.deepStrictEqual(reports, []);
+
+      yield* TestClock.adjust("1 minute");
+
+      assert.strictEqual(slack.latest().url, "wss://wss-primary.slack.com/link/?ticket=fourth");
+      assert.strictEqual(reports.length, 1);
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("keeps trying when Slack won't open a connection, without failing", () =>
     Effect.gen(function* () {

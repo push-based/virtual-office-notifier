@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, ErrorReporter, Layer, Option, Schema, Tracer } from "effect";
 import { SqlClient } from "effect/sql";
 
 import { RecordingRequests, type RequestHandler } from "../src/RecordingRequests.ts";
@@ -85,6 +85,20 @@ const countedConnection = (sql: SqlClient.SqlClient, connections: Connections) =
     ),
   );
 
+const recordSpans = () => {
+  const names: Array<string> = [];
+
+  const tracer = Tracer.make({
+    span: (options) => {
+      names.push(options.name);
+
+      return new Tracer.NativeSpan(options);
+    },
+  });
+
+  return { names, tracer };
+};
+
 const requestsOver = <E extends Error>(connection: Layer.Layer<SqlClient.SqlClient, E>) =>
   Effect.provide(Effect.service(RecordingRequests), RecordingRequests.layerPerCall(connection));
 
@@ -134,6 +148,59 @@ describe("RecordingRequests.layerPerCall", () => {
         assert.strictEqual(failure._tag, "RecordingUnavailable");
         assert.strictEqual(failure.reason, "Connection refused");
       }
+    }),
+  );
+});
+
+describe("RecordingRequests.handlePending", () => {
+  it.effect("traces nothing while no request is waiting, and traces the requests it handles", () =>
+    Effect.gen(function* () {
+      yield* createTables;
+      const requests = yield* RecordingRequests.make(Effect.void);
+      const spans = recordSpans();
+
+      yield* requests.handlePending(emptyOffice).pipe(Effect.withTracer(spans.tracer));
+
+      assert.deepStrictEqual(spans.names, []);
+
+      yield* requests.submit(ada, "start");
+      yield* requests.handlePending(emptyOffice).pipe(Effect.withTracer(spans.tracer));
+
+      assert.strictEqual(spans.names[0], "RecordingRequests.handlePending");
+    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
+  );
+
+  it.effect("reports a request it can't read as an error, not as the database being down", () =>
+    Effect.gen(function* () {
+      const sql = yield* createTables;
+      const requests = yield* RecordingRequests.make(Effect.void);
+
+      yield* sql`
+        INSERT INTO office.recording_requests (requested_by, requested_by_name, action)
+        VALUES ('u1', 'Ada', 'dance')
+      `;
+
+      const failure = yield* requests.handlePending(emptyOffice).pipe(Effect.flip);
+
+      assert.strictEqual(failure._tag, "RecordingUnavailable");
+      assert.isTrue(failure.unreadable);
+      assert.strictEqual(failure[ErrorReporter.severity], "Error");
+    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
+  );
+
+  it.effect("reports a database it can't reach as a warning", () =>
+    Effect.gen(function* () {
+      const requests = yield* requestsOver(
+        Layer.effect(
+          SqlClient.SqlClient,
+          Effect.fail(ConnectionRefused.make({ message: "Connection refused" })),
+        ),
+      );
+
+      const failure = yield* requests.handlePending(emptyOffice).pipe(Effect.flip);
+
+      assert.isFalse(failure.unreadable);
+      assert.strictEqual(failure[ErrorReporter.severity], "Warn");
     }),
   );
 });
