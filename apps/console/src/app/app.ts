@@ -1,16 +1,16 @@
 import { Component, signal } from "@angular/core";
 import { PbTabs, type Tab } from "design-system";
 
-import { OfficeRecorder } from "./recorder/office-recorder";
+import { RecordingPanel } from "./recorder/recording-panel";
 import { OfficeStats } from "./stats/office-stats";
 
 @Component({
   selector: "app-root",
-  imports: [OfficeRecorder, OfficeStats, PbTabs],
+  imports: [RecordingPanel, OfficeStats, PbTabs],
   template: `
     <main>
       <div class="frame">
-        <pb-tabs name="view" label="Office Recorder" [tabs]="views" [(selected)]="view" />
+        <pb-tabs name="view" label="Console" [tabs]="views" [(selected)]="view" />
         <div
           class="now"
           role="tabpanel"
@@ -18,7 +18,7 @@ import { OfficeStats } from "./stats/office-stats";
           aria-labelledby="view-tab-now"
           [hidden]="view() !== 'now'"
         >
-          <app-office-recorder />
+          <app-recording-panel />
         </div>
         @if (view() === "stats") {
           <div role="tabpanel" id="view-panel-stats" aria-labelledby="view-tab-stats">

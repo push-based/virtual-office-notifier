@@ -41,7 +41,7 @@ const connectionTo = (env: Env) =>
     url: Redacted.make(env.DATABASE.connectionString),
     ssl: false,
     maxConnections: 1,
-    applicationName: "virtual-office-recorder",
+    applicationName: "virtual-office-console",
     ...columnNaming,
   });
 

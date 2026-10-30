@@ -24,7 +24,7 @@ export default defineConfig(({ mode }) => ({
   },
   run: {
     tasks: {
-      typecheck: "pnpm -w exec tsc --noEmit -p apps/office-recorder/worker",
+      typecheck: "pnpm -w exec tsc --noEmit -p apps/console/worker",
       build: {
         command: "vp build",
         cache: {

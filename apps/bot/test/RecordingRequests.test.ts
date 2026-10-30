@@ -799,7 +799,7 @@ const EditHttpLayer = Layer.mergeAll(
   HttpServer.layerServices,
 ).pipe(Layer.provideMerge(SignedInTest), Layer.provideMerge(TestLayer));
 
-describe("the Office Recorder's HTTP API", () => {
+describe("the Console's HTTP API", () => {
   it.effect("submits a request and looks it up for the signed-in person", () =>
     Effect.gen(function* () {
       const client = yield* HttpApiTest.groups(RecordingApi, ["recording"]);
