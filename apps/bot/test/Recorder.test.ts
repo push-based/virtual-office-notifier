@@ -28,7 +28,7 @@ import { ActionItemWriter, type PulledItem } from "../src/ActionItems.ts";
 import type { Written } from "../src/AiWriting.ts";
 import { ClipArchive } from "../src/ClipArchive.ts";
 import type { Clip } from "../src/ClipCutter.ts";
-import { columnNaming, Database } from "../src/Database.ts";
+import { columnNaming, Database, reconnectDelay } from "../src/Database.ts";
 import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import { FINISH_POLL, POLL_INTERVAL, Recorder, STATUS_INTERVAL } from "../src/Recorder.ts";
@@ -709,6 +709,37 @@ describe("Recorder", () => {
       assert.isNull(recording?.finishedAt);
       assert.strictEqual((yield* h.clipRows)[0]?.transcription, "pending");
       assert.deepStrictEqual(yield* h.posts, []);
+    }),
+  );
+
+  it.effect("retries a clip with backoff while the transcriber can't be reached", () =>
+    Effect.gen(function* () {
+      const outages = yield* Ref.make(2);
+
+      const h = yield* makeHarness({
+        present: [ada],
+        transcribe: () =>
+          Ref.getAndUpdate(outages, (left) => left - 1).pipe(
+            Effect.flatMap((left) =>
+              left > 0
+                ? Effect.fail(TranscriptionError.make({ failure: "Unavailable", detail: "down" }))
+                : Effect.succeed({ text: "hello world", model: "whisper" }),
+            ),
+          ),
+      });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.speak(clip("u1", 2));
+      yield* h.eventually(h.clipRows, (rows) => rows.length === 1);
+
+      yield* TestClock.adjust(reconnectDelay(1));
+      assert.strictEqual((yield* h.clipRows)[0]?.transcription, "pending");
+
+      yield* TestClock.adjust(reconnectDelay(2));
+      yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
+      assert.strictEqual(yield* Ref.get(outages), -1);
     }),
   );
 
