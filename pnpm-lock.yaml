@@ -155,6 +155,12 @@ importers:
       '@effect/sql-pg':
         specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)
+      '@sentry/browser':
+        specifier: 11.8.0
+        version: 11.8.0
+      '@sentry/cloudflare':
+        specifier: 11.8.0
+        version: 11.8.0(@cloudflare/workers-types@5.20261024.1)(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@6.0.3))(wrangler@4.154.0(@cloudflare/workers-types@5.20261024.1)(@types/node@26.6.5))
       activity-sign-in:
         specifier: workspace:*
         version: link:../../libs/activity-sign-in
@@ -1525,6 +1531,21 @@ packages:
       webpack:
         optional: true
 
+  '@sentry/cloudflare@11.8.0':
+    resolution: {integrity: sha512-Xcj2ofSWL/p3IC+2K/Y2keu+hPgY8v08nnsXnpRm+iMoOoNC6x5pbdk6T8smoiFPPghAUBWNBYNqBaKWsgfipg==}
+    engines: {node: '>=20.19.0 <22.0.0 || >=22.12.0 <23.0.0 || >=23.2.0'}
+    peerDependencies:
+      '@cloudflare/workers-types': ^4.x || ^5.x
+      vite: ^6.1.0 || ^7.0.0 || ^8.0.0
+      wrangler: ^4.x
+    peerDependenciesMeta:
+      '@cloudflare/workers-types':
+        optional: true
+      vite:
+        optional: true
+      wrangler:
+        optional: true
+
   '@sentry/conventions@0.27.0':
     resolution: {integrity: sha512-Mrqd/o7n/z7qWSYfQQA7x4fFTA0IqOG6JNsbBpnC97khPwZk7n6DPtOO7YgaYplSl8R8QLRbBz9Xv2lVhToSAg==}
     engines: {node: '>=14'}
@@ -2448,6 +2469,9 @@ packages:
 
   magic-bytes.js@1.13.1:
     resolution: {integrity: sha512-x5sn4UX2k5gCWlcfmoFwG4TPie8+dctESyqOBdhB5p6MsgWXdBKGmt9nXPObj/JI50TTL928lc5Yt1WntMn1bw==}
+
+  magic-string@0.30.21:
+    resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
   magic-string@1.4.3:
     resolution: {integrity: sha512-z12OxmaPGE0F4xlpGdjuAUckipLpQlTAuAmyGhNoD7ODpYUzvDfvtxUbjM/jwznyP178oju/KDdyi220wNJ0RQ==}
@@ -3796,6 +3820,19 @@ snapshots:
       sentry: 0.45.0
       supports-color: 8.1.1
 
+  '@sentry/cloudflare@11.8.0(@cloudflare/workers-types@5.20261024.1)(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@6.0.3))(wrangler@4.154.0(@cloudflare/workers-types@5.20261024.1)(@types/node@26.6.5))':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@sentry/conventions': 0.27.0
+      '@sentry/core': 11.8.0
+      '@sentry/opentelemetry': 11.8.0(@opentelemetry/api@1.9.1)
+      '@sentry/server-utils': 11.8.0
+      magic-string: 0.30.21
+    optionalDependencies:
+      '@cloudflare/workers-types': 5.20261024.1
+      vite: '@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@6.0.3)'
+      wrangler: 4.154.0(@cloudflare/workers-types@5.20261024.1)(@types/node@26.6.5)
+
   '@sentry/conventions@0.27.0': {}
 
   '@sentry/core@11.8.0':
@@ -4567,6 +4604,10 @@ snapshots:
   lz-string@1.5.0: {}
 
   magic-bytes.js@1.13.1: {}
+
+  magic-string@0.30.21:
+    dependencies:
+      '@jridgewell/sourcemap-codec': 1.6.0
 
   magic-string@1.4.3:
     dependencies:

@@ -32,7 +32,7 @@ Posts to Slack when someone opens our Discord "virtual office" voice channel, an
 - **Records voice activity** in the office channel to a [database](#database): joins, leaves, mute, deafen, camera and streaming, exactly as Discord reports them, plus soundboard sounds and emoji reactions. The database can never stop the announcements.
 - **Records the office on demand.** Anyone in the office can press a button in the Console, a Discord Activity, to record what's said. Each person's speech is kept as audio, transcribed with Whisper, and the summary lands in Slack with the full transcript. See [Recording the office](#recording-the-office).
 - **Office stats** in the Console too, for this week, this month or all time: time in the office per person, who's first in and last out, the busiest days and hours, the soundboard leaderboard, the top emoji reactions and how much was recorded. See [Office stats](#office-stats).
-- **Optional Sentry monitoring** of errors, traces and logs.
+- **Optional Sentry monitoring** of errors, traces and logs, for the bot and the Console.
 
 ## What it posts
 
@@ -592,6 +592,7 @@ This creates a `github-deploy` service account and a Workload Identity pool trus
 | `DISCORD_BOT_TOKEN`, `DISCORD_OFFICE_CHANNEL_ID`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CHANNEL_ID` | Your local `.env`                                                         |
 | `DATABASE_URL`                                                                                             | The Supabase session pooler connection string. See [Database](#database). |
 | `OPENROUTER_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `SENTRY_DSN`                        | Optional, your local `.env`                                               |
+| `SENTRY_CONSOLE_DSN`                                                                                       | Optional. See [Monitoring](#monitoring).                                  |
 
 GitHub secrets are the source of truth for the app's configuration. To change a value, update the secret and re-run the latest `CI` workflow on `main`:
 
@@ -609,7 +610,7 @@ The `deploy` job builds the Console first, page and Worker, so nothing ships if 
 4. Installs them under `/opt/virtual-office-notifier` and `/etc`, replacing the previous `node_modules`, reloads systemd and restarts the service.
 5. Waits 15 seconds and fails, printing the last log lines, if the service isn't running.
 
-Last, the Console's `deploy` task runs `wrangler deploy`, which picks up the Worker and page that were just built through the `wrangler.json` the build generates.
+Last, the Console's `deploy` task runs `wrangler deploy`, which picks up the Worker and page that were just built through the `wrangler.json` the build generates. It sets the Worker's `SENTRY_DSN` from the `SENTRY_CONSOLE_DSN` secret, `SENTRY_ENVIRONMENT` to `production` and `SENTRY_RELEASE` to the commit SHA.
 
 The [unit](apps/bot/deploy/virtual-office-notifier.service) runs as the unprivileged `notifier` user with systemd's sandboxing turned on. It restarts 30 seconds after a crash and gives up after 5 failed starts in 10 minutes, so a bad token doesn't keep hammering Discord's login.
 
@@ -632,6 +633,24 @@ To turn it on, create a Node.js project in Sentry and set its DSN as a secret, t
 ```bash
 gh secret set SENTRY_DSN
 ```
+
+#### The Console
+
+With `SENTRY_CONSOLE_DSN` set, the Console reports to a Sentry project of its own, from both the Worker ([`apps/console/worker/Observability.ts`](apps/console/worker/Observability.ts), through [`@sentry/cloudflare`](https://docs.sentry.io/platforms/javascript/guides/cloudflare/)) and the page ([`apps/console/src/app/telemetry/telemetry.ts`](apps/console/src/app/telemetry/telemetry.ts), through [`@sentry/browser`](https://docs.sentry.io/platforms/javascript/)).
+
+- **Issues.** A defect or a `5xx` in an `/api/*` handler is an error, using its `[ErrorReporter.severity]` when it has one; a `4xx` isn't reported. On the page, every error that reaches Angular's `ErrorHandler` is an error.
+- **Traces.** Each `/api/*` request is a trace named after its route, like `GET /api/recordings/:id`. The page's load and its `/api/*` calls are traced too, and join the Worker's traces.
+- **Logs.** The Worker's log lines, with the message only.
+
+The page runs inside Discord's Activity frame, which only lets it reach mapped URLs. So it asks the Worker where to report at `/api/telemetry`, and sends everything to `POST /api/sentry`, which forwards it to Sentry only if it's for the Console's DSN. That traffic isn't traced, and without a DSN both routes are off.
+
+To turn it on, create a Browser JavaScript project in Sentry and set its DSN as a secret, then re-run the latest `CI` workflow on `main`:
+
+```bash
+gh secret set SENTRY_CONSOLE_DSN
+```
+
+Both projects fit in Sentry's free Developer plan: the office sees a handful of errors and a few thousand spans a month, against 5,000 errors and 5 million spans shared by every project.
 
 ## Troubleshooting
 
@@ -673,6 +692,8 @@ When [answering in Slack](#answering-in-slack) is on, the bot reads mentions of 
 While anyone is in the office, the bot shows up in the channel too. It's muted and deafened and never opens an audio connection, so it doesn't hear or record anything anyone says. The exception is a [recording](#recording-the-office), which someone in the office has to start on purpose: for as long as it's on, the bot is un-deafened and renamed `🔴 Recording`, everything said is kept as audio in the bucket and as text in the database, the audio goes to Whisper on Cloudflare, the transcript goes to the free AI models for a summary and its action items, and the summary, action items and transcript are posted to Slack. Nothing is ever deleted. Tell the team how it works before turning it on.
 
 Sentry, when it's configured, gets error reports, timings, database queries without their values, and log messages without their annotations, so no names or Discord user IDs. User IDs are also redacted in the announcement logs; an update the database couldn't store is logged in full, but only to the journal.
+
+From the Console, Sentry gets the same: no request or response bodies, so no sign-in codes, tokens, titles or agendas; no headers or cookies; no session replays; and no console lines or clicks in the breadcrumbs. It does get the URLs of `/api/*` calls, which carry recording IDs but no names.
 
 ## Contributing
 
