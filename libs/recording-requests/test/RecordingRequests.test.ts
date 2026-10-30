@@ -36,7 +36,7 @@ const createTables = Effect.gen(function* () {
   yield* sql`
     CREATE TABLE office.recordings (
       id uuid PRIMARY KEY, started_at timestamptz NOT NULL, started_by text NOT NULL, stopped_at timestamptz,
-      paused_at timestamptz, paused_by text
+      paused_at timestamptz, paused_by text, title text, agenda text
     )
   `;
   yield* sql`
@@ -49,7 +49,9 @@ const createTables = Effect.gen(function* () {
       handled_at timestamptz,
       outcome text,
       reason text,
-      recording_id uuid
+      recording_id uuid,
+      title text,
+      agenda text
     )
   `;
   yield* sql`

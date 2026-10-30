@@ -113,6 +113,10 @@ export class HistoryStore {
     this.show(null);
   }
 
+  refresh(): void {
+    this.opened.next(this.openedId());
+  }
+
   openInSlack(url: string): void {
     this.session.openExternalLink(url).catch((cause: unknown) => {
       this.patch({ failure: messageOf(cause) });

@@ -3,10 +3,12 @@ import { HttpApiBuilder, HttpApiError } from "effect/http-api";
 
 import {
   CurrentRequester,
+  EditNotFound,
   RecordingApi,
   RecordingNotFound,
   RequestNotFound,
 } from "./RecordingApi.ts";
+import { RecordingEdits } from "./RecordingEdits.ts";
 import { RecordingHistory } from "./RecordingHistory.ts";
 import { RecordingRequests, type RecordingUnavailable } from "./RecordingRequests.ts";
 
@@ -29,7 +31,10 @@ export const RecordingHandlers = HttpApiBuilder.group(
         Effect.gen(function* () {
           const requester = yield* CurrentRequester;
 
-          return yield* requests.submit(requester, payload.action);
+          return yield* requests.submit(requester, payload.action, {
+            title: payload.title ?? null,
+            agenda: payload.agenda ?? null,
+          });
         }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
       find: ({ params }) =>
         Effect.gen(function* () {
@@ -62,6 +67,33 @@ export const HistoryHandlers = HttpApiBuilder.group(
           ),
           Effect.catchTag("RecordingUnavailable", serviceUnavailable),
         ),
+    });
+  }),
+);
+
+export const EditHandlers = HttpApiBuilder.group(
+  RecordingApi,
+  "edits",
+  Effect.fn(function* (handlers) {
+    const edits = yield* RecordingEdits;
+
+    return handlers.handleAll({
+      submit: ({ params, payload }) =>
+        Effect.gen(function* () {
+          const editor = yield* CurrentRequester;
+          const submitted = yield* edits.submit(editor, params.id, payload);
+
+          return yield* Effect.fromOption(submitted).pipe(
+            Effect.mapError(() => RecordingNotFound.make()),
+          );
+        }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
+      find: ({ params }) =>
+        Effect.gen(function* () {
+          const editor = yield* CurrentRequester;
+          const found = yield* edits.find(editor, params.id);
+
+          return yield* Effect.fromOption(found).pipe(Effect.mapError(() => EditNotFound.make()));
+        }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
     });
   }),
 );

@@ -12,6 +12,7 @@ import {
 
 import { OfficeStats, StatsQuery } from "./OfficeStats.ts";
 import { RecordingDetail, RecordingId, RecordingPage } from "./Recording.ts";
+import { RecordingChange, SubmittedEdit } from "./RecordingEdit.ts";
 import { RecordingStatus, RequestSubmission, SubmittedRequest } from "./RecordingRequest.ts";
 
 export interface Requester {
@@ -37,6 +38,11 @@ export class RecordingNotFound extends Schema.TaggedError<
   RecordingNotFound,
   { readonly brand: unique symbol }
 >()("RecordingNotFound", {}, { httpApiStatus: 404 }) {}
+
+export class EditNotFound extends Schema.TaggedError<
+  EditNotFound,
+  { readonly brand: unique symbol }
+>()("EditNotFound", {}, { httpApiStatus: 404 }) {}
 
 export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()(
   "recording-requests/SignedIn",
@@ -94,8 +100,26 @@ export class HistoryGroup extends HttpApiGroup.make("history")
   .middleware(SignedIn)
   .prefix("/api") {}
 
+export class EditGroup extends HttpApiGroup.make("edits")
+  .add(
+    HttpApiEndpoint.post("submit", "/recordings/:id/edits", {
+      params: { id: RecordingId },
+      payload: RecordingChange,
+      success: SubmittedEdit.pipe(HttpApiSchema.status(202)),
+      error: [RecordingNotFound, HttpApiError.ServiceUnavailable],
+    }),
+    HttpApiEndpoint.get("find", "/edits/:id", {
+      params: { id: Schema.Int },
+      success: SubmittedEdit,
+      error: [EditNotFound, HttpApiError.ServiceUnavailable],
+    }),
+  )
+  .middleware(SignedIn)
+  .prefix("/api") {}
+
 export class RecordingApi extends HttpApi.make("office-recorder")
   .add(SignInGroup.prefix("/api"))
   .add(RecordingGroup)
   .add(StatsGroup)
-  .add(HistoryGroup) {}
+  .add(HistoryGroup)
+  .add(EditGroup) {}

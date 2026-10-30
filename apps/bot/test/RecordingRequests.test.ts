@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option, Redacted, Schema } from "effect";
+import { DateTime, Effect, Layer, Option, pipe, Redacted, Schema, String } from "effect";
 import { HttpClientRequest, HttpServer } from "effect/http";
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
 import { SqlClient } from "effect/sql";
@@ -10,7 +10,8 @@ import {
   SignedIn,
   Unauthorized,
 } from "recording-requests/RecordingApi";
-import { RecordingHandlers } from "recording-requests/RecordingHandlers";
+import { EditHandlers, RecordingHandlers } from "recording-requests/RecordingHandlers";
+import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEdits";
 import type { ActiveRecording } from "recording-requests/RecordingRequest";
 import { RecordingRequests, type RequestHandler } from "recording-requests/RecordingRequests";
 
@@ -28,6 +29,14 @@ const TestLayer = Layer.mergeAll(
       const database = yield* Database;
 
       return yield* RecordingRequests.make(database.ready);
+    }),
+  ),
+  Layer.effect(
+    RecordingEdits,
+    Effect.gen(function* () {
+      const database = yield* Database;
+
+      return yield* RecordingEdits.make(database.ready);
     }),
   ),
   RecordingStore.layer,
@@ -67,6 +76,8 @@ const officeHandler = Effect.fnUntraced(function* (office: Office) {
           guildId: "guild",
           channelId: "office",
           startedByName: request.requestedByName,
+          title: request.title,
+          agenda: request.agenda,
         });
 
         if (office.failStartAfterWriting === true)
@@ -245,6 +256,40 @@ describe("RecordingRequests", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
+  it.effect(
+    "starts the recording with the title and agenda of the Start request, and keeps them off any other request",
+    () =>
+      Effect.gen(function* () {
+        const requests = yield* RecordingRequests;
+        const sql = yield* SqlClient.SqlClient;
+        const { handler } = yield* officeHandler({ occupants: ["u1"] });
+        const plan = { title: "Deploy retro", agenda: "What broke on Friday" };
+
+        yield* requests.submit(ada, "start", plan);
+        yield* requests.submit(ada, "stop", plan);
+        yield* requests.handlePending(handler);
+
+        assert.deepStrictEqual(
+          yield* sql`SELECT action, title, agenda FROM office.recording_requests ORDER BY id`,
+          [
+            { action: "start", ...plan },
+            { action: "stop", title: null, agenda: null },
+          ],
+        );
+        assert.deepStrictEqual(yield* sql`SELECT title, agenda FROM office.recordings`, [plan]);
+
+        yield* requests.publishStatus({
+          recordingId: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+          botInOffice: true,
+          occupants: [],
+        });
+
+        const status = yield* requests.status;
+        assert.strictEqual(status.recording?.title, "Deploy retro");
+        assert.strictEqual(status.recording?.agenda, "What broke on Friday");
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
   it.effect("ignores a request with the reason and an explanation", () =>
     Effect.gen(function* () {
       const requests = yield* RecordingRequests;
@@ -336,6 +381,8 @@ describe("RecordingRequests", () => {
       );
 
       assert.isNull(status.recording?.pause);
+      assert.isNull(status.recording?.title);
+      assert.isNull(status.recording?.agenda);
 
       const store = yield* RecordingStore;
       yield* store.pauseRecording(
@@ -386,6 +433,220 @@ describe("RecordingRequests", () => {
   );
 });
 
+const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
+
+const recorded = (finished: { readonly posted: boolean } | null) =>
+  Effect.gen(function* () {
+    const store = yield* RecordingStore;
+
+    yield* store.startRecording({
+      id: RECORDING,
+      guildId: "guild",
+      channelId: "office",
+      startedAt: DateTime.makeUnsafe(0),
+      startedBy: "u1",
+      startedByName: "Ada",
+      title: null,
+      agenda: null,
+    });
+
+    if (finished === null) return;
+
+    yield* store.stopRecording(RECORDING, DateTime.makeUnsafe(60_000), "requested", "u1");
+    yield* store.finishRecording(RECORDING, {
+      transcript: "",
+      summary: null,
+      summaryModel: null,
+      slackChannelId: finished.posted ? "C1" : null,
+      slackTs: finished.posted ? "1.2" : null,
+      slackPermalink: null,
+      finishedAt: DateTime.makeUnsafe(61_000),
+    });
+  });
+
+const editHandler = Effect.fnUntraced(function* (failAfterWriting: boolean) {
+  const store = yield* RecordingStore;
+  const committed: Array<string> = [];
+
+  const handler: EditHandler<StoreUnavailable, never> = {
+    apply: (edit) =>
+      Effect.gen(function* () {
+        yield* store.applyEdit(edit.recordingId, edit.change);
+
+        if (failAfterWriting)
+          return yield* StoreUnavailable.make({ reason: "Lost the connection" });
+
+        return {
+          afterCommit: Effect.sync(() => committed.push(`${edit.change.kind} by ${edit.editedBy}`)),
+        };
+      }),
+  };
+
+  return { handler, committed };
+});
+
+const titleOf = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const [row] = yield* sql<{ readonly title: string | null }>`SELECT title FROM office.recordings`;
+
+  return row?.title ?? null;
+});
+
+describe("RecordingEdits", () => {
+  it.effect(
+    "shows a submitted edit as pending, only to whoever made it, and refuses a recording that doesn't exist",
+    () =>
+      Effect.gen(function* () {
+        const edits = yield* RecordingEdits;
+
+        yield* recorded(null);
+
+        const submitted = yield* edits.submit(grace, RECORDING, { kind: "title", title: "Retro" });
+        const id = Option.getOrThrow(submitted).id;
+        assert.deepStrictEqual(submitted, Option.some({ id, outcome: null }));
+
+        assert.deepStrictEqual(yield* edits.find(grace, id), submitted);
+        assert.deepStrictEqual(yield* edits.find(ada, id), Option.none());
+
+        assert.deepStrictEqual(
+          yield* edits.submit(grace, "8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10", {
+            kind: "title",
+            title: "Retro",
+          }),
+          Option.none(),
+        );
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("applies edits in order once each is committed, and keeps who made each one", () =>
+    Effect.gen(function* () {
+      const edits = yield* RecordingEdits;
+      const sql = yield* SqlClient.SqlClient;
+      const { handler, committed } = yield* editHandler(false);
+
+      yield* recorded({ posted: true });
+
+      const first = yield* edits.submit(grace, RECORDING, { kind: "title", title: "Retro" });
+      yield* edits.submit(ada, RECORDING, { kind: "agenda", agenda: "Friday" });
+      yield* edits.submit(ada, RECORDING, { kind: "title", title: null });
+      yield* edits.handlePending(handler);
+
+      const id = Option.getOrThrow(first).id;
+      assert.deepStrictEqual(
+        yield* edits.find(grace, id),
+        Option.some({ id, outcome: "applied" as const }),
+      );
+      assert.deepStrictEqual(committed, ["title by u2", "agenda by u1", "title by u1"]);
+      assert.isNull(yield* titleOf);
+
+      const rows = yield* sql`
+        SELECT edited_by, edited_by_name, change, handled_at >= edited_at AS handled_after
+        FROM office.recording_edits ORDER BY id
+      `;
+
+      assert.deepStrictEqual(rows, [
+        {
+          editedBy: "u2",
+          editedByName: "Grace",
+          change: { kind: "title", title: "Retro" },
+          handledAfter: true,
+        },
+        {
+          editedBy: "u1",
+          editedByName: "Ada",
+          change: { kind: "agenda", agenda: "Friday" },
+          handledAfter: true,
+        },
+        {
+          editedBy: "u1",
+          editedByName: "Ada",
+          change: { kind: "title", title: null },
+          handledAfter: true,
+        },
+      ]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("ignores an edit of a silent recording, and says why", () =>
+    Effect.gen(function* () {
+      const edits = yield* RecordingEdits;
+      const { handler, committed } = yield* editHandler(false);
+
+      yield* recorded({ posted: false });
+
+      const submitted = yield* edits.submit(ada, RECORDING, { kind: "title", title: "Lunch" });
+      yield* edits.handlePending(handler);
+
+      const id = Option.getOrThrow(submitted).id;
+
+      assert.deepStrictEqual(
+        yield* edits.find(ada, id),
+        Option.some({
+          id,
+          outcome: "ignored" as const,
+          reason: "silent" as const,
+          explanation: "Nobody spoke in that recording, so there's nothing to change.",
+        }),
+      );
+      assert.deepStrictEqual(committed, []);
+      assert.isNull(yield* titleOf);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("ignores an edit it can't read instead of getting stuck on it", () =>
+    Effect.gen(function* () {
+      const edits = yield* RecordingEdits;
+      const sql = yield* SqlClient.SqlClient;
+      const { handler } = yield* editHandler(false);
+
+      yield* recorded(null);
+      yield* sql`
+        INSERT INTO office.recording_edits (recording_id, edited_by, edited_by_name, kind, change)
+        VALUES (${RECORDING}, 'u1', 'Ada', 'title', '{"kind":"title","title":42}'::jsonb)
+      `;
+
+      yield* edits.submit(ada, RECORDING, { kind: "title", title: "Retro" });
+      yield* edits.handlePending(handler);
+
+      assert.deepStrictEqual(
+        yield* sql`SELECT outcome, reason FROM office.recording_edits ORDER BY id`,
+        [
+          { outcome: "ignored", reason: "unreadable" },
+          { outcome: "applied", reason: null },
+        ],
+      );
+      assert.strictEqual(yield* titleOf, "Retro");
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "leaves the edit pending and changes nothing when applying fails, so the retry applies it",
+    () =>
+      Effect.gen(function* () {
+        const edits = yield* RecordingEdits;
+
+        yield* recorded(null);
+
+        const submitted = yield* edits.submit(ada, RECORDING, { kind: "title", title: "Retro" });
+        const failing = yield* editHandler(true);
+
+        const error = yield* edits.handlePending(failing.handler).pipe(Effect.flip);
+        assert.strictEqual(error._tag, "StoreUnavailable");
+
+        const id = Option.getOrThrow(submitted).id;
+        assert.deepStrictEqual(yield* edits.find(ada, id), Option.some({ id, outcome: null }));
+        assert.isNull(yield* titleOf);
+        assert.deepStrictEqual(failing.committed, []);
+
+        const working = yield* editHandler(false);
+        yield* edits.handlePending(working.handler);
+
+        assert.strictEqual(yield* titleOf, "Retro");
+        assert.deepStrictEqual(working.committed, ["title by u1"]);
+      }).pipe(Effect.provide(TestLayer)),
+  );
+});
+
 const SignedInTest = Layer.succeed(
   SignedIn,
   SignedIn.of({
@@ -406,6 +667,12 @@ const HttpLayer = Layer.mergeAll(
   HttpServer.layerServices,
 );
 
+const EditHttpLayer = Layer.mergeAll(
+  EditHandlers,
+  RecordingHandlers,
+  HttpServer.layerServices,
+).pipe(Layer.provideMerge(SignedInTest), Layer.provideMerge(TestLayer));
+
 describe("the Office Recorder's HTTP API", () => {
   it.effect("submits a request and looks it up for the signed-in person", () =>
     Effect.gen(function* () {
@@ -423,6 +690,67 @@ describe("the Office Recorder's HTTP API", () => {
 
       assert.strictEqual(missing._tag, "RequestNotFound");
     }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), HttpLayer))),
+  );
+
+  it.effect("starts with a title and agenda, tidied up, and treats blank ones as none", () =>
+    Effect.gen(function* () {
+      const client = yield* HttpApiTest.groups(RecordingApi, ["recording"]);
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* client.recording.submit({
+        payload: { action: "start", title: "  Deploy \n  retro ", agenda: " \n" },
+      });
+      yield* client.recording.submit({ payload: { action: "start" } });
+
+      assert.deepStrictEqual(
+        yield* sql`SELECT title, agenda FROM office.recording_requests ORDER BY id`,
+        [
+          { title: "Deploy retro", agenda: null },
+          { title: null, agenda: null },
+        ],
+      );
+
+      const tooLong = yield* client.recording
+        .submit({ payload: { action: "start", title: pipe("x", String.repeat(81)) } })
+        .pipe(Effect.flip);
+
+      assert.strictEqual(tooLong._tag, "SchemaError");
+    }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), EditHttpLayer))),
+  );
+
+  it.effect(
+    "submits an edit and looks it up, and answers 404 for a recording that doesn't exist",
+    () =>
+      Effect.gen(function* () {
+        const client = yield* HttpApiTest.groups(RecordingApi, ["edits"]);
+
+        yield* recorded(null);
+
+        const submitted = yield* client.edits.submit({
+          params: { id: RECORDING },
+          payload: { kind: "agenda", agenda: "What broke on Friday" },
+        });
+
+        assert.strictEqual(submitted.outcome, null);
+
+        const found = yield* client.edits.find({ params: { id: submitted.id } });
+        assert.deepStrictEqual(found, submitted);
+
+        const missingEdit = yield* client.edits
+          .find({ params: { id: submitted.id + 1 } })
+          .pipe(Effect.flip);
+
+        assert.strictEqual(missingEdit._tag, "EditNotFound");
+
+        const missingRecording = yield* client.edits
+          .submit({
+            params: { id: "8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10" },
+            payload: { kind: "title", title: "Retro" },
+          })
+          .pipe(Effect.flip);
+
+        assert.strictEqual(missingRecording._tag, "RecordingNotFound");
+      }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), EditHttpLayer))),
   );
 
   it.effect("sends the recording status with times as ISO strings", () =>

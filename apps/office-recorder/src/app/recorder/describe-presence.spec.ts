@@ -16,6 +16,8 @@ const anna: RunningRecording = {
   startedByName: "Anna",
   endsAt: "2026-10-27T16:00:00Z",
   pause: null,
+  title: null,
+  agenda: null,
 };
 
 const recording: RecordingStatus = { ...idle, recording: anna };

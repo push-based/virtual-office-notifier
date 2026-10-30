@@ -24,6 +24,7 @@ const RecordingRow = Schema.Struct({
   slackTs: Schema.NullOr(Schema.String),
   startedBy: Schema.String,
   startedByName: Schema.NullOr(Schema.String),
+  title: Schema.NullOr(Schema.String),
 });
 
 type RecordingRow = typeof RecordingRow.Type;
@@ -34,6 +35,7 @@ const decodeDetails = Schema.decodeUnknownEffect(
   Schema.Array(
     Schema.Struct({
       ...RecordingRow.fields,
+      agenda: Schema.NullOr(Schema.String),
       stopReason: Schema.NullOr(StopReason),
       stoppedBy: Schema.NullOr(Schema.String),
       stoppedByName: Schema.NullOr(Schema.String),
@@ -88,6 +90,7 @@ const listed = (
   stoppedAt: row.stoppedAt,
   startedBy: memberOf(avatars, row.startedBy, row.startedByName),
   speakers,
+  title: row.title,
 });
 
 const unavailable = (reason: string) => Effect.fail(RecordingUnavailable.make({ reason }));
@@ -152,7 +155,7 @@ export class RecordingHistory extends Context.Service<
           Effect.gen(function* () {
             const rows = yield* sql`
               SELECT r.id, r.started_at, r.stopped_at, r.finished_at, r.slack_ts, r.started_by,
-                     coalesce(m.real_name, m.display_name) AS started_by_name
+                     coalesce(m.real_name, m.display_name) AS started_by_name, r.title
               FROM office.recordings r
               LEFT JOIN office.members m ON m.user_id = r.started_by
               WHERE ${sql.and(
@@ -199,7 +202,7 @@ export class RecordingHistory extends Context.Service<
           Effect.gen(function* () {
             const rows = yield* sql`
               SELECT r.id, r.started_at, r.stopped_at, r.finished_at, r.slack_ts, r.started_by,
-                     coalesce(m.real_name, m.display_name) AS started_by_name,
+                     coalesce(m.real_name, m.display_name) AS started_by_name, r.title, r.agenda,
                      r.stop_reason, r.stopped_by, coalesce(s.real_name, s.display_name) AS stopped_by_name,
                      r.summary, r.summary_model, r.slack_permalink
               FROM office.recordings r
@@ -226,6 +229,7 @@ export class RecordingHistory extends Context.Service<
 
             const detail: RecordingDetail = {
               ...listed(row, speakers(row.id), avatars),
+              agenda: row.agenda,
               stopReason: row.stopReason,
               stoppedBy:
                 row.stoppedBy === null ? null : memberOf(avatars, row.stoppedBy, row.stoppedByName),

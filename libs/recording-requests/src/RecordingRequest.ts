@@ -1,5 +1,6 @@
 import { Data, DateTime, Duration, Option, Schema, SchemaTransformation } from "effect";
 
+import { Agenda, Title } from "./Recording.ts";
 import { CHECK_INTERVAL_MS, RECORDING_LIMIT_MS, REQUEST_EXPIRY_MS } from "./Wire.ts";
 
 export const RECORDING_LIMIT = Duration.millis(RECORDING_LIMIT_MS);
@@ -26,7 +27,13 @@ export const RequestAction = Schema.Literals(["start", "stop", "pause", "resume"
 
 export type RequestAction = typeof RequestAction.Type;
 
-export const RequestSubmission = Schema.Struct({ action: RequestAction });
+export const RequestSubmission = Schema.Struct({
+  action: RequestAction,
+  title: Schema.optionalKey(Title),
+  agenda: Schema.optionalKey(Agenda),
+});
+
+export type RequestSubmission = typeof RequestSubmission.Type;
 
 export const RequestOutcome = Schema.Literals([
   "started",
@@ -56,6 +63,8 @@ export interface RecordingRequest {
   readonly requestedBy: string;
   readonly requestedByName: string;
   readonly action: RequestAction;
+  readonly title: string | null;
+  readonly agenda: string | null;
 }
 
 export interface Pause {
@@ -170,6 +179,8 @@ export const RunningRecording = Schema.Struct({
   startedByName: Schema.String,
   endsAt: Schema.DateTimeUtcFromString,
   pause: Schema.NullOr(RecordingPause),
+  title: Schema.NullOr(Schema.String),
+  agenda: Schema.NullOr(Schema.String),
 });
 
 export const RecordingStatus = Schema.Struct({

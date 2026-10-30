@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Exit, pipe, Schema, String } from "effect";
+import { Array, DateTime, Effect, Exit, pipe, Schema, String } from "effect";
 
 import type { ClipLine, PauseLine, RecordingDetails } from "../src/RecordingStore.ts";
 import {
@@ -7,6 +7,7 @@ import {
   MAX_SUMMARY_LENGTH,
   speakersOf,
   SummaryText,
+  summaryRequest,
   transcriptLines,
   transcriptText,
 } from "../src/SummaryWriter.ts";
@@ -24,6 +25,8 @@ const details: RecordingDetails = {
   stoppedAt: at(95),
   startedByName: "Ada",
   stopReason: "requested",
+  title: null,
+  agenda: null,
 };
 
 const line = (overrides: Partial<ClipLine> = {}): ClipLine => ({
@@ -90,6 +93,51 @@ describe("transcriptText", () => {
       "10:40 Ben: We're back.",
       "11:20–11:35 Paused by Grace",
     ]);
+  });
+});
+
+describe("summaryRequest", () => {
+  const transcript = transcriptText(details, [line()], []);
+
+  it("is just the transcript when the recording has no title or agenda", () => {
+    assert.strictEqual(summaryRequest(details, transcript), transcript);
+  });
+
+  it("puts the title and agenda above the transcript, marking the agenda as the plan", () => {
+    assert.deepStrictEqual(
+      String.split(
+        summaryRequest(
+          { ...details, title: "Deploy retro", agenda: "What broke\nWho fixes it" },
+          transcript,
+        ),
+        "\n",
+      ),
+      [
+        "Title: Deploy retro",
+        "Agenda, what people meant to cover, not what happened:",
+        "What broke",
+        "Who fixes it",
+        "",
+        "Transcript:",
+        "Office recording from Fri 23 Oct 10:00 to 11:35 (UTC+2), 1h 35m, started by Ada.",
+        "",
+        "10:01 Ada: Hello everyone.",
+      ],
+    );
+  });
+
+  it("gives only what's there", () => {
+    assert.deepStrictEqual(
+      Array.take(
+        String.split(summaryRequest({ ...details, agenda: "Friday" }, transcript), "\n"),
+        4,
+      ),
+      ["Agenda, what people meant to cover, not what happened:", "Friday", "", "Transcript:"],
+    );
+    assert.deepStrictEqual(
+      Array.take(String.split(summaryRequest({ ...details, title: "Retro" }, transcript), "\n"), 3),
+      ["Title: Retro", "", "Transcript:"],
+    );
   });
 });
 

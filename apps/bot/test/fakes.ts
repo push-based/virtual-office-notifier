@@ -23,6 +23,7 @@ import {
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
 import { HeadlineWriter } from "../src/HeadlineWriter.ts";
 import { HistoryUnavailable } from "../src/OfficeHistory.ts";
+import type { SlackMessage } from "../src/SlackMessage.ts";
 import {
   type FileUpload,
   type OutgoingMessage,
@@ -301,6 +302,13 @@ export interface FakeSlackClientOptions {
   readonly profiles?: ReadonlyMap<string, SlackProfile> | undefined;
   readonly postFailure?: SlackErrorReason | undefined;
   readonly permalinkFailure?: SlackErrorReason | undefined;
+  readonly updateFailure?: SlackErrorReason | undefined;
+}
+
+export interface UpdatedMessage {
+  readonly channel: string;
+  readonly ts: string;
+  readonly message: SlackMessage;
 }
 
 export const permalinkOf = (channel: string, ts: string) =>
@@ -313,6 +321,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
   const posts = yield* Ref.make<ReadonlyArray<OutgoingMessage>>([]);
   const reactions = yield* Ref.make<ReadonlyArray<readonly [string, string, string]>>([]);
   const uploads = yield* Ref.make<ReadonlyArray<FileUpload>>([]);
+  const updates = yield* Ref.make<ReadonlyArray<UpdatedMessage>>([]);
   const threads = yield* Ref.make(new Map(options.threads ?? []));
   const profiles = options.profiles ?? new Map<string, SlackProfile>();
 
@@ -339,6 +348,10 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
     SlackClient,
     SlackClient.of({
       postMessage,
+      updateMessage: (channel, ts, message) =>
+        options.updateFailure === undefined
+          ? Ref.update(updates, (all) => [...all, { channel, ts, message }])
+          : Effect.fail(SlackError.make({ reason: options.updateFailure })),
       addReaction: (channel, ts, emoji) =>
         Ref.update(reactions, (all) => [...all, [channel, ts, emoji] as const]),
       uploadFile: (upload) => Ref.update(uploads, (all) => [...all, upload]),
@@ -360,6 +373,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
     posts: Ref.get(posts),
     reactions: Ref.get(reactions),
     uploads: Ref.get(uploads),
+    updates: Ref.get(updates),
     addToThread: (threadTs: string, message: ThreadMessage) =>
       Ref.update(threads, (all) =>
         new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message]),

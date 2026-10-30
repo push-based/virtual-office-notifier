@@ -1,4 +1,5 @@
 import { Cause, Effect, ErrorReporter, Layer, Option } from "effect";
+import { RecordingEdits } from "recording-requests/RecordingEdits";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
 import { ActivityLog } from "./ActivityLog.ts";
@@ -15,6 +16,7 @@ const disabled = Layer.mergeAll(
   SlackHistory.layerDisabled,
   RecordingStore.layerDisabled,
   RecordingRequests.layerDisabled,
+  RecordingEdits.layerDisabled,
 );
 
 const recordingRequests = Layer.effect(
@@ -23,6 +25,15 @@ const recordingRequests = Layer.effect(
     const database = yield* Database;
 
     return yield* RecordingRequests.make(database.ready);
+  }),
+);
+
+const recordingEdits = Layer.effect(
+  RecordingEdits,
+  Effect.gen(function* () {
+    const database = yield* Database;
+
+    return yield* RecordingEdits.make(database.ready);
   }),
 );
 
@@ -42,6 +53,7 @@ export const StorageLayer = Layer.unwrap(
           SlackHistory.layer,
           RecordingStore.layer,
           recordingRequests,
+          recordingEdits,
         ).pipe(
           Layer.provide(Layer.provideMerge(ActivityLog.layer, Database.layer(url))),
           Layer.catch((error) =>

@@ -1,7 +1,9 @@
 import { Component, signal } from "@angular/core";
 import { TestBed } from "@angular/core/testing";
-import { describe, expect, it } from "vite-plus/test";
+import { of } from "rxjs";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 
+import { EditApi } from "../edits/edit-api";
 import { NO_SUMMARY } from "./describe-recording";
 import { recordingDetail } from "./fixtures";
 import type { RecordingDetail } from "./models";
@@ -15,6 +17,7 @@ import { RecordingPage } from "./recording-page";
       [now]="0"
       (back)="backs.set(backs() + 1)"
       (openInSlack)="opened.set($event)"
+      (edited)="edits.set(edits() + 1)"
     />
   `,
 })
@@ -24,6 +27,8 @@ class Host {
   readonly backs = signal(0);
 
   readonly opened = signal<string | null>(null);
+
+  readonly edits = signal(0);
 }
 
 const render = async (recording: RecordingDetail) => {
@@ -42,6 +47,55 @@ const buttonNamed = (element: HTMLElement, name: string) =>
   [...element.querySelectorAll("button")].find((button) => button.textContent?.trim() === name);
 
 describe("RecordingPage", () => {
+  beforeEach(() =>
+    TestBed.configureTestingModule({
+      providers: [
+        {
+          provide: EditApi,
+          useValue: {
+            submit: () => of({ id: 1, outcome: null }),
+            find: () => of({ id: 1, outcome: "applied" }),
+          },
+        },
+      ],
+    }),
+  );
+
+  it("heads the page with the title, when it ran and the agenda when it has them", async () => {
+    const { element } = await render(
+      recordingDetail({ title: "Deploy retro", agenda: "• What broke\n• Who fixes it" }),
+    );
+
+    expect(element.querySelector("h2")?.textContent).toBe("Deploy retro");
+    expect(element.querySelector("header p")?.textContent).toBe(
+      "Thu 29 Oct, 14:05 · 1h 12m · Started by Anna · Stopped by Anna",
+    );
+    expect(element.querySelector(".agenda-text")?.textContent).toBe("• What broke\n• Who fixes it");
+  });
+
+  it("has no agenda section without an agenda", async () => {
+    const { element } = await render(recordingDetail());
+
+    expect(element.querySelector(".agenda")).toBeNull();
+  });
+
+  it("edits the title and agenda behind an Edit button, and says when it's saved", async () => {
+    const { fixture, element } = await render(recordingDetail({ title: "Deploy retro" }));
+
+    buttonNamed(element, "Edit")?.click();
+    await fixture.whenStable();
+
+    expect(element.querySelector("app-recording-editor input")?.getAttribute("value")).toBeNull();
+    expect(element.querySelector<HTMLInputElement>("app-recording-editor input")?.value).toBe(
+      "Deploy retro",
+    );
+
+    buttonNamed(element, "Cancel")?.click();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.edits()).toBe(0);
+  });
+
   it("heads the page with when it ran, who started it and how it stopped", async () => {
     const { element } = await render(recordingDetail());
 

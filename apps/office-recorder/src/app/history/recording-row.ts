@@ -17,10 +17,10 @@ export const personOf = (member: OfficeMember): Person => ({
   template: `
     <ng-template #facts>
       <span class="top">
-        <span class="text-body when">{{ startedAt() }}</span>
+        <span class="text-body when">{{ recording().title ?? startedAt() }}</span>
         <pb-badge [tone]="badge().tone">{{ badge().label }}</pb-badge>
       </span>
-      <span pbDescription>{{ runTime() }} · Started by {{ recording().startedBy.name }}</span>
+      <span pbDescription>{{ factLine() }}</span>
       @if (speakers().length > 0) {
         <pb-people [people]="speakers()" />
       }
@@ -78,6 +78,7 @@ export const personOf = (member: OfficeMember): Person => ({
     .when {
       font-weight: 600;
       color: var(--color-text-heading);
+      overflow-wrap: anywhere;
     }
   `,
 })
@@ -97,6 +98,16 @@ export class RecordingRow {
   protected readonly runTime = computed(() =>
     formatRunTime(this.recording().startedAt, this.recording().stoppedAt, this.now()),
   );
+
+  protected readonly factLine = computed(() => {
+    const recording = this.recording();
+
+    return [
+      ...(recording.title === null ? [] : [this.startedAt()]),
+      this.runTime(),
+      `Started by ${recording.startedBy.name}`,
+    ].join(" · ");
+  });
 
   protected readonly speakers = computed(() => this.recording().speakers.map(personOf));
 }

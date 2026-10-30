@@ -1,6 +1,7 @@
 import { Context, Duration, Effect, Layer, Match, Option, Schema } from "effect";
 import { SqlClient, SqlError } from "effect/sql";
 
+import { NO_PLAN, type RecordingPlan } from "./Recording.ts";
 import type { Requester } from "./RecordingApi.ts";
 import {
   type ActiveRecording,
@@ -76,6 +77,8 @@ const decodePending = Schema.decodeUnknownEffect(
       requestedBy: Schema.String,
       requestedByName: Schema.String,
       action: RequestAction,
+      title: Schema.NullOr(Schema.String),
+      agenda: Schema.NullOr(Schema.String),
       checkedAt: Schema.DateTimeUtcFromDate,
     }),
   ),
@@ -99,6 +102,8 @@ const decodeStatus = Schema.decodeUnknownEffect(
       pausedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
       pausedBy: Schema.NullOr(Schema.String),
       pausedByName: Schema.NullOr(Schema.String),
+      title: Schema.NullOr(Schema.String),
+      agenda: Schema.NullOr(Schema.String),
     }),
   ),
 );
@@ -117,6 +122,7 @@ export class RecordingRequests extends Context.Service<
     submit(
       requester: Requester,
       action: RequestAction,
+      plan?: RecordingPlan,
     ): Effect.Effect<SubmittedRequest, RecordingUnavailable>;
     find(
       requester: Requester,
@@ -141,12 +147,14 @@ export class RecordingRequests extends Context.Service<
       );
 
     const submit = Effect.fn("RecordingRequests.submit")(
-      (requester: Requester, action: RequestAction) =>
+      (requester: Requester, action: RequestAction, plan: RecordingPlan = NO_PLAN) =>
         connected(
           Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+            const { title, agenda } = action === "start" ? plan : NO_PLAN;
+
             const rows = yield* onceReady(
               sql`
-                INSERT INTO office.recording_requests ${sql.insert({ requestedBy: requester.id, requestedByName: requester.name, action })}
+                INSERT INTO office.recording_requests ${sql.insert({ requestedBy: requester.id, requestedByName: requester.name, action, title, agenda })}
                 RETURNING id, outcome, reason
               `.pipe(Effect.flatMap(decodeSubmitted)),
             );
@@ -177,7 +185,8 @@ export class RecordingRequests extends Context.Service<
           sql`
             SELECT s.bot_in_office, s.occupants, s.updated_at, r.id AS recording_id, r.started_at, r.started_by,
                    coalesce(m.real_name, m.display_name) AS started_by_name,
-                   r.paused_at, r.paused_by, coalesce(p.real_name, p.display_name) AS paused_by_name
+                   r.paused_at, r.paused_by, coalesce(p.real_name, p.display_name) AS paused_by_name,
+                   r.title, r.agenda
             FROM office.recording_status s
             LEFT JOIN office.recordings r ON r.id = s.recording_id AND r.stopped_at IS NULL
             LEFT JOIN office.members m ON m.user_id = r.started_by
@@ -203,6 +212,8 @@ export class RecordingRequests extends Context.Service<
                 startedByName: row.startedByName ?? row.startedBy,
                 endsAt: endsAt(row.startedAt),
                 pause,
+                title: row.title,
+                agenda: row.agenda,
               };
 
         const current: RecordingStatus = {
@@ -259,7 +270,8 @@ export class RecordingRequests extends Context.Service<
           Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
             const pending = yield* onceReady(
               sql`
-                SELECT id, requested_at, requested_by, requested_by_name, action, now() AS checked_at
+                SELECT id, requested_at, requested_by, requested_by_name, action, title, agenda,
+                       now() AS checked_at
                 FROM office.recording_requests
                 WHERE handled_at IS NULL
                 ORDER BY id

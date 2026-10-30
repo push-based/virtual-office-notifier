@@ -5,7 +5,7 @@ import { SqlClient } from "effect/sql";
 
 import { columnNaming, Database } from "../src/Database.ts";
 import { MAX_TRANSCRIPTION_ATTEMPTS } from "../src/Recording.ts";
-import { type NewClip, RecordingStore } from "../src/RecordingStore.ts";
+import { type NewClip, type RecordingDetails, RecordingStore } from "../src/RecordingStore.ts";
 
 const TestLayer = RecordingStore.layer.pipe(
   Layer.provideMerge(Database.layerNoDeps()),
@@ -23,6 +23,8 @@ const newRecording = (id = RECORDING) => ({
   startedAt: minute(0),
   startedBy: "u1",
   startedByName: "Ada",
+  title: null,
+  agenda: null,
 });
 
 const clip = (overrides: Partial<NewClip> = {}): NewClip => ({
@@ -36,6 +38,9 @@ const clip = (overrides: Partial<NewClip> = {}): NewClip => ({
   transcription: "pending",
   ...overrides,
 });
+
+const planOf = (details: Option.Option<RecordingDetails>) =>
+  Option.map(details, ({ title, agenda }) => ({ title, agenda }));
 
 const started = Effect.gen(function* () {
   const store = yield* RecordingStore;
@@ -311,6 +316,60 @@ describe("RecordingStore", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
+  it.effect("keeps the title and agenda it started with, and changes each on its own", () =>
+    Effect.gen(function* () {
+      const store = yield* RecordingStore;
+
+      yield* store.startRecording({
+        ...newRecording(),
+        title: "Deploy retro",
+        agenda: "What broke on Friday",
+      });
+      yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+
+      assert.deepStrictEqual(
+        planOf(yield* store.recordingDetails(RECORDING)),
+        Option.some({ title: "Deploy retro", agenda: "What broke on Friday" }),
+      );
+
+      yield* store.applyEdit(RECORDING, { kind: "title", title: null });
+      assert.deepStrictEqual(
+        planOf(yield* store.recordingDetails(RECORDING)),
+        Option.some({ title: null, agenda: "What broke on Friday" }),
+      );
+
+      yield* store.applyEdit(RECORDING, { kind: "agenda", agenda: "Friday's outage" });
+      assert.deepStrictEqual(
+        planOf(yield* store.recordingDetails(RECORDING)),
+        Option.some({ title: null, agenda: "Friday's outage" }),
+      );
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("finds the Slack post of a recording only once it has one", () =>
+    Effect.gen(function* () {
+      const store = yield* started;
+
+      yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+      assert.deepStrictEqual(yield* store.summaryPost(RECORDING), Option.none());
+
+      yield* store.finishRecording(RECORDING, {
+        transcript: "10:00 Ada: Hello",
+        summary: null,
+        summaryModel: null,
+        slackChannelId: "C1",
+        slackTs: "1.2",
+        slackPermalink: null,
+        finishedAt: minute(31),
+      });
+
+      assert.deepStrictEqual(
+        yield* store.summaryPost(RECORDING),
+        Option.some({ slackChannelId: "C1", slackTs: "1.2", summary: null, summaryModel: null }),
+      );
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
   it.effect("describes a stopped recording and stores how it was finished", () =>
     Effect.gen(function* () {
       const store = yield* started;
@@ -331,6 +390,8 @@ describe("RecordingStore", () => {
           stoppedAt: minute(30),
           startedByName: "Ada",
           stopReason: "requested",
+          title: null,
+          agenda: null,
         }),
       );
 

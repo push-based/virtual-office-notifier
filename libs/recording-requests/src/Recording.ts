@@ -1,6 +1,38 @@
-import { Schema } from "effect";
+import { identity, pipe, Schema, SchemaTransformation, String } from "effect";
+
+import { AGENDA_MAX_LENGTH, TITLE_MAX_LENGTH } from "./Wire.ts";
 
 export const RecordingId = Schema.String.check(Schema.isUUID());
+
+const blankAsNull = (text: string): string | null => (text === "" ? null : text);
+
+const optionalText = (maxLength: number, tidy: (text: string) => string) =>
+  Schema.NullOr(Schema.String).pipe(
+    Schema.decodeTo(
+      Schema.NullOr(Schema.String.check(Schema.isMaxLength(maxLength))),
+      SchemaTransformation.transform({
+        decode: (text) => (text === null ? null : blankAsNull(tidy(text))),
+        encode: identity,
+      }),
+    ),
+  );
+
+export const Title = optionalText(TITLE_MAX_LENGTH, (text) =>
+  pipe(text, String.replace(/\s+/g, " "), String.trim),
+);
+
+export type Title = typeof Title.Type;
+
+export const Agenda = optionalText(AGENDA_MAX_LENGTH, String.trim);
+
+export type Agenda = typeof Agenda.Type;
+
+export interface RecordingPlan {
+  readonly title: string | null;
+  readonly agenda: string | null;
+}
+
+export const NO_PLAN: RecordingPlan = { title: null, agenda: null };
 
 export const RecordingState = Schema.Literals(["running", "transcribing", "finished", "silent"]);
 
@@ -30,6 +62,7 @@ export const ListedRecording = Schema.Struct({
   stoppedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   startedBy: OfficeMember,
   speakers: Schema.Array(OfficeMember),
+  title: Schema.NullOr(Schema.String),
 });
 
 export type ListedRecording = typeof ListedRecording.Type;
@@ -51,6 +84,7 @@ export type TranscribedClip = typeof TranscribedClip.Type;
 
 export const RecordingDetail = Schema.Struct({
   ...ListedRecording.fields,
+  agenda: Schema.NullOr(Schema.String),
   stopReason: Schema.NullOr(StopReason),
   stoppedBy: Schema.NullOr(OfficeMember),
   summary: Schema.NullOr(Schema.String),

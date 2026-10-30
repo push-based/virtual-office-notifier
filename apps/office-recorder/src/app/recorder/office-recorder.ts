@@ -12,6 +12,8 @@ import {
   type Person,
 } from "design-system";
 
+import { PlanFields } from "../edits/plan-fields";
+import { RecordingEditor } from "../edits/recording-editor";
 import { RecordingHistory } from "../history/recording-history";
 import { describePhase } from "./describe-phase";
 import { OfficeStore } from "./office-store";
@@ -28,6 +30,8 @@ import { OfficeStore } from "./office-store";
     PbPeople,
     PbRecordButton,
     PbStatusHeading,
+    PlanFields,
+    RecordingEditor,
     RecordingHistory,
   ],
   providers: [OfficeStore],
@@ -37,9 +41,28 @@ import { OfficeStore } from "./office-store";
       <p pbEyebrow>Office recorder</p>
       <pb-status-heading
         [heading]="status.heading"
+        [subheading]="store.running()?.title ?? null"
         [description]="status.description"
         [live]="status.live"
       />
+      @if (store.running(); as running) {
+        <app-recording-editor
+          label="Edit title and agenda"
+          [recordingId]="running.id"
+          [currentTitle]="running.title"
+          [currentAgenda]="running.agenda"
+          (saved)="store.refresh()"
+        />
+      } @else {
+        <details class="plan">
+          <summary class="text-body-sm">Add a title and agenda</summary>
+          <app-plan-fields
+            [(title)]="store.draftTitle"
+            [(agenda)]="store.draftAgenda"
+            [disabled]="store.busy()"
+          />
+        </details>
+      }
       <div class="controls">
         <pb-record-button
           [recording]="store.recording()"
@@ -85,6 +108,16 @@ import { OfficeStore } from "./office-store";
     .controls {
       display: flex;
       gap: var(--space-3);
+    }
+
+    .plan summary {
+      cursor: pointer;
+      font-weight: 500;
+      color: var(--color-text-muted);
+    }
+
+    .plan[open] summary {
+      margin-bottom: var(--space-3);
     }
 
     pb-record-button {

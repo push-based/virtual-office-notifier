@@ -59,6 +59,26 @@ describe("SlackClient", () => {
     }),
   );
 
+  it.effect("replaces a posted message in place", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([slackOk({ channel: "C-OFFICE", ts: "1700000000.000100" })]);
+
+      yield* slack.client.updateMessage("C-OFFICE", "1700000000.000100", {
+        text: "renamed",
+        blocks: [],
+      });
+
+      const [request] = yield* slack.requests;
+      assert.strictEqual(request?.url, "https://slack.com/api/chat.update");
+      assert.deepStrictEqual(requestJson(request!), {
+        channel: "C-OFFICE",
+        ts: "1700000000.000100",
+        text: "renamed",
+        blocks: [],
+      });
+    }),
+  );
+
   it.effect("uploads a file into a thread in Slack's three steps", () =>
     Effect.gen(function* () {
       const slack = yield* makeClient([

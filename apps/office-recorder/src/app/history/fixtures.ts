@@ -15,11 +15,13 @@ export const listedRecording = (overrides: Partial<ListedRecording> = {}): Liste
   stoppedAt: "2026-10-29T13:17:00.000Z",
   startedBy: anna,
   speakers: [anna, ben],
+  title: null,
   ...overrides,
 });
 
 export const recordingDetail = (overrides: Partial<RecordingDetail> = {}): RecordingDetail => ({
   ...listedRecording(),
+  agenda: null,
   stopReason: "requested",
   stoppedBy: anna,
   summary: "• Anna said hello",

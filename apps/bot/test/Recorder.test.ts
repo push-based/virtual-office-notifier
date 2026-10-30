@@ -10,13 +10,17 @@ import {
   Layer,
   Option,
   Queue,
+  Ref,
   Schema,
   String,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
+import { NO_PLAN, type RecordingPlan } from "recording-requests/Recording";
 import { RECORDING_LIMIT, type RequestAction } from "recording-requests/RecordingRequest";
+import { RecordingEdits } from "recording-requests/RecordingEdits";
+import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
 import { ClipArchive } from "../src/ClipArchive.ts";
@@ -94,6 +98,8 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const recordings = yield* Queue.unbounded<RecordingMode>();
   const slack = yield* makeFakeSlackClient(options.slack);
   const history = yield* makeFakeSlackHistory();
+  const summaryRequests = yield* Ref.make<ReadonlyArray<string>>([]);
+  const whileSummarizing = yield* Ref.make<Effect.Effect<void>>(Effect.void);
 
   const transcriber = Layer.succeed(
     Transcriber,
@@ -103,8 +109,11 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const summaries = Layer.succeed(
     SummaryWriter,
     SummaryWriter.of({
-      write: () =>
-        Effect.succeed(options.summary ?? Option.some({ text: "• They said hello", model: "m" })),
+      write: (request) =>
+        Ref.update(summaryRequests, (all) => [...all, request]).pipe(
+          Effect.andThen(Effect.flatten(Ref.get(whileSummarizing))),
+          Effect.as(options.summary ?? Option.some({ text: "• They said hello", model: "m" })),
+        ),
     }),
   );
 
@@ -137,6 +146,16 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
         }),
       ),
     ),
+    Layer.provideMerge(
+      Layer.effect(
+        RecordingEdits,
+        Effect.gen(function* () {
+          const database = yield* Database;
+
+          return yield* RecordingEdits.make(database.ready);
+        }),
+      ),
+    ),
     Layer.provideMerge(Database.layerNoDeps()),
     Layer.provideMerge(PgliteClient.layer(columnNaming)),
   );
@@ -146,15 +165,21 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const database = yield* Effect.service(Database).pipe(Effect.provideContext(context));
   const recorder = yield* Effect.service(Recorder).pipe(Effect.provideContext(context));
   const requests = yield* Effect.service(RecordingRequests).pipe(Effect.provideContext(context));
+  const edits = yield* Effect.service(RecordingEdits).pipe(Effect.provideContext(context));
 
   yield* database.ready;
   yield* (options.before ?? Effect.void).pipe(Effect.orDie, Effect.provideContext(context));
 
   const fiber = yield* recorder.run.pipe(withEnv(env), Effect.forkScoped);
 
-  const request = (requestedBy: string, action: RequestAction) =>
+  const request = (requestedBy: string, action: RequestAction, plan: RecordingPlan = NO_PLAN) =>
     requests
-      .submit({ id: requestedBy, name: String.toUpperCase(requestedBy) }, action)
+      .submit({ id: requestedBy, name: String.toUpperCase(requestedBy) }, action, plan)
+      .pipe(Effect.asVoid);
+
+  const edit = (editedBy: string, recordingId: string, change: RecordingChange) =>
+    edits
+      .submit({ id: editedBy, name: String.toUpperCase(editedBy) }, recordingId, change)
       .pipe(Effect.asVoid);
 
   const realSleep = TestClock.withLive(Effect.sleep("10 millis"));
@@ -184,7 +209,18 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     readonly summary: string | null;
     readonly transcript: string | null;
     readonly slackPermalink: string | null;
-  }>`SELECT id, stopped_at, stop_reason, stopped_by, finished_at, summary, transcript, slack_permalink FROM office.recordings ORDER BY started_at`;
+    readonly title: string | null;
+    readonly agenda: string | null;
+  }>`SELECT id, stopped_at, stop_reason, stopped_by, finished_at, summary, transcript, slack_permalink, title, agenda FROM office.recordings ORDER BY started_at`;
+
+  const editRows = sql<{
+    readonly editedBy: string;
+    readonly kind: string;
+    readonly change: unknown;
+    readonly outcome: string | null;
+    readonly reason: string | null;
+    readonly handledAt: Date | null;
+  }>`SELECT edited_by, kind, change, outcome, reason, handled_at FROM office.recording_edits ORDER BY id`;
 
   const clipRows = sql<{
     readonly userId: string;
@@ -218,8 +254,10 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     fiber,
     sql,
     request,
+    edit,
     eventually,
     recordingRows,
+    editRows,
     clipRows,
     requestRows,
     eventRows,
@@ -233,7 +271,10 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     recordings: Queue.clear(recordings),
     posts: slack.posts,
     uploads: slack.uploads,
+    updates: slack.updates,
     recordedPosts: history.posts,
+    summaryRequests: Ref.get(summaryRequests),
+    whileSummarizing: (effect: Effect.Effect<void>) => Ref.set(whileSummarizing, effect),
   };
 });
 
@@ -252,6 +293,26 @@ const recordingFinished = (h: Harness) =>
     h.recordingRows,
     (rows) => rows[0]?.finishedAt !== null && rows[0]?.finishedAt !== undefined,
   );
+
+const finishedRecording = (h: Harness, plan: RecordingPlan = NO_PLAN) =>
+  Effect.gen(function* () {
+    yield* h.request("u1", "start", plan);
+    yield* h.tick;
+    yield* recordingStarted(h);
+    yield* h.speak(clip("u1", 2));
+    yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
+    yield* h.request("u1", "stop");
+    yield* h.tick;
+    yield* recordingStopped(h);
+    yield* TestClock.adjust(FINISH_POLL);
+
+    const [recording] = yield* recordingFinished(h);
+
+    return recording?.id ?? "";
+  });
+
+const allHandled = (h: Harness) =>
+  h.eventually(h.editRows, (rows) => Array.every(rows, (row) => row.handledAt !== null));
 
 describe("Recorder", () => {
   it.effect(
@@ -348,6 +409,8 @@ describe("Recorder", () => {
             startedAt: now,
             startedBy: "u1",
             startedByName: "Ada",
+            title: null,
+            agenda: null,
           });
           yield* store.stopRecording(
             "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
@@ -393,6 +456,8 @@ describe("Recorder", () => {
             startedAt: now,
             startedBy: "u1",
             startedByName: "Ada",
+            title: null,
+            agenda: null,
           });
           yield* store.stopRecording(
             "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
@@ -484,6 +549,8 @@ describe("Recorder", () => {
             ),
             startedBy: "u1",
             startedByName: "Ada",
+            title: null,
+            agenda: null,
           });
         }),
       });
@@ -514,6 +581,8 @@ describe("Recorder", () => {
             startedAt: yield* DateTime.now,
             startedBy: "u1",
             startedByName: "Ada",
+            title: null,
+            agenda: null,
           });
         }),
       });
@@ -645,6 +714,8 @@ describe("Recorder", () => {
             ),
             startedBy: "u1",
             startedByName: "Ada",
+            title: null,
+            agenda: null,
           });
           yield* store.pauseRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", now, "u1", "Ada");
         }),
@@ -677,6 +748,8 @@ describe("Recorder", () => {
               startedAt: now,
               startedBy: "u1",
               startedByName: "Ada",
+              title: null,
+              agenda: null,
             });
             yield* store.pauseRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", now, "u1", "Ada");
           }),
@@ -698,6 +771,196 @@ describe("Recorder", () => {
         yield* h.eventually(h.pauseRows, (rows) => rows[0]?.pausedBy === null);
         assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
       }),
+  );
+
+  it.effect(
+    "names a recording from the Start request, tells the summary model what it was meant to cover, and heads the Slack post with the title",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+
+        yield* finishedRecording(h, { title: "Deploy retro", agenda: "What broke on Friday" });
+
+        const [recording] = yield* h.recordingRows;
+        assert.strictEqual(recording?.title, "Deploy retro");
+        assert.strictEqual(recording?.agenda, "What broke on Friday");
+
+        const [summaryRequest] = yield* h.summaryRequests;
+        assert.match(
+          summaryRequest ?? "",
+          /^Title: Deploy retro\nAgenda, what people meant to cover, not what happened:\nWhat broke on Friday\n\nTranscript:\nOffice recording from /,
+        );
+
+        const [post] = yield* h.posts;
+        assert.strictEqual(post?.text, "📝 Deploy retro, under a minute");
+        assert.include(yield* encodeJson(post?.blocks), "📝 *Deploy retro* · <!date^");
+      }),
+  );
+
+  it.effect("gives the summary model only the transcript when nobody named the recording", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada] });
+
+      yield* finishedRecording(h);
+
+      const [summaryRequest] = yield* h.summaryRequests;
+      assert.match(summaryRequest ?? "", /^Office recording from /);
+      assert.strictEqual((yield* h.posts)[0]?.text, "📝 Office recording, under a minute");
+    }),
+  );
+
+  it.effect(
+    "applies title and agenda edits from anyone on its next check, and keeps every edit on record",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+
+        yield* h.request("u1", "start");
+        yield* h.tick;
+
+        const [running] = yield* recordingStarted(h);
+        const id = running?.id ?? "";
+
+        yield* h.edit("u2", id, { kind: "title", title: "Planning" });
+        yield* h.edit("u3", id, { kind: "agenda", agenda: "Next sprint" });
+        yield* h.edit("u2", id, { kind: "title", title: "Sprint planning" });
+
+        assert.deepStrictEqual(
+          Array.map(yield* h.editRows, ({ outcome }) => outcome),
+          [null, null, null],
+        );
+
+        yield* h.tick;
+
+        const edits = yield* allHandled(h);
+        assert.deepStrictEqual(
+          Array.map(edits, ({ editedBy, kind, change, outcome }) => ({
+            editedBy,
+            kind,
+            change,
+            outcome,
+          })),
+          [
+            {
+              editedBy: "u2",
+              kind: "title",
+              change: { kind: "title", title: "Planning" },
+              outcome: "applied",
+            },
+            {
+              editedBy: "u3",
+              kind: "agenda",
+              change: { kind: "agenda", agenda: "Next sprint" },
+              outcome: "applied",
+            },
+            {
+              editedBy: "u2",
+              kind: "title",
+              change: { kind: "title", title: "Sprint planning" },
+              outcome: "applied",
+            },
+          ],
+        );
+
+        const [recording] = yield* h.recordingRows;
+        assert.strictEqual(recording?.title, "Sprint planning");
+        assert.strictEqual(recording?.agenda, "Next sprint");
+        assert.deepStrictEqual(yield* h.updates, []);
+      }),
+  );
+
+  it.effect(
+    "edits the Slack post's heading when the title changes after it's posted, and brings back the default when it's cleared",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+        const id = yield* finishedRecording(h);
+
+        yield* h.edit("u2", id, { kind: "title", title: "Deploy retro" });
+        yield* h.tick;
+
+        const [renamed] = yield* h.eventually(h.updates, (all) => all.length === 1);
+        assert.strictEqual(renamed?.channel, SLACK_ENV.SLACK_CHANNEL_ID);
+        assert.strictEqual(renamed?.ts, "900.0");
+        assert.strictEqual(renamed?.message.text, "📝 Deploy retro, under a minute");
+
+        const card = yield* encodeJson(renamed?.message.blocks);
+        assert.include(card, "📝 *Deploy retro* · <!date^");
+        assert.include(card, "• They said hello");
+        assert.include(card, "✨ Summary by m");
+
+        yield* h.edit("u2", id, { kind: "agenda", agenda: "Friday's outage" });
+        yield* h.edit("u2", id, { kind: "title", title: null });
+        yield* h.tick;
+
+        const updates = yield* h.eventually(h.updates, (all) => all.length === 2);
+        assert.strictEqual(updates[1]?.message.text, "📝 Office recording, under a minute");
+        assert.strictEqual((yield* h.posts).length, 1);
+        assert.strictEqual((yield* h.recordingRows)[0]?.agenda, "Friday's outage");
+      }),
+  );
+
+  it.effect(
+    "retitles the Slack post when the title changes while the summary is being written",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+
+        yield* h.whileSummarizing(
+          h.sql`UPDATE office.recordings SET title = 'Named late'`.pipe(
+            Effect.asVoid,
+            Effect.orDie,
+          ),
+        );
+        yield* finishedRecording(h);
+
+        assert.strictEqual((yield* h.posts)[0]?.text, "📝 Office recording, under a minute");
+
+        const [renamed] = yield* h.eventually(h.updates, (all) => all.length === 1);
+        assert.strictEqual(renamed?.message.text, "📝 Named late, under a minute");
+      }),
+  );
+
+  it.effect("keeps a title edit when Slack won't take the new heading", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({
+        present: [ada],
+        slack: { updateFailure: InvalidPayload.make({ error: "message_not_found" }) },
+      });
+
+      const id = yield* finishedRecording(h);
+
+      yield* h.edit("u2", id, { kind: "title", title: "Deploy retro" });
+      yield* h.tick;
+
+      const [edit] = yield* allHandled(h);
+      assert.strictEqual(edit?.outcome, "applied");
+      assert.strictEqual((yield* h.recordingRows)[0]?.title, "Deploy retro");
+    }),
+  );
+
+  it.effect("ignores edits of a silent recording, and says why", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada] });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+
+      const [running] = yield* recordingStarted(h);
+
+      yield* h.request("u1", "stop");
+      yield* h.tick;
+      yield* recordingFinished(h);
+
+      yield* h.edit("u2", running?.id ?? "", { kind: "title", title: "Lunch" });
+      yield* h.tick;
+
+      const [edit] = yield* allHandled(h);
+      assert.strictEqual(edit?.outcome, "ignored");
+      assert.strictEqual(edit?.reason, "silent");
+      assert.isNull((yield* h.recordingRows)[0]?.title);
+      assert.deepStrictEqual(yield* h.posts, []);
+    }),
   );
 
   it.effect("keeps the status row current for the Activity", () =>

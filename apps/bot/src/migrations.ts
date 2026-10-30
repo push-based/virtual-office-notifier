@@ -438,4 +438,29 @@ export const migrations = Migrator.fromRecord({
 
     yield* sql`ALTER TABLE office.recordings ADD COLUMN slack_permalink text`;
   }),
+
+  "0008_title_recordings": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`ALTER TABLE office.recordings ADD COLUMN title text, ADD COLUMN agenda text`;
+    yield* sql`ALTER TABLE office.recording_requests ADD COLUMN title text, ADD COLUMN agenda text`;
+
+    yield* sql`
+      CREATE TABLE office.recording_edits (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        recording_id uuid NOT NULL REFERENCES office.recordings (id),
+        edited_at timestamptz NOT NULL DEFAULT now(),
+        edited_by text NOT NULL,
+        edited_by_name text NOT NULL,
+        kind text NOT NULL CHECK (kind IN ('title', 'agenda')),
+        change jsonb NOT NULL,
+        handled_at timestamptz,
+        outcome text CHECK (outcome IN ('applied', 'ignored')),
+        reason text
+      )
+    `;
+
+    yield* sql`CREATE INDEX recording_edits_pending ON office.recording_edits (id) WHERE handled_at IS NULL`;
+    yield* sql`CREATE INDEX recording_edits_recording ON office.recording_edits (recording_id, id)`;
+  }),
 });
