@@ -42,7 +42,12 @@ import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
 import { oggOpusFile, opusPacketsDuration } from "./OggOpus.ts";
 import { MIN_CLIP_DURATION, type StopReason } from "./Recording.ts";
-import { type PendingClip, RecordingStore, type StoreUnavailable } from "./RecordingStore.ts";
+import {
+  type PendingClip,
+  RecordingStore,
+  type StoreUnavailable,
+  type UnlinkedPost,
+} from "./RecordingStore.ts";
 import { SlackClient } from "./SlackClient.ts";
 import { SlackHistory } from "./SlackHistory.ts";
 import { summaryMessage } from "./SlackMessage.ts";
@@ -337,6 +342,7 @@ export class Recorder extends Context.Service<
                 summaryModel: null,
                 slackChannelId: null,
                 slackTs: null,
+                slackPermalink: null,
                 finishedAt: at,
               });
               yield* Effect.logInfo("Nothing was said during the recording, so nothing is posted");
@@ -393,12 +399,23 @@ export class Recorder extends Context.Service<
                 ),
               );
 
+            const permalink = yield* slack.permalink(posted.channel, posted.ts).pipe(
+              Effect.asSome,
+              Effect.catchTag("SlackError", (error) =>
+                Effect.logWarning("Couldn't get the link to the summary").pipe(
+                  Effect.annotateLogs({ reason: error.reason._tag }),
+                  Effect.as(Option.none<string>()),
+                ),
+              ),
+            );
+
             yield* store.finishRecording(id, {
               transcript,
               summary: Option.getOrNull(Option.map(summary, ({ text }) => text)),
               summaryModel: Option.getOrNull(Option.map(summary, ({ model }) => model)),
               slackChannelId: posted.channel,
               slackTs: posted.ts,
+              slackPermalink: Option.getOrNull(permalink),
               finishedAt: at,
             });
 
@@ -417,6 +434,42 @@ export class Recorder extends Context.Service<
             ),
           ),
           (effect, id) => Effect.annotateLogs(effect, { recordingId: id }),
+        );
+
+        const linkPost = (post: UnlinkedPost) =>
+          slack.permalink(post.slackChannelId, post.slackTs).pipe(
+            Effect.flatMap((permalink) => store.linkPost(post.id, permalink)),
+            Effect.as(true),
+            Effect.catchTags({
+              SlackError: (error) =>
+                Effect.logWarning("Couldn't get the link to a recording's summary").pipe(
+                  Effect.annotateLogs({ reason: error.reason._tag }),
+                  Effect.as(false),
+                ),
+              StoreUnavailable: (error) =>
+                Effect.logWarning("Couldn't store the link to a recording's summary").pipe(
+                  Effect.annotateLogs({ reason: error.reason }),
+                  Effect.as(false),
+                ),
+            }),
+            Effect.annotateLogs({ recordingId: post.id }),
+          );
+
+        const linkPosts = Effect.gen(function* () {
+          const linked = yield* Effect.forEach(yield* store.unlinkedPosts, linkPost);
+          const total = Array.filter(linked, Boolean).length;
+
+          if (total > 0)
+            yield* Effect.logInfo("Linked earlier recordings to their summaries").pipe(
+              Effect.annotateLogs({ linked: total }),
+            );
+        }).pipe(
+          Effect.catchTag("StoreUnavailable", (error) =>
+            Effect.logWarning("Couldn't look for recordings without a link to their summary").pipe(
+              Effect.annotateLogs({ reason: error.reason }),
+            ),
+          ),
+          Effect.withSpan("Recorder.linkPosts"),
         );
 
         const endCapture = Effect.gen(function* () {
@@ -571,6 +624,8 @@ export class Recorder extends Context.Service<
             const unfinished = yield* store.unfinishedRecordings;
 
             for (const id of unfinished) yield* finish(id).pipe(Effect.forkScoped);
+
+            yield* linkPosts.pipe(Effect.forkScoped);
 
             const active = yield* store.activeRecording;
 

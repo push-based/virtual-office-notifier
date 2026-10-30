@@ -7,7 +7,10 @@ import { firstValueFrom } from "rxjs";
 import type { Presence } from "./describe-presence";
 
 export type DiscordClient = Pick<DiscordSDK, "ready"> & {
-  readonly commands: Pick<DiscordSDK["commands"], "authorize" | "authenticate" | "setActivity">;
+  readonly commands: Pick<
+    DiscordSDK["commands"],
+    "authorize" | "authenticate" | "setActivity" | "openExternalLink"
+  >;
 };
 
 export const DISCORD_CLIENT = new InjectionToken<(clientId: string) => DiscordClient>(
@@ -60,5 +63,9 @@ export class RecorderSession {
     } catch (error) {
       console.warn("Couldn't update the Rich Presence", error);
     }
+  }
+
+  async openExternalLink(url: string): Promise<void> {
+    await this.discord?.commands.openExternalLink({ url });
   }
 }

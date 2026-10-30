@@ -1,6 +1,7 @@
 import type * as SignIn from "activity-sign-in/SignInApi";
 
 import type * as Stats from "./OfficeStats.ts";
+import type * as History from "./Recording.ts";
 import type * as Schemas from "./RecordingRequest.ts";
 
 export type RequestAction = typeof Schemas.RequestAction.Encoded;
@@ -47,6 +48,20 @@ export type PersonTime = typeof Stats.PersonTime.Encoded;
 export type PersonDays = typeof Stats.PersonDays.Encoded;
 
 export type BusyHour = typeof Stats.BusyHour.Encoded;
+
+export type RecordingState = typeof History.RecordingState.Encoded;
+
+export type StopReason = typeof History.StopReason.Encoded;
+
+export type OfficeMember = typeof History.OfficeMember.Encoded;
+
+export type ListedRecording = typeof History.ListedRecording.Encoded;
+
+export type RecordingPage = typeof History.RecordingPage.Encoded;
+
+export type TranscribedClip = typeof History.TranscribedClip.Encoded;
+
+export type RecordingDetail = typeof History.RecordingDetail.Encoded;
 
 export type SignInConfig = typeof SignIn.SignInConfig.Encoded;
 

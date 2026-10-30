@@ -9,7 +9,8 @@ import { HttpApiBuilder } from "effect/http-api";
 
 import { OfficeStatsReader } from "../src/OfficeStats.ts";
 import { RecordingApi } from "../src/RecordingApi.ts";
-import { RecordingHandlers } from "../src/RecordingHandlers.ts";
+import { HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
+import { RecordingHistory } from "../src/RecordingHistory.ts";
 import { RecordingRequests } from "../src/RecordingRequests.ts";
 import { SignedInLayer, SignInHandlers } from "../src/SignInHandlers.ts";
 import { StatsHandlers } from "../src/StatsHandlers.ts";
@@ -41,6 +42,7 @@ const app = HttpRouter.toWebHandler(
       SignInHandlers.pipe(Layer.provide(Discord)),
       RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerDisabled)),
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerDisabled)),
+      HistoryHandlers.pipe(Layer.provide(RecordingHistory.layerDisabled)),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),

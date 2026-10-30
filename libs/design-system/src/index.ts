@@ -2,6 +2,8 @@ export { PbAvatar } from "./avatar";
 
 export { PbAvatarGroup } from "./avatar-group";
 
+export { type BadgeTone, PbBadge } from "./badge";
+
 export { type Bar, PbBarList } from "./bar-list";
 
 export { type ButtonSize, type ButtonVariant, PbButton } from "./button";

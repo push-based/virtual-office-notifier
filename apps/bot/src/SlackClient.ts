@@ -240,6 +240,8 @@ const UserInfo = Schema.Struct({
 
 const AuthTest = Schema.Struct({ user_id: Schema.String });
 
+const Permalink = Schema.Struct({ permalink: Schema.String });
+
 const ConnectionUrl = Schema.Struct({ url: Schema.String });
 
 const UploadUrl = Schema.Struct({ upload_url: Schema.String, file_id: Schema.String });
@@ -298,6 +300,7 @@ export class SlackClient extends Context.Service<
       threadTs: string,
     ): Effect.Effect<ReadonlyArray<ThreadMessage>, SlackError>;
     userProfile(userId: string): Effect.Effect<SlackProfile, SlackError>;
+    permalink(channel: string, ts: string): Effect.Effect<string, SlackError>;
     readonly botUserId: Effect.Effect<string, SlackError>;
     readonly openConnection: Effect.Effect<string, SlackError>;
   }
@@ -433,6 +436,11 @@ export class SlackClient extends Context.Service<
           }),
         );
 
+      const permalink = (channel: string, ts: string) =>
+        read("chat.getPermalink", { channel, message_ts: ts }, Permalink).pipe(
+          Effect.map((found) => found.permalink),
+        );
+
       const botUserId = write("auth.test", {}, AuthTest).pipe(Effect.map(({ user_id }) => user_id));
 
       const openConnection = send(
@@ -448,6 +456,7 @@ export class SlackClient extends Context.Service<
         uploadFile,
         threadReplies,
         userProfile,
+        permalink,
         botUserId,
         openConnection,
       });

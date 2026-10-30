@@ -11,6 +11,7 @@ import {
 } from "effect/http-api";
 
 import { OfficeStats, StatsQuery } from "./OfficeStats.ts";
+import { RecordingDetail, RecordingId, RecordingPage } from "./Recording.ts";
 import { RecordingStatus, RequestSubmission, SubmittedRequest } from "./RecordingRequest.ts";
 
 export interface Requester {
@@ -31,6 +32,11 @@ export class RequestNotFound extends Schema.TaggedError<
   RequestNotFound,
   { readonly brand: unique symbol }
 >()("RequestNotFound", {}, { httpApiStatus: 404 }) {}
+
+export class RecordingNotFound extends Schema.TaggedError<
+  RecordingNotFound,
+  { readonly brand: unique symbol }
+>()("RecordingNotFound", {}, { httpApiStatus: 404 }) {}
 
 export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()(
   "recording-requests/SignedIn",
@@ -72,7 +78,24 @@ export class StatsGroup extends HttpApiGroup.make("stats")
   .middleware(SignedIn)
   .prefix("/api") {}
 
+export class HistoryGroup extends HttpApiGroup.make("history")
+  .add(
+    HttpApiEndpoint.get("recordings", "/recordings", {
+      query: { before: Schema.optional(Schema.DateTimeUtcFromString) },
+      success: RecordingPage,
+      error: HttpApiError.ServiceUnavailable,
+    }),
+    HttpApiEndpoint.get("recording", "/recordings/:id", {
+      params: { id: RecordingId },
+      success: RecordingDetail,
+      error: [RecordingNotFound, HttpApiError.ServiceUnavailable],
+    }),
+  )
+  .middleware(SignedIn)
+  .prefix("/api") {}
+
 export class RecordingApi extends HttpApi.make("office-recorder")
   .add(SignInGroup.prefix("/api"))
   .add(RecordingGroup)
-  .add(StatsGroup) {}
+  .add(StatsGroup)
+  .add(HistoryGroup) {}

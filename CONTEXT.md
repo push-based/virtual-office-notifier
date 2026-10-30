@@ -10,6 +10,30 @@ A bot that watches the team's Discord voice channel, the virtual office, and tal
 The Discord Activity that people in the office open to start or stop a recording and to see whether one is running.
 _Avoid_: recorder page, Activity page
 
+**Recording**:
+One stretch of the office captured by the bot, from when someone starts it until it stops. A recording is Running, Transcribing, Finished or Silent.
+_Avoid_: session, meeting, call
+
+**Running**:
+A recording that hasn't stopped yet.
+_Avoid_: active, live, in progress
+
+**Transcribing**:
+A recording that has stopped, with speech still waiting for Whisper, so it has no summary yet.
+_Avoid_: processing, pending
+
+**Finished**:
+A recording whose transcript and summary are done and posted to Slack.
+_Avoid_: done, complete, posted
+
+**Silent**:
+A recording that stopped with nothing said, so it has no summary and nothing in Slack.
+_Avoid_: empty, blank
+
+**Recording history**:
+Every recording, newest first, as the Office Recorder lists it, the running one included.
+_Avoid_: archive, past recordings, log
+
 **Recording request**:
 One press of Start, Stop, Pause or Resume in the Office Recorder, by one person, which the bot later either acts on or ignores.
 _Avoid_: command, press, action

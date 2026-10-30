@@ -1,7 +1,13 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { HttpApiBuilder, HttpApiError } from "effect/http-api";
 
-import { CurrentRequester, RecordingApi, RequestNotFound } from "./RecordingApi.ts";
+import {
+  CurrentRequester,
+  RecordingApi,
+  RecordingNotFound,
+  RequestNotFound,
+} from "./RecordingApi.ts";
+import { RecordingHistory } from "./RecordingHistory.ts";
 import { RecordingRequests, type RecordingUnavailable } from "./RecordingRequests.ts";
 
 const serviceUnavailable = (error: RecordingUnavailable) =>
@@ -34,6 +40,28 @@ export const RecordingHandlers = HttpApiBuilder.group(
             Effect.mapError(() => RequestNotFound.make()),
           );
         }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
+    });
+  }),
+);
+
+export const HistoryHandlers = HttpApiBuilder.group(
+  RecordingApi,
+  "history",
+  Effect.fn(function* (handlers) {
+    const history = yield* RecordingHistory;
+
+    return handlers.handleAll({
+      recordings: ({ query }) =>
+        history
+          .page(Option.fromUndefinedOr(query.before))
+          .pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
+      recording: ({ params }) =>
+        history.find(params.id).pipe(
+          Effect.flatMap((found) =>
+            Effect.fromOption(found).pipe(Effect.mapError(() => RecordingNotFound.make())),
+          ),
+          Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+        ),
     });
   }),
 );

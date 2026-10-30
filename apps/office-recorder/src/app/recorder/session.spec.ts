@@ -14,6 +14,9 @@ const fakeDiscord = () => ({
       .mockResolvedValue({ code: "discord-code" }),
     authenticate: vi.fn<DiscordClient["commands"]["authenticate"]>(),
     setActivity: vi.fn<DiscordClient["commands"]["setActivity"]>(),
+    openExternalLink: vi
+      .fn<DiscordClient["commands"]["openExternalLink"]>()
+      .mockResolvedValue({ opened: true }),
   },
 });
 
@@ -101,6 +104,17 @@ describe("RecorderSession", () => {
     await expect(session.showPresence(recordingPresence)).resolves.toBeUndefined();
 
     expect(warn).toHaveBeenCalledWith("Couldn't update the Rich Presence", refusal);
+  });
+
+  it("opens links outside the Activity through Discord", async () => {
+    const discord = fakeDiscord();
+    const session = await signedIn(discord);
+
+    await session.openExternalLink("https://office.slack.com/archives/C1/p12");
+
+    expect(discord.commands.openExternalLink).toHaveBeenCalledWith({
+      url: "https://office.slack.com/archives/C1/p12",
+    });
   });
 
   it("shows no presence before signing in", async () => {
