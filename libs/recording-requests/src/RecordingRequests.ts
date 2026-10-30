@@ -94,6 +94,12 @@ const decodeStatus = Schema.decodeUnknownEffect(
 
 const unavailable = (reason: string) => Effect.fail(RecordingUnavailable.make({ reason }));
 
+export interface Connected {
+  <A, E, R>(
+    use: (sql: SqlClient.SqlClient) => Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E | RecordingUnavailable, R>;
+}
+
 export class RecordingRequests extends Context.Service<
   RecordingRequests,
   {
@@ -112,48 +118,50 @@ export class RecordingRequests extends Context.Service<
     publishStatus(status: StatusUpdate): Effect.Effect<void, RecordingUnavailable>;
   }
 >()("recording-requests/RecordingRequests") {
-  static readonly make = (ready: Effect.Effect<void>) =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
+  static readonly makeWith = (ready: Effect.Effect<void>, connected: Connected) => {
+    const onceReady = <A, E extends Error, R>(query: Effect.Effect<A, E, R>) =>
+      ready.pipe(
+        Effect.andThen(query),
+        Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
+        Effect.timeoutOrElse({
+          duration: QUERY_TIMEOUT,
+          orElse: () => unavailable("Timed out after 10 seconds"),
+        }),
+      );
 
-      const onceReady = <A, E extends Error, R>(query: Effect.Effect<A, E, R>) =>
-        ready.pipe(
-          Effect.andThen(query),
-          Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
-          Effect.timeoutOrElse({
-            duration: QUERY_TIMEOUT,
-            orElse: () => unavailable("Timed out after 10 seconds"),
+    const submit = Effect.fn("RecordingRequests.submit")(
+      (requester: Requester, action: RequestAction) =>
+        connected(
+          Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+            const rows = yield* onceReady(
+              sql`
+                INSERT INTO office.recording_requests ${sql.insert({ requestedBy: requester.id, requestedByName: requester.name, action })}
+                RETURNING id, outcome, reason
+              `.pipe(Effect.flatMap(decodeSubmitted)),
+            );
+
+            const [row] = rows;
+
+            return row === undefined
+              ? yield* unavailable("The request wasn't stored")
+              : toSubmitted(row);
           }),
-        );
+        ),
+    );
 
-      const submit = Effect.fn("RecordingRequests.submit")(function* (
-        requester: Requester,
-        action: RequestAction,
-      ) {
-        const rows = yield* onceReady(
-          sql`
-            INSERT INTO office.recording_requests ${sql.insert({ requestedBy: requester.id, requestedByName: requester.name, action })}
-            RETURNING id, outcome, reason
-          `.pipe(Effect.flatMap(decodeSubmitted)),
-        );
-
-        const [row] = rows;
-
-        return row === undefined
-          ? yield* unavailable("The request wasn't stored")
-          : toSubmitted(row);
-      });
-
-      const find = Effect.fn("RecordingRequests.find")((requester: Requester, id: number) =>
+    const find = Effect.fn("RecordingRequests.find")((requester: Requester, id: number) =>
+      connected((sql) =>
         onceReady(
           sql`
             SELECT id, outcome, reason FROM office.recording_requests
             WHERE id = ${id} AND requested_by = ${requester.id}
           `.pipe(Effect.flatMap(decodeSubmitted)),
-        ).pipe(Effect.map((rows) => Option.map(Option.fromUndefinedOr(rows[0]), toSubmitted))),
-      );
+        ),
+      ).pipe(Effect.map((rows) => Option.map(Option.fromUndefinedOr(rows[0]), toSubmitted))),
+    );
 
-      const status = Effect.gen(function* () {
+    const status = connected(
+      Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
         const rows = yield* onceReady(
           sql`
             SELECT s.bot_in_office, s.occupants, s.updated_at, r.id AS recording_id, r.started_at, r.started_by,
@@ -190,75 +198,83 @@ export class RecordingRequests extends Context.Service<
         };
 
         return current;
-      }).pipe(Effect.withSpan("RecordingRequests.status"));
+      }),
+    ).pipe(Effect.withSpan("RecordingRequests.status"));
 
-      const resolve = (
-        request: RecordingRequest,
-        outcome: RequestOutcome,
-        reason: IgnoreReason | null,
-        recordingId: string | null,
-      ) =>
-        sql`
-          UPDATE office.recording_requests
-          SET handled_at = now(), outcome = ${outcome}, reason = ${reason}, recording_id = ${recordingId}
-          WHERE id = ${request.id} AND handled_at IS NULL
-        `;
+    const resolve = (
+      sql: SqlClient.SqlClient,
+      request: RecordingRequest,
+      outcome: RequestOutcome,
+      reason: IgnoreReason | null,
+      recordingId: string | null,
+    ) =>
+      sql`
+        UPDATE office.recording_requests
+        SET handled_at = now(), outcome = ${outcome}, reason = ${reason}, recording_id = ${recordingId}
+        WHERE id = ${request.id} AND handled_at IS NULL
+      `;
 
-      const act = <E, R>(
-        request: RecordingRequest,
-        outcome: Exclude<RequestOutcome, "ignored">,
-        change: Effect.Effect<Change<E, R>, E, R>,
-      ) =>
-        Effect.gen(function* () {
-          yield* ready;
+    const act = <E, R>(
+      sql: SqlClient.SqlClient,
+      request: RecordingRequest,
+      outcome: Exclude<RequestOutcome, "ignored">,
+      change: Effect.Effect<Change<E, R>, E, R>,
+    ) =>
+      Effect.gen(function* () {
+        yield* ready;
 
-          const committed = yield* sql
-            .withTransaction(
-              Effect.gen(function* () {
-                const made = yield* change;
+        const committed = yield* sql
+          .withTransaction(
+            Effect.gen(function* () {
+              const made = yield* change;
 
-                yield* resolve(request, outcome, null, made.recordingId);
+              yield* resolve(sql, request, outcome, null, made.recordingId);
 
-                return made;
-              }),
-            )
-            .pipe(Effect.catchIf(SqlError.isSqlError, (error) => unavailable(error.message)));
+              return made;
+            }),
+          )
+          .pipe(Effect.catchIf(SqlError.isSqlError, (error) => unavailable(error.message)));
 
-          yield* committed.afterCommit;
-        });
-
-      const handlePending = Effect.fn("RecordingRequests.handlePending")(function* <E, R>(
-        handler: RequestHandler<E, R>,
-      ) {
-        const pending = yield* onceReady(
-          sql`
-            SELECT id, requested_at, requested_by, requested_by_name, action, now() AS checked_at
-            FROM office.recording_requests
-            WHERE handled_at IS NULL
-            ORDER BY id
-          `.pipe(Effect.flatMap(decodePending)),
-        );
-
-        for (const request of pending) {
-          const { occupants, active } = yield* handler.situation;
-
-          yield* Match.valueTags(decideRequest(request, occupants, active, request.checkedAt), {
-            Start: () => act(request, "started", handler.start(request)),
-            Stop: ({ recording }) => act(request, "stopped", handler.stop(request, recording)),
-            Ignore: ({ reason }) =>
-              onceReady(resolve(request, "ignored", reason, null)).pipe(
-                Effect.andThen(
-                  Effect.logInfo("Ignored a recording request").pipe(
-                    Effect.annotateLogs({ reason }),
-                  ),
-                ),
-              ),
-          }).pipe(Effect.annotateLogs({ request: request.id, action: request.action }));
-        }
+        yield* committed.afterCommit;
       });
 
-      const publishStatus = Effect.fn("RecordingRequests.publishStatus")(
-        (update: StatusUpdate) =>
+    const handlePending = Effect.fn("RecordingRequests.handlePending")(
+      <E, R>(handler: RequestHandler<E, R>) =>
+        connected(
+          Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+            const pending = yield* onceReady(
+              sql`
+                SELECT id, requested_at, requested_by, requested_by_name, action, now() AS checked_at
+                FROM office.recording_requests
+                WHERE handled_at IS NULL
+                ORDER BY id
+              `.pipe(Effect.flatMap(decodePending)),
+            );
+
+            for (const request of pending) {
+              const { occupants, active } = yield* handler.situation;
+
+              yield* Match.valueTags(decideRequest(request, occupants, active, request.checkedAt), {
+                Start: () => act(sql, request, "started", handler.start(request)),
+                Stop: ({ recording }) =>
+                  act(sql, request, "stopped", handler.stop(request, recording)),
+                Ignore: ({ reason }) =>
+                  onceReady(resolve(sql, request, "ignored", reason, null)).pipe(
+                    Effect.andThen(
+                      Effect.logInfo("Ignored a recording request").pipe(
+                        Effect.annotateLogs({ reason }),
+                      ),
+                    ),
+                  ),
+              }).pipe(Effect.annotateLogs({ request: request.id, action: request.action }));
+            }
+          }),
+        ),
+    );
+
+    const publishStatus = Effect.fn("RecordingRequests.publishStatus")(
+      (update: StatusUpdate) =>
+        connected((sql) =>
           onceReady(
             sql`
               UPDATE office.recording_status
@@ -266,11 +282,34 @@ export class RecordingRequests extends Context.Service<
                   occupants = ${JSON.stringify(update.occupants)}::jsonb, updated_at = now()
             `,
           ),
-        Effect.asVoid,
-      );
+        ),
+      Effect.asVoid,
+    );
 
-      return RecordingRequests.of({ submit, find, status, handlePending, publishStatus });
+    return RecordingRequests.of({ submit, find, status, handlePending, publishStatus });
+  };
+
+  static readonly make = (ready: Effect.Effect<void>) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+
+      return RecordingRequests.makeWith(ready, (use) => use(sql));
     });
+
+  static readonly layerPerCall = <E extends Error>(
+    connection: Layer.Layer<SqlClient.SqlClient, E>,
+  ) =>
+    Layer.succeed(
+      RecordingRequests,
+      RecordingRequests.makeWith(Effect.void, (use) =>
+        Effect.scopedWith((scope) =>
+          Layer.buildWithScope(Layer.fresh(connection), scope).pipe(
+            Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
+            Effect.flatMap((context) => use(Context.get(context, SqlClient.SqlClient))),
+          ),
+        ),
+      ),
+    );
 
   static readonly layer = Layer.effect(RecordingRequests, RecordingRequests.make(Effect.void));
 

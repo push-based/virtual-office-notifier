@@ -60,7 +60,12 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ["apps/bot/**", "apps/office-recorder/worker/**", "libs/recording-requests/**"],
+        files: [
+          "apps/bot/**",
+          "apps/office-recorder/worker/**",
+          "libs/activity-sign-in/**",
+          "libs/recording-requests/**",
+        ],
         rules: {
           ...effectStrict.rules,
           "effecttsgo/any-unknown-in-error-context": "error",

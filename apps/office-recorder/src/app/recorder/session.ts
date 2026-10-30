@@ -1,6 +1,7 @@
 import { HttpClient } from "@angular/common/http";
 import { InjectionToken, Service, inject, signal } from "@angular/core";
 import { DiscordSDK } from "@discord/embedded-app-sdk";
+import type { SignInCode, SignInConfig, SignedInSession } from "recording-requests/wire";
 import { firstValueFrom } from "rxjs";
 
 export type DiscordClient = Pick<DiscordSDK, "ready"> & {
@@ -15,15 +16,6 @@ export const DISCORD_CLIENT = new InjectionToken<(clientId: string) => DiscordCl
   },
 );
 
-interface ConfigResponse {
-  readonly clientId: string;
-}
-
-interface TokenResponse {
-  readonly accessToken: string;
-  readonly session: string;
-}
-
 @Service()
 export class RecorderSession {
   private readonly http = inject(HttpClient);
@@ -35,7 +27,7 @@ export class RecorderSession {
   readonly token = this.current.asReadonly();
 
   async signIn(): Promise<void> {
-    const { clientId } = await firstValueFrom(this.http.get<ConfigResponse>("/api/config"));
+    const { clientId } = await firstValueFrom(this.http.get<SignInConfig>("/api/config"));
     const discord = this.createDiscordClient(clientId);
 
     await discord.ready();
@@ -48,7 +40,8 @@ export class RecorderSession {
       scope: ["identify"],
     });
 
-    const token = await firstValueFrom(this.http.post<TokenResponse>("/api/token", { code }));
+    const body: SignInCode = { code };
+    const token = await firstValueFrom(this.http.post<SignedInSession>("/api/token", body));
 
     this.current.set(token.session);
 

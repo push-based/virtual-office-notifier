@@ -1,0 +1,20 @@
+{
+  "name": "activity-sign-in",
+  "private": true,
+  "description": "Sign-in for a Discord Activity: the Discord OAuth code exchange, signed sessions and the sign-in API group",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "effect": "catalog:",
+    "typescript": "7.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}

@@ -27,6 +27,7 @@
           "@effect/sql-pglite",
           "@effect/vitest",
           "effect/ai",
+          "effect/crypto/Mac",
           "effect/crypto/SecureRandom",
           "effect/Effect#withErrorReporting",
           "effect/Effect#withExecutionPlan",

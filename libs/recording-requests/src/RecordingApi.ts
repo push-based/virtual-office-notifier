@@ -1,3 +1,4 @@
+import { SignInGroup } from "activity-sign-in/SignInApi";
 import { Context, Schema } from "effect";
 import {
   HttpApi,
@@ -9,7 +10,7 @@ import {
   HttpApiSecurity,
 } from "effect/http-api";
 
-import { RecordingStatus, RequestAction, SubmittedRequest } from "./RecordingRequest.ts";
+import { RecordingStatus, RequestSubmission, SubmittedRequest } from "./RecordingRequest.ts";
 
 export interface Requester {
   readonly id: string;
@@ -46,7 +47,7 @@ export class RecordingGroup extends HttpApiGroup.make("recording")
       error: HttpApiError.ServiceUnavailable,
     }),
     HttpApiEndpoint.post("submit", "/requests", {
-      payload: Schema.Struct({ action: RequestAction }),
+      payload: RequestSubmission,
       success: SubmittedRequest.pipe(HttpApiSchema.status(202)),
       error: HttpApiError.ServiceUnavailable,
     }),
@@ -59,4 +60,6 @@ export class RecordingGroup extends HttpApiGroup.make("recording")
   .middleware(SignedIn)
   .prefix("/api") {}
 
-export class RecordingApi extends HttpApi.make("office-recorder").add(RecordingGroup) {}
+export class RecordingApi extends HttpApi.make("office-recorder")
+  .add(SignInGroup.prefix("/api"))
+  .add(RecordingGroup) {}
