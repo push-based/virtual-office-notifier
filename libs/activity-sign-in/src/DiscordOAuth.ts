@@ -1,5 +1,10 @@
 import { Context, Effect, Layer, Redacted, Schema } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/http";
+import {
+  HttpClient,
+  type HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/http";
 
 import { DiscordRefused, type SignedInUser } from "./SignInApi.ts";
 import { SignInSettings } from "./SignInSettings.ts";
@@ -22,9 +27,22 @@ export interface DiscordGrant {
   readonly user: SignedInUser;
 }
 
-const decodeDiscordToken = Schema.decodeUnknownEffect(Schema.fromJsonString(DiscordToken));
+const refused = (response: HttpClientResponse.HttpClientResponse) =>
+  DiscordRefused.make({ status: response.status });
 
-const decodeDiscordUser = Schema.decodeUnknownEffect(Schema.fromJsonString(DiscordUser));
+const readBody = <A>(
+  decode: (
+    response: HttpClientResponse.HttpClientResponse,
+  ) => Effect.Effect<A, HttpClientError.HttpClientError | Schema.SchemaError>,
+) =>
+  HttpClientResponse.matchStatus({
+    "2xx": (response) => decode(response).pipe(Effect.mapError(() => refused(response))),
+    orElse: (response) => Effect.fail(refused(response)),
+  });
+
+const readToken = readBody(HttpClientResponse.schemaBodyJson(DiscordToken));
+
+const readUser = readBody(HttpClientResponse.schemaBodyJson(DiscordUser));
 
 const avatarUrlOf = (user: DiscordUser): string | null =>
   user.avatar === null || user.avatar === undefined
@@ -47,39 +65,30 @@ export class DiscordOAuth extends Context.Service<
     DiscordOAuth,
     Effect.gen(function* () {
       const { clientId, clientSecret } = yield* SignInSettings;
-      const client = yield* HttpClient.HttpClient;
 
-      const read = <A>(decode: (body: string) => Effect.Effect<A, Schema.SchemaError>) =>
-        Effect.fnUntraced(function* (request: HttpClientRequest.HttpClientRequest) {
-          const response = yield* client
-            .execute(request)
-            .pipe(Effect.mapError(() => DiscordRefused.make({ status: 0 })));
+      const client = (yield* HttpClient.HttpClient).pipe(
+        HttpClient.mapRequest(HttpClientRequest.prependUrl(DISCORD_API)),
+      );
 
-          const refused = () => DiscordRefused.make({ status: response.status });
-
-          if (response.status < 200 || response.status >= 300) return yield* refused();
-
-          const body = yield* response.text.pipe(Effect.mapError(refused));
-
-          return yield* decode(body).pipe(Effect.mapError(refused));
-        });
+      const send = (request: HttpClientRequest.HttpClientRequest) =>
+        client.execute(request).pipe(Effect.mapError(() => DiscordRefused.make({ status: 0 })));
 
       const exchange = Effect.fn("DiscordOAuth.exchange")(function* (code: string) {
-        const { access_token } = yield* read(decodeDiscordToken)(
-          HttpClientRequest.post(`${DISCORD_API}/oauth2/token`).pipe(
-            HttpClientRequest.bodyUrlParams({
-              client_id: clientId,
-              client_secret: Redacted.value(clientSecret),
-              grant_type: "authorization_code",
-              code,
-            }),
-          ),
+        const { access_token } = yield* HttpClientRequest.post("/oauth2/token").pipe(
+          HttpClientRequest.bodyUrlParams({
+            client_id: clientId,
+            client_secret: Redacted.value(clientSecret),
+            grant_type: "authorization_code",
+            code,
+          }),
+          send,
+          Effect.flatMap(readToken),
         );
 
-        const user = yield* read(decodeDiscordUser)(
-          HttpClientRequest.get(`${DISCORD_API}/users/@me`).pipe(
-            HttpClientRequest.bearerToken(access_token),
-          ),
+        const user = yield* HttpClientRequest.get("/users/@me").pipe(
+          HttpClientRequest.bearerToken(access_token),
+          send,
+          Effect.flatMap(readUser),
         );
 
         const grant: DiscordGrant = { accessToken: access_token, user: signedInUserOf(user) };

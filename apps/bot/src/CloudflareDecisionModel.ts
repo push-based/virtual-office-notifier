@@ -1,6 +1,6 @@
 import { Array, Data, Effect, Match, Predicate, Record, Redacted, Schema } from "effect";
 import { AiError, type Decision, DecisionModel } from "effect/ai";
-import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 export interface CloudflareDecisionOptions {
   readonly accountId: Redacted.Redacted<string>;
@@ -90,7 +90,7 @@ const RunResponse = Schema.Struct({
   }),
 });
 
-const decodeRunResponse = Schema.decodeUnknownEffect(Schema.fromJsonString(RunResponse));
+const decodeRunResponse = HttpClientResponse.schemaBodyJson(RunResponse);
 
 const ProviderAnswer = Data.taggedEnum<DecisionModel.ProviderAnswer>();
 
@@ -131,47 +131,49 @@ const providerAnswer = (
   }
 };
 
-const failureFor = (status: number, body: string): AiError.AiErrorReason => {
-  const http = { body };
+interface HttpDetails {
+  readonly body: string;
+}
 
-  if (status === 429) return AiError.RateLimitError.make({ http });
+const refuse =
+  (reason: (http: HttpDetails, status: number) => AiError.AiErrorReason) =>
+  (response: HttpClientResponse.HttpClientResponse) =>
+    response.text.pipe(
+      Effect.orElseSucceed(() => ""),
+      Effect.flatMap((body) => Effect.fail(aiError(reason({ body }, response.status)))),
+    );
 
-  if (status === 401) return AiError.AuthenticationError.make({ kind: "InvalidKey", http });
-
-  if (status === 403)
-    return AiError.AuthenticationError.make({ kind: "InsufficientPermissions", http });
-
-  if (status >= 500)
-    return AiError.InternalProviderError.make({ description: `HTTP ${status}`, http });
-
-  return AiError.InvalidRequestError.make({ description: `HTTP ${status}`, http });
-};
-
-export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOptions) {
-  const client = yield* HttpClient.HttpClient;
-  const url = `https://api.cloudflare.com/client/v4/accounts/${Redacted.value(options.accountId)}/ai/run/${options.model}`;
-
-  const readResponse = Effect.fnUntraced(function* (
-    response: HttpClientResponse.HttpClientResponse,
-  ) {
-    const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-
-    if (response.status < 200 || response.status >= 300) {
-      return yield* aiError(failureFor(response.status, body));
-    }
-
-    return yield* decodeRunResponse(body).pipe(
+const readResponse = HttpClientResponse.matchStatus({
+  "2xx": (response) =>
+    decodeRunResponse(response).pipe(
       Effect.mapError(() =>
         aiError(AiError.InvalidOutputError.make({ description: "Clef's reply couldn't be read" })),
       ),
-    );
-  });
+    ),
+  401: refuse((http) => AiError.AuthenticationError.make({ kind: "InvalidKey", http })),
+  403: refuse((http) =>
+    AiError.AuthenticationError.make({ kind: "InsufficientPermissions", http }),
+  ),
+  429: refuse((http) => AiError.RateLimitError.make({ http })),
+  "5xx": refuse((http, status) =>
+    AiError.InternalProviderError.make({ description: `HTTP ${status}`, http }),
+  ),
+  orElse: refuse((http, status) =>
+    AiError.InvalidRequestError.make({ description: `HTTP ${status}`, http }),
+  ),
+});
+
+export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOptions) {
+  const client = (yield* HttpClient.HttpClient).pipe(
+    HttpClient.mapRequest(HttpClientRequest.bearerToken(options.apiToken)),
+  );
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${Redacted.value(options.accountId)}/ai/run/${options.model}`;
 
   return yield* DecisionModel.make({
     probabilityPrecision: 4,
     decide: ({ state, decisions }) =>
       HttpClientRequest.post(url).pipe(
-        HttpClientRequest.bearerToken(Redacted.value(options.apiToken)),
         HttpClientRequest.bodyJsonUnsafe(clefRequest(state, decisions)),
         client.execute,
         Effect.mapError((error) =>

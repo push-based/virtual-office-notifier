@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Array, DateTime, Effect, Layer, Option } from "effect";
+import { Array, DateTime, Effect, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import { ClipArchive, objectPathOf } from "../src/ClipArchive.ts";
@@ -10,6 +10,11 @@ const token = (accessToken: string, expiresIn = 3600): Reply =>
     200,
     JSON.stringify({ access_token: accessToken, expires_in: expiresIn, token_type: "Bearer" }),
   );
+
+const slowToken =
+  (accessToken: string): Reply =>
+  (request) =>
+    token(accessToken)(request).pipe(Effect.delay("1 second"));
 
 const audio = new Uint8Array([1, 2, 3]);
 
@@ -83,6 +88,49 @@ describe("ClipArchive", () => {
       assert.deepStrictEqual(
         Array.map(sent, (request) => request.headers["authorization"] ?? "token request"),
         ["token request", "Bearer tok-1", "Bearer tok-1", "token request", "Bearer tok-2"],
+      );
+    }),
+  );
+
+  it.effect("shares one token fetch between uploads that start together", () =>
+    Effect.gen(function* () {
+      const { archive, requests } = yield* makeArchive([
+        slowToken("tok-1"),
+        respond(200, "{}"),
+        respond(200, "{}"),
+      ]);
+
+      const uploads = yield* Effect.all(
+        [archive.upload("a.ogg", audio), archive.upload("b.ogg", audio)],
+        { concurrency: "unbounded" },
+      ).pipe(Effect.forkChild);
+
+      yield* TestClock.adjust("1 second");
+      yield* Fiber.join(uploads);
+
+      const sent = yield* requests;
+      assert.deepStrictEqual(
+        Array.map(sent, (request) => request.headers["authorization"] ?? "token request"),
+        ["token request", "Bearer tok-1", "Bearer tok-1"],
+      );
+    }),
+  );
+
+  it.effect("asks for a token again after the metadata server failed", () =>
+    Effect.gen(function* () {
+      const { archive, requests } = yield* makeArchive([
+        respond(503, "warming up"),
+        token("tok-1"),
+        respond(200, "{}"),
+      ]);
+
+      yield* archive.upload("a.ogg", audio).pipe(Effect.flip);
+      yield* archive.upload("a.ogg", audio);
+
+      const sent = yield* requests;
+      assert.deepStrictEqual(
+        Array.map(sent, (request) => request.headers["authorization"] ?? "token request"),
+        ["token request", "token request", "Bearer tok-1"],
       );
     }),
   );
