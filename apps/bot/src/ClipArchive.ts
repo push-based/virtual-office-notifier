@@ -1,17 +1,18 @@
 import { NodeHttpClient } from "@effect/platform-node";
 import {
+  Cache,
   Context,
   DateTime,
   Duration,
   Effect,
+  Exit,
   Layer,
   Option,
   pipe,
-  Ref,
   Schema,
   String,
 } from "effect";
-import { HttpBody, HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
+import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import { RecordingConfig } from "./Config.ts";
 
@@ -31,14 +32,16 @@ const REQUEST_TIMEOUT = Duration.seconds(30);
 
 const TOKEN_MARGIN = Duration.minutes(1);
 
-const decodeToken = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(Schema.Struct({ access_token: Schema.String, expires_in: Schema.Finite })),
-);
+const AccessToken = Schema.Struct({ access_token: Schema.String, expires_in: Schema.Finite });
 
-interface CachedToken {
-  readonly token: string;
-  readonly expiresAt: DateTime.Utc;
-}
+type AccessToken = typeof AccessToken.Type;
+
+const decodeToken = HttpClientResponse.schemaBodyJson(AccessToken);
+
+const tokenLifetime = (exit: Exit.Exit<AccessToken, ArchiveError>): Duration.Duration =>
+  Exit.isSuccess(exit)
+    ? Duration.subtract(Duration.seconds(exit.value.expires_in), TOKEN_MARGIN)
+    : Duration.zero;
 
 export const objectPathOf = (
   recordingId: string,
@@ -64,76 +67,62 @@ export class ClipArchive extends Context.Service<
       ClipArchive,
       Effect.gen(function* () {
         const client = yield* HttpClient.HttpClient;
-        const cached = yield* Ref.make(Option.none<CachedToken>());
 
-        const fetchToken = Effect.gen(function* () {
-          const response = yield* HttpClientRequest.get(METADATA_TOKEN_URL).pipe(
-            HttpClientRequest.setHeader("Metadata-Flavor", "Google"),
-            client.execute,
-            Effect.timeout(REQUEST_TIMEOUT),
-            Effect.mapError(failed("Couldn't reach the metadata server")),
-          );
+        const storage = client.pipe(
+          HttpClient.mapRequest(HttpClientRequest.prependUrl(STORAGE_URL)),
+        );
 
-          if (response.status !== 200) {
-            return yield* archiveError(`The metadata server answered HTTP ${response.status}`);
-          }
+        const fetchToken = HttpClientRequest.get(METADATA_TOKEN_URL).pipe(
+          HttpClientRequest.setHeader("Metadata-Flavor", "Google"),
+          client.execute,
+          Effect.timeout(REQUEST_TIMEOUT),
+          Effect.mapError(failed("Couldn't reach the metadata server")),
+          Effect.flatMap(
+            HttpClientResponse.matchStatus({
+              200: (response) =>
+                decodeToken(response).pipe(
+                  Effect.catchTags({
+                    HttpClientError: (error) =>
+                      Effect.fail(failed("Couldn't read the metadata server's reply")(error)),
+                    SchemaError: () =>
+                      Effect.fail(archiveError("The metadata server's reply isn't a token")),
+                  }),
+                ),
+              orElse: (response) =>
+                Effect.fail(archiveError(`The metadata server answered HTTP ${response.status}`)),
+            }),
+          ),
+        );
 
-          const body = yield* response.text.pipe(
-            Effect.mapError(failed("Couldn't read the metadata server's reply")),
-          );
-
-          const { access_token, expires_in } = yield* decodeToken(body).pipe(
-            Effect.mapError(() => archiveError("The metadata server's reply isn't a token")),
-          );
-
-          const now = yield* DateTime.now;
-
-          const token: CachedToken = {
-            token: access_token,
-            expiresAt: DateTime.subtractDuration(
-              DateTime.addDuration(now, Duration.seconds(expires_in)),
-              TOKEN_MARGIN,
-            ),
-          };
-
-          yield* Ref.set(cached, Option.some(token));
-
-          return token;
-        });
-
-        const token = Effect.gen(function* () {
-          const now = yield* DateTime.now;
-          const current = yield* Ref.get(cached);
-
-          return Option.isSome(current) && DateTime.isLessThan(now, current.value.expiresAt)
-            ? current.value
-            : yield* fetchToken;
+        const tokens = yield* Cache.makeWith(() => fetchToken, {
+          capacity: 1,
+          timeToLive: tokenLifetime,
         });
 
         const send = Effect.fnUntraced(function* (
           what: string,
           request: HttpClientRequest.HttpClientRequest,
         ) {
-          const { token: bearer } = yield* token;
+          const { access_token } = yield* Cache.get(tokens, undefined);
 
-          const response = yield* client
-            .execute(HttpClientRequest.bearerToken(request, bearer))
-            .pipe(Effect.timeout(REQUEST_TIMEOUT), Effect.mapError(failed(what)));
-
-          if (response.status < 200 || response.status >= 300) {
-            return yield* archiveError(`${what} answered HTTP ${response.status}`);
-          }
-
-          return response;
+          return yield* storage.execute(HttpClientRequest.bearerToken(request, access_token)).pipe(
+            Effect.timeout(REQUEST_TIMEOUT),
+            Effect.mapError(failed(what)),
+            Effect.flatMap(
+              HttpClientResponse.matchStatus({
+                "2xx": (response) => Effect.succeed(response),
+                orElse: (response) =>
+                  Effect.fail(archiveError(`${what} answered HTTP ${response.status}`)),
+              }),
+            ),
+          );
         });
 
         const upload = Effect.fn("ClipArchive.upload")(
           (path: string, audio: Uint8Array) =>
             send(
               "Uploading the clip",
-              HttpClientRequest.post(
-                `${STORAGE_URL}/upload/storage/v1/b/${encodeURIComponent(bucket)}/o`,
-              ).pipe(
+              HttpClientRequest.post(`/upload/storage/v1/b/${encodeURIComponent(bucket)}/o`).pipe(
                 HttpClientRequest.setUrlParams({ uploadType: "media", name: path }),
                 HttpClientRequest.setBody(HttpBody.uint8Array(audio, "audio/ogg")),
               ),
@@ -153,7 +142,7 @@ export class ClipArchive extends Context.Service<
           send(
             "Downloading the clip",
             HttpClientRequest.get(
-              `${STORAGE_URL}/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`,
+              `/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`,
             ).pipe(HttpClientRequest.setUrlParams({ alt: "media" })),
           ).pipe(Effect.flatMap(readBody)),
         );

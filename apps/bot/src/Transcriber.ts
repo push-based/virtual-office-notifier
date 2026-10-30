@@ -1,19 +1,8 @@
 import { NodeHttpClient } from "@effect/platform-node";
 import { Buffer } from "node:buffer";
 
-import {
-  Array,
-  Context,
-  Duration,
-  Effect,
-  Layer,
-  Option,
-  pipe,
-  Redacted,
-  Schema,
-  String,
-} from "effect";
-import { HttpClient, HttpClientRequest } from "effect/http";
+import { Array, Context, Duration, Effect, Layer, Option, Redacted, Schema, String } from "effect";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 import { AiConfig, RecordingConfig } from "./Config.ts";
 
@@ -53,32 +42,59 @@ const RunResponse = Schema.Struct({
   result: Schema.optional(Schema.Struct({ text: Schema.optional(Schema.String) })),
 });
 
-const decodeRunResponse = Schema.decodeUnknownOption(Schema.fromJsonString(RunResponse));
+type RunResponse = typeof RunResponse.Type;
+
+const decodeRunResponse = HttpClientResponse.schemaBodyJson(RunResponse);
 
 const failure = (failure: TranscriptionFailure, detail: string) =>
   Effect.fail(TranscriptionError.make({ failure, detail }));
 
-const failureForStatus = (status: number, body: string): TranscriptionError => {
-  const decoded = decodeRunResponse(body);
+const excerpt = String.slice(0, 200);
 
-  const dailyLimit =
-    Option.isSome(decoded) &&
-    Array.some(decoded.value.errors ?? [], ({ code }) => code === CLOUDFLARE_DAILY_LIMIT);
+const bodyOf = (response: HttpClientResponse.HttpClientResponse) =>
+  response.text.pipe(Effect.orElseSucceed(() => ""));
 
-  if (dailyLimit)
-    return TranscriptionError.make({
-      failure: "DailyLimit",
-      detail: "Workers AI's daily allocation is used up",
-    });
+const dailyLimitReached = (run: Option.Option<RunResponse>): boolean =>
+  Option.exists(run, ({ errors }) =>
+    Array.some(errors ?? [], ({ code }) => code === CLOUDFLARE_DAILY_LIMIT),
+  );
 
-  if (status === 429 || status >= 500)
-    return TranscriptionError.make({ failure: "Unavailable", detail: `HTTP ${status}` });
+const refusal = Effect.fnUntraced(function* (
+  response: HttpClientResponse.HttpClientResponse,
+): Effect.fn.Return<never, TranscriptionError> {
+  const body = yield* bodyOf(response);
+  const run = yield* decodeRunResponse(response).pipe(Effect.option);
+  const { status } = response;
 
-  return TranscriptionError.make({
-    failure: "Rejected",
-    detail: `HTTP ${status}: ${pipe(body, String.slice(0, 200))}`,
-  });
-};
+  if (dailyLimitReached(run))
+    return yield* failure("DailyLimit", "Workers AI's daily allocation is used up");
+
+  if (status === 429 || status >= 500) return yield* failure("Unavailable", `HTTP ${status}`);
+
+  return yield* failure("Rejected", `HTTP ${status}: ${excerpt(body)}`);
+});
+
+const unreadable = (response: HttpClientResponse.HttpClientResponse) =>
+  bodyOf(response).pipe(Effect.flatMap((body) => failure("Unreadable", excerpt(body))));
+
+const transcribed = Effect.fnUntraced(function* (
+  response: HttpClientResponse.HttpClientResponse,
+): Effect.fn.Return<string, TranscriptionError> {
+  const run = yield* decodeRunResponse(response).pipe(Effect.catch(() => unreadable(response)));
+
+  if (!run.success) return yield* refusal(response);
+
+  const text = run.result?.text;
+
+  if (text === undefined) return yield* failure("Unreadable", "The reply has no text");
+
+  return text;
+});
+
+const readTranscript = HttpClientResponse.matchStatus({
+  "2xx": transcribed,
+  orElse: refusal,
+});
 
 export interface TranscriberOptions {
   readonly accountId: Redacted.Redacted<string>;
@@ -97,12 +113,14 @@ export class Transcriber extends Context.Service<
     Layer.effect(
       Transcriber,
       Effect.gen(function* () {
-        const client = yield* HttpClient.HttpClient;
+        const client = (yield* HttpClient.HttpClient).pipe(
+          HttpClient.mapRequest(HttpClientRequest.bearerToken(options.apiToken)),
+        );
+
         const url = `https://api.cloudflare.com/client/v4/accounts/${Redacted.value(options.accountId)}/ai/run/${options.model}`;
 
         const transcribe = Effect.fn("Transcriber.transcribe")(function* (audio: Uint8Array) {
-          const response = yield* HttpClientRequest.post(url).pipe(
-            HttpClientRequest.bearerToken(Redacted.value(options.apiToken)),
+          const text = yield* HttpClientRequest.post(url).pipe(
             HttpClientRequest.bodyJsonUnsafe({
               audio: Buffer.from(audio).toString("base64"),
               task: "transcribe",
@@ -113,23 +131,8 @@ export class Transcriber extends Context.Service<
             Effect.mapError((error) =>
               TranscriptionError.make({ failure: "Unavailable", detail: globalThis.String(error) }),
             ),
+            Effect.flatMap(readTranscript),
           );
-
-          const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-
-          if (response.status < 200 || response.status >= 300)
-            return yield* failureForStatus(response.status, body);
-
-          const decoded = decodeRunResponse(body);
-
-          if (Option.isNone(decoded))
-            return yield* failure("Unreadable", pipe(body, String.slice(0, 200)));
-
-          if (!decoded.value.success) return yield* failureForStatus(response.status, body);
-
-          const text = decoded.value.result?.text;
-
-          if (text === undefined) return yield* failure("Unreadable", "The reply has no text");
 
           return { text: String.trim(text), model: options.model };
         });
