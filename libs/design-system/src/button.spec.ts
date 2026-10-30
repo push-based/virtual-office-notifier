@@ -24,7 +24,7 @@ describe("PbButton", () => {
 
     expect([...button.classList]).toEqual(expect.arrayContaining(["pb-btn", "pb-btn-primary"]));
     expect(button.classList).not.toContain("pb-btn-lg");
-    expect(button.textContent).toBe("Book a free call");
+    expect(button.textContent?.trim()).toBe("Book a free call");
   });
 
   it("switches variant and size classes", async () => {
