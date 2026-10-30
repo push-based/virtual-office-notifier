@@ -174,8 +174,8 @@ export class RecordingHistory extends Context.Service<
           )
         : Effect.succeed((_id: string): ReadonlyArray<OfficeMember> => []);
 
-    const actionItemsOf = (sql: SqlClient.SqlClient, id: string, avatars: Avatars) =>
-      Effect.gen(function* () {
+    const actionItemsOf = Effect.fnUntraced(
+      function* (sql: SqlClient.SqlClient, id: string, avatars: Avatars) {
         const [pulled] = yield* sql`
           SELECT action_items_model IS NOT NULL AS pulled FROM office.recordings WHERE id = ${id}
         `.pipe(Effect.flatMap(decodePulled));
@@ -196,14 +196,14 @@ export class RecordingHistory extends Context.Service<
           owner: item.owner === null ? null : memberOf(avatars, item.owner, item.ownerName),
           done: item.done,
         }));
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Couldn't read the recording's action items").pipe(
-            Effect.annotateLogs({ reason: error.message }),
-            Effect.as(null),
-          ),
+      },
+      Effect.catch((error) =>
+        Effect.logWarning("Couldn't read the recording's action items").pipe(
+          Effect.annotateLogs({ reason: error.message }),
+          Effect.as(null),
         ),
-      );
+      ),
+    );
 
     const page = Effect.fn("RecordingHistory.page")((before: Option.Option<DateTime.Utc>) =>
       connected((sql) =>

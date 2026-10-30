@@ -244,29 +244,28 @@ export class RecordingRequests extends Context.Service<
         WHERE id = ${request.id} AND handled_at IS NULL
       `;
 
-    const act = <E, R>(
+    const act = Effect.fnUntraced(function* <E, R>(
       sql: SqlClient.SqlClient,
       request: RecordingRequest,
       outcome: Exclude<RequestOutcome, "ignored">,
       change: Effect.Effect<Change<E, R>, E, R>,
-    ) =>
-      Effect.gen(function* () {
-        yield* ready;
+    ) {
+      yield* ready;
 
-        const committed = yield* sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const made = yield* change;
+      const committed = yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const made = yield* change;
 
-              yield* resolve(sql, request, outcome, null, made.recordingId);
+            yield* resolve(sql, request, outcome, null, made.recordingId);
 
-              return made;
-            }),
-          )
-          .pipe(Effect.catchIf(SqlError.isSqlError, (error) => unavailable(error.message)));
+            return made;
+          }),
+        )
+        .pipe(Effect.catchIf(SqlError.isSqlError, (error) => unavailable(error.message)));
 
-        yield* committed.afterCommit;
-      });
+      yield* committed.afterCommit;
+    });
 
     const handlePending = Effect.fn("RecordingRequests.handlePending")(
       <E, R>(handler: RequestHandler<E, R>) =>
@@ -324,12 +323,11 @@ export class RecordingRequests extends Context.Service<
     return RecordingRequests.of({ submit, find, status, handlePending, publishStatus });
   };
 
-  static readonly make = (ready: Effect.Effect<void>) =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
+  static readonly make = Effect.fnUntraced(function* (ready: Effect.Effect<void>) {
+    const sql = yield* SqlClient.SqlClient;
 
-      return RecordingRequests.makeWith(ready, (use) => use(sql));
-    });
+    return RecordingRequests.makeWith(ready, (use) => use(sql));
+  });
 
   static readonly layerPerCall = <E extends Error>(
     connection: Layer.Layer<SqlClient.SqlClient, E>,
