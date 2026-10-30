@@ -10,8 +10,10 @@ import {
   Layer,
   type LogLevel,
   Option,
+  pipe,
   Schema,
   SchemaTransformation,
+  String,
 } from "effect";
 
 import {
@@ -35,16 +37,16 @@ export const SummaryText = Schema.String.pipe(
     ),
     SchemaTransformation.transform({
       decode: (text) =>
-        text
-          .trim()
-          .replace(/^["'“]+|["'”]+$/g, "")
-          .trim(),
+        pipe(text, String.trim, String.replace(/^["'“]+|["'”]+$/g, ""), String.trim),
       encode: identity,
     }),
   ),
 );
 
-export class NoAiSummary extends Schema.TaggedError<NoAiSummary>()("NoAiSummary", {
+export class NoAiSummary extends Schema.TaggedError<
+  NoAiSummary,
+  { readonly brand: unique symbol }
+>()("NoAiSummary", {
   reason: Schema.String,
 }) {
   override get message(): string {
@@ -65,20 +67,23 @@ export interface WrittenSummary {
   readonly model: string;
 }
 
-const SUMMARY_PROMPT = [
-  "You summarize a recorded conversation from a team's virtual office, a Discord voice channel where people work alongside each other. The transcript was made by speech recognition, one line per stretch of speech, each with the time in UTC+2 and who spoke.",
-  "Write a summary for the team's Slack channel: what was discussed, any decisions, and any action items with the name of whoever took them. Leave out small talk unless it's the whole conversation.",
-  "Only say what the transcript shows. Speech recognition gets words wrong, so when a line makes no sense, skip it rather than guess.",
-  "Name people exactly as they're written in the transcript. Refer to people by name or as they, never as he or she.",
-  "Reply with plain text only: short lines starting with •, no headings, no markdown, no quotes, no labels, nothing in angle brackets. Keep the whole reply under 1,200 characters.",
-].join("\n");
+const SUMMARY_PROMPT = Array.join(
+  [
+    "You summarize a recorded conversation from a team's virtual office, a Discord voice channel where people work alongside each other. The transcript was made by speech recognition, one line per stretch of speech, each with the time in UTC+2 and who spoke.",
+    "Write a summary for the team's Slack channel: what was discussed, any decisions, and any action items with the name of whoever took them. Leave out small talk unless it's the whole conversation.",
+    "Only say what the transcript shows. Speech recognition gets words wrong, so when a line makes no sense, skip it rather than guess.",
+    "Name people exactly as they're written in the transcript. Refer to people by name or as they, never as he or she.",
+    "Reply with plain text only: short lines starting with •, no headings, no markdown, no quotes, no labels, nothing in angle brackets. Keep the whole reply under 1,200 characters.",
+  ],
+  "\n",
+);
 
-const clock = (at: DateTime.Utc): string => officeClock(at).slice(-5);
+const clock = (at: DateTime.Utc): string => pipe(officeClock(at), String.slice(-5));
 
 export const transcriptLines = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<string> =>
-  lines.flatMap(({ startedAt, who, transcription, transcript }) => {
+  Array.flatMap(lines, ({ startedAt, who, transcription, transcript }) => {
     if (transcription === "done") {
-      const text = (transcript ?? "").trim();
+      const text = String.trim(transcript ?? "");
 
       return text === "" ? [] : [`${clock(startedAt)} ${who}: ${text}`];
     }
@@ -89,14 +94,21 @@ export const transcriptLines = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<s
   });
 
 export const transcriptText = (details: RecordingDetails, lines: ReadonlyArray<ClipLine>): string =>
-  [
-    `Office recording from ${officeClock(details.startedAt)} to ${clock(details.stoppedAt)} (UTC+2), ${formatDuration(DateTime.distance(details.startedAt, details.stoppedAt))}, started by ${details.startedByName}.`,
-    "",
-    ...transcriptLines(lines),
-  ].join("\n");
+  Array.join(
+    [
+      `Office recording from ${officeClock(details.startedAt)} to ${clock(details.stoppedAt)} (UTC+2), ${formatDuration(DateTime.distance(details.startedAt, details.stoppedAt))}, started by ${details.startedByName}.`,
+      "",
+      ...transcriptLines(lines),
+    ],
+    "\n",
+  );
 
 export const speakersOf = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<string> =>
-  Array.dedupe(lines.flatMap((line) => (line.transcription === "done" ? [line.who] : [])));
+  pipe(
+    lines,
+    Array.flatMap((line) => (line.transcription === "done" ? [line.who] : [])),
+    Array.dedupe,
+  );
 
 export const hasSpeech = (lines: ReadonlyArray<ClipLine>): boolean =>
   transcriptLines(lines).length > 0;
@@ -106,7 +118,7 @@ export class SummaryWriter extends Context.Service<
   {
     write(transcript: string): Effect.Effect<Option.Option<WrittenSummary>>;
   }
->()("virtual-office-notifier/SummaryWriter") {
+>()("bot/SummaryWriter") {
   static readonly layerProviders = (providers: Providers) =>
     Layer.succeed(
       SummaryWriter,
@@ -123,7 +135,9 @@ export class SummaryWriter extends Context.Service<
           Effect.tapError((error) =>
             Effect.logWarning("No AI model could summarize the recording").pipe(
               Effect.andThen(
-                ErrorReporter.report(Cause.fail(new NoAiSummary({ reason: failureReason(error) }))),
+                ErrorReporter.report(
+                  Cause.fail(NoAiSummary.make({ reason: failureReason(error) })),
+                ),
               ),
             ),
           ),

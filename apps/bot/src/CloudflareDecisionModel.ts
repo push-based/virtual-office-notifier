@@ -1,4 +1,4 @@
-import { Data, Effect, Match, Predicate, Redacted, Schema } from "effect";
+import { Array, Data, Effect, Match, Predicate, Record, Redacted, Schema } from "effect";
 import { AiError, type Decision, DecisionModel } from "effect/ai";
 import { HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
@@ -44,7 +44,7 @@ const question = (decision: ClefDecision): ClefQuestion =>
     Rate: ({ instructions, criteria }): ClefQuestion => ({
       type: "score",
       instructions,
-      criteria: criteria.map((level) => level.description),
+      criteria: Array.map(criteria, (level) => level.description),
     }),
     Probability: ({ instructions, criteria }): ClefQuestion =>
       criteria === undefined
@@ -54,12 +54,10 @@ const question = (decision: ClefDecision): ClefQuestion =>
 
 export const clefRequest = (
   state: Schema.Json,
-  decisions: Readonly<Record<string, ClefDecision>>,
+  decisions: Record.ReadonlyRecord<string, ClefDecision>,
 ): ClefRequest => ({
   state,
-  questions: Object.fromEntries(
-    Object.entries(decisions).map(([name, decision]) => [name, question(decision)]),
-  ),
+  questions: Record.map(decisions, (decision) => question(decision)),
 });
 
 const Probabilities = Schema.Record(Schema.String, Schema.Finite);
@@ -115,13 +113,13 @@ const providerAnswer = (
     case "score": {
       const levels =
         decision !== undefined && Predicate.isTagged(decision, "Rate")
-          ? decision.criteria.map((level) => level.label)
+          ? Array.map(decision.criteria, (level) => level.label)
           : [];
 
       return ProviderAnswer.Rate({
         rating: answer.score,
-        probabilities: Object.fromEntries(
-          levels.flatMap((label, index) => {
+        probabilities: Record.fromEntries(
+          Array.flatMap(levels, (label, index): ReadonlyArray<readonly [string, number]> => {
             const probability = answer.probabilities[String(index)];
 
             return probability === undefined ? [] : [[label, probability]];
@@ -136,17 +134,17 @@ const providerAnswer = (
 const failureFor = (status: number, body: string): AiError.AiErrorReason => {
   const http = { body };
 
-  if (status === 429) return new AiError.RateLimitError({ http });
+  if (status === 429) return AiError.RateLimitError.make({ http });
 
-  if (status === 401) return new AiError.AuthenticationError({ kind: "InvalidKey", http });
+  if (status === 401) return AiError.AuthenticationError.make({ kind: "InvalidKey", http });
 
   if (status === 403)
-    return new AiError.AuthenticationError({ kind: "InsufficientPermissions", http });
+    return AiError.AuthenticationError.make({ kind: "InsufficientPermissions", http });
 
   if (status >= 500)
-    return new AiError.InternalProviderError({ description: `HTTP ${status}`, http });
+    return AiError.InternalProviderError.make({ description: `HTTP ${status}`, http });
 
-  return new AiError.InvalidRequestError({ description: `HTTP ${status}`, http });
+  return AiError.InvalidRequestError.make({ description: `HTTP ${status}`, http });
 };
 
 export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOptions) {
@@ -163,7 +161,9 @@ export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOpti
 
       return yield* decodeRunResponse(body).pipe(
         Effect.mapError(() =>
-          aiError(new AiError.InvalidOutputError({ description: "Clef's reply couldn't be read" })),
+          aiError(
+            AiError.InvalidOutputError.make({ description: "Clef's reply couldn't be read" }),
+          ),
         ),
       );
     });
@@ -177,7 +177,7 @@ export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOpti
         client.execute,
         Effect.mapError((error) =>
           aiError(
-            new AiError.NetworkError({
+            AiError.NetworkError.make({
               reason: "TransportError",
               method: "POST",
               url,
@@ -187,11 +187,8 @@ export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOpti
         ),
         Effect.flatMap(readResponse),
         Effect.map(({ result }) => ({
-          answers: Object.fromEntries(
-            Object.entries(result.answers).map(([name, answer]) => [
-              name,
-              providerAnswer(answer, decisions[name]),
-            ]),
+          answers: Record.map(result.answers, (answer, name) =>
+            providerAnswer(answer, decisions[name]),
           ),
           usage: {
             inputTokens: result.usage?.input_tokens,

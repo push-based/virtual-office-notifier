@@ -1,5 +1,5 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Duration, Option, Schema } from "effect";
+import { DateTime, Duration, Effect, Exit, Option, Schema } from "effect";
 
 import {
   type ActiveRecording,
@@ -100,18 +100,22 @@ describe("request expiry", () => {
 });
 
 describe("RowId", () => {
-  const decode = Schema.decodeUnknownSync(RowId);
+  const decode = Schema.decodeUnknownEffect(RowId);
 
-  it("reads Postgres bigint ids, which the driver returns as BigInt", () => {
-    assert.strictEqual(decode(42n), 42);
-    assert.strictEqual(decode("42"), 42);
-    assert.strictEqual(decode(42), 42);
-  });
+  it.effect("reads Postgres bigint ids, which the driver returns as BigInt", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(yield* decode(42n), 42);
+      assert.strictEqual(yield* decode("42"), 42);
+      assert.strictEqual(yield* decode(42), 42);
+    }),
+  );
 
-  it("refuses anything that isn't an id", () => {
-    assert.throws(() => decode("forty-two"));
-    assert.throws(() => decode(null));
-  });
+  it.effect("refuses anything that isn't an id", () =>
+    Effect.gen(function* () {
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(decode("forty-two"))));
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(decode(null))));
+    }),
+  );
 });
 
 describe("time limit", () => {
@@ -139,20 +143,22 @@ describe("the page's types", () => {
     expectTypeOf<typeof SubmittedRequest.Encoded>().toEqualTypeOf<Wire.SubmittedRequest>();
   });
 
-  it("send times as ISO strings", () => {
-    const encoded = Schema.encodeSync(RecordingStatus)({
-      botInOffice: true,
-      occupants: [],
-      recording: {
-        id: "r1",
-        startedAt: DateTime.makeUnsafe(0),
-        startedByName: "Ada",
-        endsAt: endsAt(active),
-      },
-      updatedAt: DateTime.makeUnsafe(0),
-    });
+  it.effect("send times as ISO strings", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(RecordingStatus)({
+        botInOffice: true,
+        occupants: [],
+        recording: {
+          id: "r1",
+          startedAt: DateTime.makeUnsafe(0),
+          startedByName: "Ada",
+          endsAt: endsAt(active),
+        },
+        updatedAt: DateTime.makeUnsafe(0),
+      });
 
-    assert.strictEqual(encoded.recording?.endsAt, "1970-01-01T04:00:00.000Z");
-    assert.strictEqual(encoded.updatedAt, "1970-01-01T00:00:00.000Z");
-  });
+      assert.strictEqual(encoded.recording?.endsAt, "1970-01-01T04:00:00.000Z");
+      assert.strictEqual(encoded.updatedAt, "1970-01-01T00:00:00.000Z");
+    }),
+  );
 });

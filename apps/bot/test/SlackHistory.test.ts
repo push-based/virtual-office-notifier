@@ -1,6 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Duration, Effect, Exit, Layer, Option } from "effect";
+import { Array, DateTime, Duration, Effect, Exit, Layer, Option } from "effect";
+import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 
 import { ActivityLog } from "../src/ActivityLog.ts";
@@ -172,7 +173,7 @@ describe("SlackHistory", () => {
         ["d2", "gracie"],
         ["d3", "linus_t"],
       ] as const) {
-        yield* log.record(SESSION, crypto.randomUUID(), {
+        yield* log.record(SESSION, SecureRandom.uuidV4Unsafe(), {
           source: "update",
           officeChannelId: "office",
           userId,
@@ -234,7 +235,7 @@ describe("SlackHistory", () => {
       }>`SELECT added FROM office.slack_reactions ORDER BY id`;
 
       assert.deepStrictEqual(
-        rows.map((row) => row.added),
+        Array.map(rows, (row) => row.added),
         [true, false],
       );
     }).pipe(Effect.provide(TestLayer)),

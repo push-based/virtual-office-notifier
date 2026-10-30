@@ -8,7 +8,10 @@ import { MAX_TRANSCRIPTION_ATTEMPTS, StopReason, TranscriptionStatus } from "./R
 
 const QUERY_TIMEOUT = Duration.seconds(10);
 
-export class StoreUnavailable extends Schema.TaggedError<StoreUnavailable>()("StoreUnavailable", {
+export class StoreUnavailable extends Schema.TaggedError<
+  StoreUnavailable,
+  { readonly brand: unique symbol }
+>()("StoreUnavailable", {
   reason: Schema.String,
 }) {}
 
@@ -83,7 +86,7 @@ const decodePending = Schema.decodeUnknownEffect(
       id: RowId,
       recordingId: Schema.String,
       objectPath: Schema.NullOr(Schema.String),
-      attempts: Schema.Number,
+      attempts: Schema.Finite,
     }),
   ),
 );
@@ -94,7 +97,7 @@ const decodeClipLines = Schema.decodeUnknownEffect(
       userId: Schema.String,
       who: Schema.String,
       startedAt: Schema.DateTimeUtcFromDate,
-      durationMs: Schema.Number,
+      durationMs: Schema.Finite,
       transcription: TranscriptionStatus,
       transcript: Schema.NullOr(Schema.String),
     }),
@@ -118,10 +121,10 @@ const decodeDetails = Schema.decodeUnknownEffect(
 const decodeIds = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: Schema.String })));
 
 const decodeCount = Schema.decodeUnknownEffect(
-  Schema.Array(Schema.Struct({ total: Schema.Number })),
+  Schema.Array(Schema.Struct({ total: Schema.Finite })),
 );
 
-const notRecording = () => Effect.fail(new StoreUnavailable({ reason: "Nothing is recorded" }));
+const notRecording = () => Effect.fail(StoreUnavailable.make({ reason: "Nothing is recorded" }));
 
 export class RecordingStore extends Context.Service<
   RecordingStore,
@@ -150,7 +153,7 @@ export class RecordingStore extends Context.Service<
     recordingDetails(id: string): Effect.Effect<Option.Option<RecordingDetails>, StoreUnavailable>;
     finishRecording(id: string, finished: FinishedRecording): Effect.Effect<void, StoreUnavailable>;
   }
->()("virtual-office-notifier/RecordingStore") {
+>()("bot/RecordingStore") {
   static readonly layer = Layer.effect(
     RecordingStore,
     Effect.gen(function* () {
@@ -161,11 +164,11 @@ export class RecordingStore extends Context.Service<
       const onceReady = <A, E extends Error>(query: Effect.Effect<A, E>) =>
         database.ready.pipe(
           Effect.andThen(query),
-          Effect.mapError((error) => new StoreUnavailable({ reason: describeError(error) })),
+          Effect.mapError((error) => StoreUnavailable.make({ reason: describeError(error) })),
           Effect.timeoutOrElse({
             duration: QUERY_TIMEOUT,
             orElse: () =>
-              Effect.fail(new StoreUnavailable({ reason: "Timed out after 10 seconds" })),
+              Effect.fail(StoreUnavailable.make({ reason: "Timed out after 10 seconds" })),
           }),
         );
 
@@ -180,7 +183,7 @@ export class RecordingStore extends Context.Service<
           Effect.flatMap(decodeIds),
         ),
       ).pipe(
-        Effect.map((rows) => rows.map((row) => row.id)),
+        Effect.map((rows) => Array.map(rows, (row) => row.id)),
         Effect.withSpan("RecordingStore.unfinishedRecordings"),
       );
 

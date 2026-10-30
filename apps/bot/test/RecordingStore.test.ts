@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option } from "effect";
+import { Array, DateTime, Effect, Layer, Option } from "effect";
 import { SqlClient } from "effect/sql";
 
 import { columnNaming, Database } from "../src/Database.ts";
@@ -98,7 +98,7 @@ describe("RecordingStore", () => {
 
       const events = yield* sql`SELECT event, reason FROM office.recording_events ORDER BY id`;
       assert.deepStrictEqual(
-        events.map((event) => event.event),
+        Array.map(events, (event) => event.event),
         ["started", "stopped", "stopped"],
       );
     }).pipe(Effect.provide(TestLayer)),
@@ -240,7 +240,11 @@ describe("RecordingStore", () => {
 
       const lines = yield* store.clipsOf(RECORDING);
       assert.deepStrictEqual(
-        lines.map(({ who, transcript, transcription }) => ({ who, transcript, transcription })),
+        Array.map(lines, ({ who, transcript, transcription }) => ({
+          who,
+          transcript,
+          transcription,
+        })),
         [
           { who: "Ada", transcript: "First", transcription: "done" },
           { who: "Grace Hopper", transcript: "Second", transcription: "done" },

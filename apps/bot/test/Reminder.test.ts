@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Clock, DateTime, Effect, Fiber, Stream } from "effect";
+import { Array, Clock, DateTime, Effect, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
 
 import { OfficeEvent } from "../src/OfficeEvent.ts";
@@ -24,7 +24,7 @@ describe("reminders", () => {
       const fired = yield* Fiber.join(fiber);
 
       assert.deepStrictEqual(
-        fired.map(([, now]) => new Date(now).toISOString()),
+        Array.map(fired, ([, now]) => DateTime.formatIso(DateTime.makeUnsafe(now))),
         ["1970-01-01T09:15:00.000Z", "1970-01-02T09:15:00.000Z", "1970-01-05T09:15:00.000Z"],
       );
       assert.deepStrictEqual(

@@ -7,18 +7,7 @@ import {
 } from "@discordjs/voice";
 import type { Buffer } from "node:buffer";
 
-import {
-  Cause,
-  Context,
-  DateTime,
-  Duration,
-  Effect,
-  Layer,
-  Option,
-  Queue,
-  Schema,
-  Stream,
-} from "effect";
+import { Cause, Context, DateTime, Duration, Effect, Layer, Queue, Schema, Stream } from "effect";
 
 import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
@@ -30,7 +19,10 @@ export interface Clip {
   readonly packets: ReadonlyArray<Uint8Array>;
 }
 
-export class CaptureError extends Schema.TaggedError<CaptureError>()("CaptureError", {
+export class CaptureError extends Schema.TaggedError<
+  CaptureError,
+  { readonly brand: unique symbol }
+>()("CaptureError", {
   reason: Schema.String,
 }) {}
 
@@ -52,7 +44,7 @@ export class VoiceCapture extends Context.Service<
   {
     capture(office: OfficeLocation): Stream.Stream<Clip, CaptureError>;
   }
->()("virtual-office-notifier/VoiceCapture") {
+>()("bot/VoiceCapture") {
   static readonly layer = Layer.effect(
     VoiceCapture,
     Effect.gen(function* () {
@@ -62,11 +54,9 @@ export class VoiceCapture extends Context.Service<
       const capture = (office: OfficeLocation) =>
         Stream.callback<Clip, CaptureError>(
           Effect.fnUntraced(function* (queue) {
-            const adapterCreator = yield* Option.match(gateway.voiceAdapter, {
-              onNone: () =>
-                Effect.fail(new CaptureError({ reason: "The office voice channel wasn't found" })),
-              onSome: Effect.succeed,
-            });
+            const adapterCreator = yield* Effect.fromOption(gateway.voiceAdapter, () =>
+              CaptureError.make({ reason: "The office voice channel wasn't found" }),
+            );
 
             const connection = yield* Effect.acquireRelease(
               Effect.sync(() =>
@@ -82,7 +72,7 @@ export class VoiceCapture extends Context.Service<
             );
 
             const fail = (reason: string) => {
-              Queue.failCauseUnsafe(queue, Cause.fail(new CaptureError({ reason })));
+              Queue.failCauseUnsafe(queue, Cause.fail(CaptureError.make({ reason })));
             };
 
             connection.on("error", (error) => fail(`Voice connection error: ${error.message}`));
@@ -97,7 +87,7 @@ export class VoiceCapture extends Context.Service<
             yield* Effect.tryPromise({
               try: () => entersState(connection, VoiceConnectionStatus.Ready, CONNECT_TIMEOUT),
               catch: (cause) =>
-                new CaptureError({
+                CaptureError.make({
                   reason: `Couldn't connect to the voice channel: ${String(cause)}`,
                 }),
             });

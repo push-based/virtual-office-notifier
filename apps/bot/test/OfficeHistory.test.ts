@@ -1,6 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
 import { DateTime, Effect, Layer } from "effect";
+import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 
 import { ActivityLog } from "../src/ActivityLog.ts";
@@ -66,9 +67,13 @@ const record = Effect.fnUntraced(function* (
 ) {
   const log = yield* ActivityLog;
 
-  yield* Effect.forEach(observations, (seen) => log.record(session, crypto.randomUUID(), seen), {
-    discard: true,
-  });
+  yield* Effect.forEach(
+    observations,
+    (seen) => log.record(session, SecureRandom.uuidV4Unsafe(), seen),
+    {
+      discard: true,
+    },
+  );
 });
 
 const effect = (minute: number, overrides: Partial<TimedVoiceEffect> = {}): TimedVoiceEffect => ({
@@ -95,9 +100,13 @@ const recordEffects = Effect.fnUntraced(function* (
 ) {
   const log = yield* ActivityLog;
 
-  yield* Effect.forEach(effects, (sent) => log.recordEffect(session, crypto.randomUUID(), sent), {
-    discard: true,
-  });
+  yield* Effect.forEach(
+    effects,
+    (sent) => log.recordEffect(session, SecureRandom.uuidV4Unsafe(), sent),
+    {
+      discard: true,
+    },
+  );
 });
 
 const startSessions = Effect.gen(function* () {

@@ -1,7 +1,18 @@
 import { NodeHttpClient } from "@effect/platform-node";
 import { Buffer } from "node:buffer";
 
-import { Context, Duration, Effect, Layer, Option, Redacted, Schema } from "effect";
+import {
+  Array,
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  pipe,
+  Redacted,
+  Schema,
+  String,
+} from "effect";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import { AiConfig, RecordingConfig } from "./Config.ts";
@@ -15,13 +26,13 @@ export const TranscriptionFailure = Schema.Literals([
 
 export type TranscriptionFailure = typeof TranscriptionFailure.Type;
 
-export class TranscriptionError extends Schema.TaggedError<TranscriptionError>()(
-  "TranscriptionError",
-  {
-    failure: TranscriptionFailure,
-    detail: Schema.String,
-  },
-) {}
+export class TranscriptionError extends Schema.TaggedError<
+  TranscriptionError,
+  { readonly brand: unique symbol }
+>()("TranscriptionError", {
+  failure: TranscriptionFailure,
+  detail: Schema.String,
+}) {}
 
 export interface Transcript {
   readonly text: string;
@@ -45,27 +56,27 @@ const RunResponse = Schema.Struct({
 const decodeRunResponse = Schema.decodeUnknownOption(Schema.fromJsonString(RunResponse));
 
 const failure = (failure: TranscriptionFailure, detail: string) =>
-  Effect.fail(new TranscriptionError({ failure, detail }));
+  Effect.fail(TranscriptionError.make({ failure, detail }));
 
 const failureForStatus = (status: number, body: string): TranscriptionError => {
   const decoded = decodeRunResponse(body);
 
   const dailyLimit =
     Option.isSome(decoded) &&
-    (decoded.value.errors ?? []).some(({ code }) => code === CLOUDFLARE_DAILY_LIMIT);
+    Array.some(decoded.value.errors ?? [], ({ code }) => code === CLOUDFLARE_DAILY_LIMIT);
 
   if (dailyLimit)
-    return new TranscriptionError({
+    return TranscriptionError.make({
       failure: "DailyLimit",
       detail: "Workers AI's daily allocation is used up",
     });
 
   if (status === 429 || status >= 500)
-    return new TranscriptionError({ failure: "Unavailable", detail: `HTTP ${status}` });
+    return TranscriptionError.make({ failure: "Unavailable", detail: `HTTP ${status}` });
 
-  return new TranscriptionError({
+  return TranscriptionError.make({
     failure: "Rejected",
-    detail: `HTTP ${status}: ${body.slice(0, 200)}`,
+    detail: `HTTP ${status}: ${pipe(body, String.slice(0, 200))}`,
   });
 };
 
@@ -81,7 +92,7 @@ export class Transcriber extends Context.Service<
   {
     transcribe(audio: Uint8Array): Effect.Effect<Transcript, TranscriptionError>;
   }
->()("virtual-office-notifier/Transcriber") {
+>()("bot/Transcriber") {
   static readonly layerOptions = (options: TranscriberOptions) =>
     Layer.effect(
       Transcriber,
@@ -99,8 +110,8 @@ export class Transcriber extends Context.Service<
             }),
             client.execute,
             Effect.timeout(REQUEST_TIMEOUT),
-            Effect.mapError(
-              (error) => new TranscriptionError({ failure: "Unavailable", detail: String(error) }),
+            Effect.mapError((error) =>
+              TranscriptionError.make({ failure: "Unavailable", detail: globalThis.String(error) }),
             ),
           );
 
@@ -111,7 +122,8 @@ export class Transcriber extends Context.Service<
 
           const decoded = decodeRunResponse(body);
 
-          if (Option.isNone(decoded)) return yield* failure("Unreadable", body.slice(0, 200));
+          if (Option.isNone(decoded))
+            return yield* failure("Unreadable", pipe(body, String.slice(0, 200)));
 
           if (!decoded.value.success) return yield* failureForStatus(response.status, body);
 
@@ -119,7 +131,7 @@ export class Transcriber extends Context.Service<
 
           if (text === undefined) return yield* failure("Unreadable", "The reply has no text");
 
-          return { text: text.trim(), model: options.model };
+          return { text: String.trim(text), model: options.model };
         });
 
         return Transcriber.of({ transcribe });
@@ -131,7 +143,7 @@ export class Transcriber extends Context.Service<
     Transcriber.of({
       transcribe: () =>
         Effect.fail(
-          new TranscriptionError({
+          TranscriptionError.make({
             failure: "Unavailable",
             detail: "No transcriber is configured",
           }),

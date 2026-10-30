@@ -1,4 +1,4 @@
-import { Array, Config, Option, Redacted, Schema } from "effect";
+import { Array, Config, Option, Redacted, Schema, String } from "effect";
 
 const secret = (name: string) => Config.schema(Schema.Redacted(Schema.NonEmptyString), name);
 
@@ -17,7 +17,7 @@ export const SlackConfig = Config.all({
 const optionalSecret = (name: string) =>
   Config.Redacted(name).pipe(
     Config.option,
-    Config.map(Option.filter((value) => Redacted.value(value).trim() !== "")),
+    Config.map(Option.filter((value) => String.trim(Redacted.value(value)) !== "")),
   );
 
 const modelList = (name: string, defaults: Array.NonEmptyReadonlyArray<string>) =>
@@ -81,7 +81,7 @@ export const DEFAULT_TRANSCRIPTION_LANGUAGE = "en";
 
 export const RecordingConfig = Config.all({
   bucket: Config.option(Config.NonEmptyString("RECORDINGS_BUCKET")).pipe(
-    Config.map(Option.filter((bucket) => bucket.trim() !== "")),
+    Config.map(Option.filter((bucket) => String.trim(bucket) !== "")),
   ),
   whisperModel: Config.NonEmptyString("WHISPER_MODEL").pipe(
     Config.withDefault(DEFAULT_WHISPER_MODEL),

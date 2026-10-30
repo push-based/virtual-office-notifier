@@ -15,6 +15,7 @@ import {
   Schedule,
   Schema,
 } from "effect";
+import { SecureRandom } from "effect/crypto";
 
 import { ActivityLog, ActivityLogError, Outage } from "./ActivityLog.ts";
 import { Database, DatabaseUnavailable, describeError, reconnectSchedule } from "./Database.ts";
@@ -52,7 +53,10 @@ export const Entry = Data.taggedEnum<Entry>();
 // that holds people's names and IDs.
 
 // An update that only made it into the journal.
-export class UpdateNotStored extends Schema.TaggedError<UpdateNotStored>()("UpdateNotStored", {
+export class UpdateNotStored extends Schema.TaggedError<
+  UpdateNotStored,
+  { readonly brand: unique symbol }
+>()("UpdateNotStored", {
   message: Schema.String,
 }) {
   override get [ErrorReporter.severity](): LogLevel.Severity {
@@ -61,7 +65,10 @@ export class UpdateNotStored extends Schema.TaggedError<UpdateNotStored>()("Upda
 }
 
 // An update Postgres rejected, kept in rejected_updates.
-export class UpdateSetAside extends Schema.TaggedError<UpdateSetAside>()("UpdateSetAside", {
+export class UpdateSetAside extends Schema.TaggedError<
+  UpdateSetAside,
+  { readonly brand: unique symbol }
+>()("UpdateSetAside", {
   reason: Schema.String,
 }) {
   override get message(): string {
@@ -77,12 +84,12 @@ export class UpdateSetAside extends Schema.TaggedError<UpdateSetAside>()("Update
   }
 }
 
-export class RecordingDisabled extends Schema.TaggedError<RecordingDisabled>()(
-  "RecordingDisabled",
-  {
-    reason: Schema.String,
-  },
-) {
+export class RecordingDisabled extends Schema.TaggedError<
+  RecordingDisabled,
+  { readonly brand: unique symbol }
+>()("RecordingDisabled", {
+  reason: Schema.String,
+}) {
   override get message(): string {
     return `Couldn't create the database client, so nothing is recorded: ${this.reason}`;
   }
@@ -100,12 +107,12 @@ const report = (error: UpdateNotStored | UpdateSetAside | DatabaseUnavailable) =
 const logInstead = (message: string, entry: Entry) =>
   Effect.logError(message).pipe(
     Effect.annotateLogs({ entry: JSON.stringify(entry) }),
-    Effect.andThen(report(new UpdateNotStored({ message }))),
+    Effect.andThen(report(UpdateNotStored.make({ message }))),
   );
 
 const outageRetry = reconnectSchedule.pipe(
   Schedule.setInputType<ActivityLogError>(),
-  Schedule.while(({ input }) => input.reason instanceof Outage),
+  Schedule.while(({ input }) => Schema.is(Outage)(input.reason)),
   Schedule.tap(({ input, attempt, duration }) =>
     Effect.logWarning("Couldn't record to the database, retrying").pipe(
       Effect.annotateLogs({
@@ -113,7 +120,7 @@ const outageRetry = reconnectSchedule.pipe(
         attempt,
         delayMs: Duration.toMillis(duration),
       }),
-      Effect.andThen(report(new DatabaseUnavailable({ reason: input.reason.message }))),
+      Effect.andThen(report(DatabaseUnavailable.make({ reason: input.reason.message }))),
     ),
   ),
 );
@@ -126,7 +133,7 @@ export class ActivityRecorder extends Context.Service<
     record(observation: VoiceObservation): Effect.Effect<void>;
     recordEffect(effect: TimedVoiceEffect): Effect.Effect<void>;
   }
->()("virtual-office-notifier/ActivityRecorder") {
+>()("bot/ActivityRecorder") {
   // One writer drains the buffer in order. An outage keeps the entry at the
   // front and retries on the reconnect schedule. A row Postgres rejects goes
   // to rejected_updates instead, so it can't block everything behind it.
@@ -135,8 +142,9 @@ export class ActivityRecorder extends Context.Service<
     Effect.gen(function* () {
       const database = yield* Database;
       const log = yield* ActivityLog;
+      const random = yield* SecureRandom.SecureRandom;
 
-      const sessionId = crypto.randomUUID();
+      const sessionId = yield* random.uuidV4();
       // Dropping keeps the oldest entries when full, and refuses new ones.
       const buffer = yield* Queue.dropping<Entry, Cause.Done>(BUFFER_SIZE);
       const inFlight = yield* Ref.make(Option.none<Entry>());
@@ -168,7 +176,7 @@ export class ActivityRecorder extends Context.Service<
               "The database rejected an update, set it aside in rejected_updates",
             ).pipe(
               Effect.annotateLogs({ reason: error.reason.message }),
-              Effect.andThen(report(new UpdateSetAside({ reason: error.reason.message }))),
+              Effect.andThen(report(UpdateSetAside.make({ reason: error.reason.message }))),
             ),
           ),
           Effect.catch((rejectError) =>
@@ -187,8 +195,8 @@ export class ActivityRecorder extends Context.Service<
             duration: WRITE_TIMEOUT,
             orElse: () =>
               Effect.fail(
-                new ActivityLogError({
-                  reason: new Outage({ message: "Timed out after 10 seconds" }),
+                ActivityLogError.make({
+                  reason: Outage.make({ message: "Timed out after 10 seconds" }),
                 }),
               ),
           }),
@@ -242,9 +250,21 @@ export class ActivityRecorder extends Context.Service<
 
       return ActivityRecorder.of({
         record: (observation) =>
-          enqueue(Entry.Observed({ sessionId, entryId: crypto.randomUUID(), observation })),
+          random
+            .uuidV4()
+            .pipe(
+              Effect.flatMap((entryId) =>
+                enqueue(Entry.Observed({ sessionId, entryId, observation })),
+              ),
+            ),
         recordEffect: (effect) =>
-          enqueue(Entry.EffectSent({ sessionId, entryId: crypto.randomUUID(), effect })),
+          random
+            .uuidV4()
+            .pipe(
+              Effect.flatMap((entryId) =>
+                enqueue(Entry.EffectSent({ sessionId, entryId, effect })),
+              ),
+            ),
       });
     }),
   );

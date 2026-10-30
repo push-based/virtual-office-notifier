@@ -1,6 +1,6 @@
 import * as Sentry from "@sentry/effect/server";
 import { assert, describe, it } from "@effect/vitest";
-import { type Cause, Effect, Fiber, Layer, Queue } from "effect";
+import { Array, type Cause, Effect, Fiber, Layer, Option, Queue, Schema } from "effect";
 import { TestClock } from "effect/testing";
 
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
@@ -23,6 +23,8 @@ import {
 } from "./fakes.ts";
 
 const OFFICE = "office";
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const env = {
   DISCORD_BOT_TOKEN: "discord-token",
@@ -103,15 +105,18 @@ describe("Sentry", () => {
     Effect.gen(function* () {
       const { spans } = yield* runWithSentry([ok]);
 
-      const announce = spans.find((span) => span.name === "Program.announce");
-      assert.isTrue(announce?.is_segment);
-      assert.strictEqual(announce?.attributes["event"], "Opened");
+      const announce = Option.getOrThrow(
+        Array.findFirst(spans, (span) => span.name === "Program.announce"),
+      );
+
+      assert.isTrue(announce.is_segment);
+      assert.strictEqual(announce.attributes["event"], "Opened");
       assert.includeMembers(
-        spans.map((span) => span.name),
+        Array.map(spans, (span) => span.name),
         ["Program.announce", "SlackNotifier.notify", "SlackClient.chat.postMessage"],
       );
-      assert.isTrue(spans.every((span) => span.trace_id === announce?.trace_id));
-      assert.notInclude(JSON.stringify(spans), SLACK_ENV.SLACK_BOT_TOKEN);
+      assert.isTrue(Array.every(spans, (span) => span.trace_id === announce.trace_id));
+      assert.notInclude(yield* encodeJson(spans), SLACK_ENV.SLACK_BOT_TOKEN);
     }),
   );
 
@@ -119,10 +124,16 @@ describe("Sentry", () => {
     Effect.gen(function* () {
       const { logs, spans } = yield* runWithSentry([ok]);
 
-      const announced = logs.find((log) => log.message === "Announced office event");
-      const announce = spans.find((span) => span.name === "Program.announce");
-      assert.strictEqual(announced?.level, "info");
-      assert.strictEqual(announced?.attributes?.["sentry.trace.parent_span_id"], announce?.span_id);
+      const announced = Option.getOrThrow(
+        Array.findFirst(logs, (log) => log.message === "Announced office event"),
+      );
+
+      const announce = Option.getOrThrow(
+        Array.findFirst(spans, (span) => span.name === "Program.announce"),
+      );
+
+      assert.strictEqual(announced.level, "info");
+      assert.strictEqual(announced.attributes?.["sentry.trace.parent_span_id"], announce.span_id);
     }),
   );
 
@@ -137,7 +148,7 @@ describe("Sentry", () => {
         "Slack rejected the post: AccessRevoked",
       );
       assert.deepStrictEqual(events[0]?.extra, { reason: "AccessRevoked" });
-      assert.notInclude(JSON.stringify(events), SLACK_ENV.SLACK_BOT_TOKEN);
+      assert.notInclude(yield* encodeJson(events), SLACK_ENV.SLACK_BOT_TOKEN);
     }),
   );
 

@@ -20,7 +20,10 @@ import { AiConfig } from "./Config.ts";
 
 const MODEL_TIMEOUT = "1 minute";
 
-export class UnusableHeadline extends Schema.TaggedError<UnusableHeadline>()("UnusableHeadline", {
+export class UnusableHeadline extends Schema.TaggedError<
+  UnusableHeadline,
+  { readonly brand: unique symbol }
+>()("UnusableHeadline", {
   text: Schema.String,
 }) {}
 
@@ -49,7 +52,7 @@ const decodeOpenRouterDailyLimit = Schema.decodeUnknownOption(
 
 const CLOUDFLARE_DAILY_LIMIT = 4006;
 
-const CloudflareCode = Schema.Union([Schema.Number, Schema.FiniteFromString]);
+const CloudflareCode = Schema.Union([Schema.Finite, Schema.FiniteFromString]);
 
 const decodeCloudflareDailyLimit = Schema.decodeUnknownOption(
   Schema.fromJsonString(
@@ -65,7 +68,7 @@ const isCloudflareDailyLimit = (body: string): boolean =>
     onNone: () => false,
     onSome: (decoded) =>
       "errors" in decoded
-        ? decoded.errors.some(({ code }) => code === CLOUDFLARE_DAILY_LIMIT)
+        ? Array.some(decoded.errors, ({ code }) => code === CLOUDFLARE_DAILY_LIMIT)
         : decoded.error.code === CLOUDFLARE_DAILY_LIMIT,
   });
 
@@ -73,14 +76,14 @@ const httpBody = (error: AiError.AiError): string | undefined =>
   "http" in error.reason ? error.reason.http?.body : undefined;
 
 export const isDailyLimit = (error: WritingError): boolean => {
-  if (!(error instanceof AiError.AiError)) return false;
+  if (!Schema.is(AiError.AiError)(error)) return false;
 
   const body = httpBody(error);
 
   if (body === undefined) return false;
 
   return (
-    (error.reason instanceof AiError.RateLimitError &&
+    (Schema.is(AiError.RateLimitError)(error.reason) &&
       Option.isSome(decodeOpenRouterDailyLimit(body))) ||
     isCloudflareDailyLimit(body)
   );
@@ -120,7 +123,7 @@ const writeWithModel = Effect.fnUntraced(function* <A>(brief: Brief<A>) {
   }).pipe(Effect.timeout(MODEL_TIMEOUT));
 
   const value = yield* Schema.decodeEffect(brief.reply)(response.text).pipe(
-    Effect.mapError(() => new UnusableHeadline({ text: response.text })),
+    Effect.mapError(() => UnusableHeadline.make({ text: response.text })),
   );
 
   return { value, model: respondingModel(response.content, model) };

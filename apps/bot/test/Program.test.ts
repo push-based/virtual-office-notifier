@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
+  Array,
   type Cause,
   Deferred,
   Effect,
@@ -7,8 +8,11 @@ import {
   Layer,
   Logger,
   type LogLevel,
+  Option,
   Queue,
+  Record,
   References,
+  Schema,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -33,6 +37,8 @@ import {
 } from "./fakes.ts";
 
 const OFFICE = "office";
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const GUILD = "guild";
 
@@ -104,10 +110,8 @@ const runProgram = Effect.fnUntraced(function* (
     logs.push({
       level: options.logLevel,
       message: String(Array.isArray(options.message) ? options.message[0] : options.message),
-      annotations: Object.fromEntries(
-        Object.entries(options.fiber.getRef(References.CurrentLogAnnotations)).map(
-          ([key, value]) => [key, String(value)],
-        ),
+      annotations: Record.map(options.fiber.getRef(References.CurrentLogAnnotations), (value) =>
+        String(value),
       ),
     });
   });
@@ -117,7 +121,7 @@ const runProgram = Effect.fnUntraced(function* (
       Layer.mergeAll(
         DiscordGateway.layerTest({
           updates: queue,
-          occupants: new Set(present.map((update) => update.userId)),
+          occupants: new Set(Array.map(present, (update) => update.userId)),
           guildId: GUILD,
           present,
           effects,
@@ -171,7 +175,7 @@ describe("program", () => {
         leave(),
       ]);
 
-      const cards = JSON.stringify(bodies);
+      const cards = yield* encodeJson(bodies);
       assert.include(cards, `"url":"https://discord.com/channels/${GUILD}/${OFFICE}"`);
       assert.include(cards, `"image_url":"https://cdn.discordapp.com/avatars/u1/a.png"`);
       assert.include(cards, "*Stopped by*\\n2 people");
@@ -250,16 +254,19 @@ describe("program", () => {
 
       assert.strictEqual(posted.length, 2);
 
-      const failure = logs.find((entry) => entry.level === "Error");
-      assert.strictEqual(failure?.message, "Slack rejected the post");
-      assert.deepInclude(failure?.annotations, {
+      const failure = Option.getOrThrow(Array.findFirst(logs, (entry) => entry.level === "Error"));
+      assert.strictEqual(failure.message, "Slack rejected the post");
+      assert.deepInclude(failure.annotations, {
         reason: "AccessRevoked",
         event: "Opened",
         userId: "<redacted>",
       });
 
-      const success = logs.find((entry) => entry.message === "Announced office event");
-      assert.deepInclude(success?.annotations, {
+      const success = Option.getOrThrow(
+        Array.findFirst(logs, (entry) => entry.message === "Announced office event"),
+      );
+
+      assert.deepInclude(success.annotations, {
         event: "Emptied",
         outcome: "posted",
         userId: "<redacted>",
@@ -308,7 +315,7 @@ describe("recording", () => {
       );
 
       assert.deepStrictEqual(
-        recorded.map(({ source, userId, oldChannelId, newChannelId }) => ({
+        Array.map(recorded, ({ source, userId, oldChannelId, newChannelId }) => ({
           source,
           userId,
           oldChannelId,
@@ -347,7 +354,7 @@ describe("recording", () => {
         );
 
         assert.deepStrictEqual(
-          recordedEffects.map(({ userId, soundName, emojiName }) => ({
+          Array.map(recordedEffects, ({ userId, soundName, emojiName }) => ({
             userId,
             soundName,
             emojiName,

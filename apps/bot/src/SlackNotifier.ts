@@ -12,7 +12,7 @@ export class SlackNotifier extends Context.Service<
   {
     notify(event: OfficeEvent): Effect.Effect<boolean, SlackError>;
   }
->()("virtual-office-notifier/SlackNotifier") {
+>()("bot/SlackNotifier") {
   static readonly layerNoDeps = Layer.effect(
     SlackNotifier,
     Effect.gen(function* () {

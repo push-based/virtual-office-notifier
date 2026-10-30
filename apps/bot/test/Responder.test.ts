@@ -1,5 +1,16 @@
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Deferred, Effect, Layer, Option, Queue, Ref, Stream } from "effect";
+import {
+  Array,
+  DateTime,
+  Deferred,
+  Effect,
+  Layer,
+  Option,
+  Queue,
+  Ref,
+  Schema,
+  Stream,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import { OfficeHistory } from "../src/OfficeHistory.ts";
@@ -28,6 +39,8 @@ import {
 } from "./fakes.ts";
 
 const OFFICE = SLACK_ENV.SLACK_CHANNEL_ID;
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const TUESDAY_10AM = DateTime.makeUnsafe("2026-10-20T08:00:00Z");
 
@@ -184,7 +197,7 @@ const start = Effect.fnUntraced(function* (setup: Setup = {}) {
     clefStates: Ref.get(clefStates),
     replyContexts: Ref.get(replyContexts),
     outcomes: history.decisions.pipe(
-      Effect.map((all) => all.map(({ outcome, reason }) => `${outcome}:${reason}`)),
+      Effect.map((all) => Array.map(all, ({ outcome, reason }) => `${outcome}:${reason}`)),
     ),
   };
 });
@@ -200,12 +213,17 @@ describe("respondToSlack", () => {
       assert.strictEqual(post?.channel, OFFICE);
       assert.strictEqual(post?.threadTs, "200.0");
       assert.strictEqual(post?.text, "🕰️ Sam was in for 3 hours today.");
-      assert.include(JSON.stringify(post?.blocks), "test/model");
-      assert.include(JSON.stringify(post?.blocks), "AI is a hallucination machine");
+      const blocks = yield* encodeJson(post?.blocks);
+      assert.include(blocks, "test/model");
+      assert.include(blocks, "AI is a hallucination machine");
 
       assert.deepStrictEqual(yield* bot.outcomes, ["replied:mention"]);
       assert.deepStrictEqual(
-        (yield* bot.history.posts).map(({ kind, threadTs, model }) => ({ kind, threadTs, model })),
+        Array.map(yield* bot.history.posts, ({ kind, threadTs, model }) => ({
+          kind,
+          threadTs,
+          model,
+        })),
         [{ kind: "Reply", threadTs: "200.0", model: "test/model" }],
       );
       assert.deepStrictEqual(yield* bot.clefStates, []);
@@ -274,7 +292,7 @@ describe("respondToSlack", () => {
 
   it.effect("keeps to the configured windows of the thread", () =>
     Effect.gen(function* () {
-      const earlier = Array.from({ length: 6 }, (_, index) => ({
+      const earlier = Array.makeBy(6, (index) => ({
         ts: `${110 + index}.0`,
         userId: "U2",
         text: `message ${index}`,
@@ -293,14 +311,16 @@ describe("respondToSlack", () => {
       yield* bot.send(threadReply("200.0", "?"));
 
       const [state] = yield* bot.clefStates;
+      assert.isDefined(state);
       assert.deepStrictEqual(
-        state?.earlier.map(({ text }) => text),
+        Array.map(state.earlier, ({ text }) => text),
         ["message 4", "message 5"],
       );
 
       const [context] = yield* bot.replyContexts;
+      assert.isDefined(context);
       assert.deepStrictEqual(
-        context?.thread.map(({ text }) => text),
+        Array.map(context.thread, ({ text }) => text),
         [
           "🐦 Sam was first in every day this week.",
           "message 2",
@@ -309,7 +329,7 @@ describe("respondToSlack", () => {
           "message 5",
         ],
       );
-      assert.strictEqual(context?.earlierLeftOut, 2);
+      assert.strictEqual(context.earlierLeftOut, 2);
     }),
   );
 
@@ -492,7 +512,7 @@ describe("respondToSlack", () => {
       yield* bot.send(reaction("reaction_added"), reaction("reaction_removed"));
 
       assert.deepStrictEqual(
-        (yield* bot.history.reactions).map(({ emoji, added, itemTs }) => ({
+        Array.map(yield* bot.history.reactions, ({ emoji, added, itemTs }) => ({
           emoji,
           added,
           itemTs,
@@ -598,7 +618,7 @@ describe("respondToSlack", () => {
       yield* TestClock.adjust("1 millis");
 
       assert.deepStrictEqual(
-        (yield* bot.slack.reactions).map(([, ts]) => ts),
+        Array.map(yield* bot.slack.reactions, ([, ts]) => ts),
         ["511.0", "210.0"],
       );
     }),
@@ -607,7 +627,7 @@ describe("respondToSlack", () => {
   it.effect("stays quiet and carries on when Clef fails, reporting a warning", () =>
     Effect.gen(function* () {
       const bot = yield* start({
-        decide: () => Effect.fail(new ClefFailed({ reason: "Timeout" })),
+        decide: () => Effect.fail(ClefFailed.make({ reason: "Timeout" })),
       });
 
       yield* bot.send(threadReply("200.0", "haha"));
@@ -615,7 +635,7 @@ describe("respondToSlack", () => {
 
       assert.deepStrictEqual(yield* bot.outcomes, ["ignored:clef_failed", "replied:mention"]);
       assert.deepStrictEqual(
-        bot.reports.map(({ name, severity }) => ({ name, severity })),
+        Array.map(bot.reports, ({ name, severity }) => ({ name, severity })),
         [{ name: "ClefFailed", severity: "Warn" }],
       );
     }),
@@ -624,7 +644,7 @@ describe("respondToSlack", () => {
   it.effect("doesn't report Clef missing when Cloudflare isn't configured", () =>
     Effect.gen(function* () {
       const bot = yield* start({
-        decide: () => Effect.fail(new ClefFailed({ reason: "NotConfigured" })),
+        decide: () => Effect.fail(ClefFailed.make({ reason: "NotConfigured" })),
       });
 
       yield* bot.send(threadReply("200.0", "haha"));
@@ -649,7 +669,7 @@ describe("respondToSlack", () => {
     Effect.gen(function* () {
       const bot = yield* start({
         decide: clefSays("react"),
-        slack: { postFailure: new AccessRevoked({ error: "not_in_channel" }) },
+        slack: { postFailure: AccessRevoked.make({ error: "not_in_channel" }) },
       });
 
       yield* bot.send(mention("200.0", "hi"));

@@ -1,5 +1,6 @@
 import type { DiscordGatewayAdapterCreator } from "@discordjs/voice";
 import {
+  Array,
   Cause,
   Context,
   DateTime,
@@ -49,12 +50,12 @@ import { observe, type VoiceObservation } from "./VoiceObservation.ts";
 
 export const RECORDING_NICKNAME = "🔴 Recording";
 
-export class DiscordLoginError extends Schema.TaggedError<DiscordLoginError>()(
-  "DiscordLoginError",
-  {
-    cause: Schema.Defect(),
-  },
-) {}
+export class DiscordLoginError extends Schema.TaggedError<
+  DiscordLoginError,
+  { readonly brand: unique symbol }
+>()("DiscordLoginError", {
+  cause: Schema.Defect(),
+}) {}
 
 const stamped = <A extends VoiceStateUpdate | VoiceEffect, E, R>(updates: Stream.Stream<A, E, R>) =>
   updates.pipe(
@@ -216,7 +217,8 @@ const fetchDefaultSoundNames = (client: Client<true>) =>
   Effect.tryPromise(() => client.rest.get(Routes.soundboardDefaultSounds())).pipe(
     Effect.flatMap(decodeDefaultSounds),
     Effect.map(
-      (sounds): DefaultSoundNames => new Map(sounds.map((sound) => [sound.sound_id, sound.name])),
+      (sounds): DefaultSoundNames =>
+        new Map(Array.map(sounds, (sound) => [sound.sound_id, sound.name])),
     ),
     Effect.timeout(Duration.seconds(10)),
     Effect.catch((error) =>
@@ -229,7 +231,10 @@ const fetchDefaultSoundNames = (client: Client<true>) =>
     ),
   );
 
-export class BotMoveError extends Schema.TaggedError<BotMoveError>()("BotMoveError", {
+export class BotMoveError extends Schema.TaggedError<
+  BotMoveError,
+  { readonly brand: unique symbol }
+>()("BotMoveError", {
   reason: Schema.String,
 }) {}
 
@@ -241,9 +246,9 @@ const sendVoiceState = (guild: Guild, channelId: string | null, selfDeaf: boolea
             op: GatewayOpcodes.VoiceStateUpdate,
             d: { guild_id: guild.id, channel_id: channelId, self_mute: true, self_deaf: selfDeaf },
           }),
-        catch: (cause) => new BotMoveError({ reason: String(cause) }),
+        catch: (cause) => BotMoveError.make({ reason: String(cause) }),
       })
-    : Effect.fail(new BotMoveError({ reason: "Discord isn't connected" }));
+    : Effect.fail(BotMoveError.make({ reason: "Discord isn't connected" }));
 
 const moveBot = (guild: Guild, officeChannelId: string) => (presence: BotPresence) =>
   sendVoiceState(guild, presence === "InOffice" ? officeChannelId : null, true).pipe(
@@ -303,7 +308,7 @@ const login = (client: Client, token: Redacted.Redacted<string>) =>
   Effect.callback<Client<true>, DiscordLoginError>((resume) => {
     client.once(Events.ClientReady, (ready) => resume(Effect.succeed(ready)));
     client.login(Redacted.value(token)).catch((cause: unknown) => {
-      resume(Effect.fail(new DiscordLoginError({ cause })));
+      resume(Effect.fail(DiscordLoginError.make({ cause })));
     });
   });
 
@@ -335,7 +340,7 @@ export class DiscordGateway extends Context.Service<
     // None when the office channel wasn't found at startup.
     readonly office: Option.Option<OfficeLocation>;
   }
->()("virtual-office-notifier/DiscordGateway") {
+>()("bot/DiscordGateway") {
   static readonly layer = Layer.effect(
     DiscordGateway,
     Effect.gen(function* () {
@@ -393,7 +398,7 @@ export class DiscordGateway extends Context.Service<
 
       // Seeded from who's present, so restarting while people are in the office
       // doesn't announce it opening again.
-      const occupants: Occupants = new Set(present.map((member) => member.id));
+      const occupants: Occupants = new Set(Array.map(present, (member) => member.id));
 
       // Keep running either way: the bot may be added to the server later.
       yield* Option.match(office, {
@@ -409,7 +414,7 @@ export class DiscordGateway extends Context.Service<
               occupants: occupants.size,
             }),
             Effect.andThen(
-              channel.permissionsFor(ready.user)?.has(PermissionFlagsBits.Connect)
+              channel.permissionsFor(ready.user)?.has(PermissionFlagsBits.Connect) === true
                 ? Effect.void
                 : Effect.logWarning(
                     "The bot can't connect to the office voice channel, so soundboard sounds and emoji reactions aren't recorded. Give it the Connect permission.",
@@ -445,7 +450,10 @@ export class DiscordGateway extends Context.Service<
         Option.match(office, {
           onNone: () => [],
           onSome: (channel) =>
-            [...channel.members.filter((member) => !member.user.bot).values()].map(occupantOf),
+            Array.map(
+              [...channel.members.filter((member) => !member.user.bot).values()],
+              occupantOf,
+            ),
         }),
       );
 
@@ -455,7 +463,7 @@ export class DiscordGateway extends Context.Service<
       return DiscordGateway.of({
         officeEvents: updates().pipe(officeEvents(officeChannelId, occupants)),
         voiceObservations: updates().pipe(
-          voiceObservations(officeChannelId, present.map(alreadyPresent)),
+          voiceObservations(officeChannelId, Array.map(present, alreadyPresent)),
         ),
         voiceEffects: voiceEffects(client, defaultSounds).pipe(
           fromOthers(ready.user.id),
@@ -505,7 +513,7 @@ export class DiscordGateway extends Context.Service<
         );
 
         const inOffice = yield* Ref.make<ReadonlyMap<string, Occupant>>(
-          new Map(present.map((update) => [update.userId, occupantOfUpdate(update)])),
+          new Map(Array.map(present, (update) => [update.userId, occupantOfUpdate(update)])),
         );
 
         yield* shared.pipe(

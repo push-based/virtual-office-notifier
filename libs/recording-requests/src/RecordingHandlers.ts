@@ -7,7 +7,7 @@ import { RecordingRequests, type RecordingUnavailable } from "./RecordingRequest
 const serviceUnavailable = (error: RecordingUnavailable) =>
   Effect.logWarning("Couldn't reach the recording requests").pipe(
     Effect.annotateLogs({ reason: error.reason }),
-    Effect.andThen(Effect.fail(new HttpApiError.ServiceUnavailable({}))),
+    Effect.andThen(Effect.fail(HttpApiError.ServiceUnavailable.make({}))),
   );
 
 export const RecordingHandlers = HttpApiBuilder.group(
@@ -30,7 +30,9 @@ export const RecordingHandlers = HttpApiBuilder.group(
           const requester = yield* CurrentRequester;
           const found = yield* requests.find(requester, params.id);
 
-          return yield* Effect.fromOption(found).pipe(Effect.mapError(() => new RequestNotFound()));
+          return yield* Effect.fromOption(found).pipe(
+            Effect.mapError(() => RequestNotFound.make()),
+          );
         }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
     });
   }),

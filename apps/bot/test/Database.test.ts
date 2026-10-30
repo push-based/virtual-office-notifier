@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Duration, Effect, Fiber, Layer, Queue, Ref } from "effect";
+import { Array, Duration, Effect, Fiber, Layer, Queue, Ref } from "effect";
 import { Migrator, SqlClient, SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
 
@@ -28,14 +28,12 @@ const migrationNames = Effect.gen(function* () {
     readonly name: string;
   }>`SELECT name FROM office.migrations ORDER BY migration_id`;
 
-  return rows.map((row) => row.name);
+  return Array.map(rows, (row) => row.name);
 });
 
 describe("reconnectDelay", () => {
   it("retries in bursts of 5 with an hour's wait between bursts", () => {
-    const delays = Array.from({ length: 12 }, (_, index) =>
-      Duration.toSeconds(reconnectDelay(index + 1)),
-    );
+    const delays = Array.makeBy(12, (index) => Duration.toSeconds(reconnectDelay(index + 1)));
 
     assert.deepStrictEqual(delays, [1, 2, 4, 8, 16, 3600, 1, 2, 4, 8, 16, 3600]);
   });
@@ -43,8 +41,8 @@ describe("reconnectDelay", () => {
 
 describe("describeError", () => {
   it("adds what went wrong to the driver's generic message", () => {
-    const error = new SqlError.SqlError({
-      reason: new SqlError.ConnectionError({
+    const error = SqlError.SqlError.make({
+      reason: SqlError.ConnectionError.make({
         message: "PgConnection: Failed to connect",
         cause: new Error('password authentication failed for user "postgres.ref"'),
       }),
@@ -126,7 +124,8 @@ describe("Database", () => {
         assert.deepStrictEqual(yield* migrationNames, ["create_example"]);
         assert.strictEqual(reports.length, 6);
         assert.isTrue(
-          reports.every(
+          Array.every(
+            reports,
             (report) => report.name === "DatabaseUnavailable" && report.severity === "Warn",
           ),
         );

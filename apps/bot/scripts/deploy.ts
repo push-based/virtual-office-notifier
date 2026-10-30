@@ -1,5 +1,16 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Config, Effect, FileSystem, Option, Path, Redacted, Schema } from "effect";
+import {
+  Array,
+  Config,
+  Effect,
+  FileSystem,
+  Option,
+  Path,
+  pipe,
+  Redacted,
+  Schema,
+  String,
+} from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import {
@@ -30,10 +41,13 @@ const ENV_FILE = `${SERVICE}.env`;
 
 const RELEASE_ARCHIVE = "release.tar.gz";
 
-class DeployError extends Schema.TaggedError<DeployError>()("DeployError", {
-  step: Schema.String,
-  exitCode: Schema.Int,
-}) {}
+class DeployError extends Schema.TaggedError<DeployError, { readonly brand: unique symbol }>()(
+  "DeployError",
+  {
+    step: Schema.String,
+    exitCode: Schema.Int,
+  },
+) {}
 
 const DeployConfig = Config.all({
   instance: Config.String("DEPLOY_INSTANCE").pipe(Config.withDefault("virtual-office-notifier")),
@@ -56,12 +70,12 @@ const run = Effect.fnUntraced(function* (
   );
 
   if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
-    return yield* new DeployError({ step, exitCode });
+    return yield* DeployError.make({ step, exitCode });
   }
 });
 
 const tarballName = (name: string): string =>
-  `${name.replace("@", "").replace("/", "-")}-${DAVE_VERSION}.tgz`;
+  `${pipe(name, String.replace("@", ""), String.replace("/", "-"))}-${DAVE_VERSION}.tgz`;
 
 // Downloaded with `npm pack`, which doesn't care what platform it runs on, and
 // unpacked into a node_modules tree for the VM. Neither package has
@@ -76,7 +90,7 @@ const packNativeDependencies = Effect.gen(function* () {
     "--silent",
     "--pack-destination",
     dir,
-    ...NATIVE_PACKAGES.map((name) => `${name}@${DAVE_VERSION}`),
+    ...Array.map(NATIVE_PACKAGES, (name) => `${name}@${DAVE_VERSION}`),
   ]);
 
   for (const name of NATIVE_PACKAGES) {
@@ -124,22 +138,25 @@ const writeEnvFile = Effect.gen(function* () {
 
   yield* fs.writeFileString(
     file,
-    [
-      `DISCORD_BOT_TOKEN=${Redacted.value(discord.botToken)}`,
-      `DISCORD_OFFICE_CHANNEL_ID=${discord.officeChannelId}`,
-      `SLACK_BOT_TOKEN=${Redacted.value(slack.botToken)}`,
-      `SLACK_APP_TOKEN=${Redacted.value(slack.appToken)}`,
-      `SLACK_CHANNEL_ID=${slack.channelId}`,
-      ...envLine("OPENROUTER_API_KEY", ai.openRouter.apiKey),
-      ...envLine("CLOUDFLARE_ACCOUNT_ID", ai.cloudflare.accountId),
-      ...envLine("CLOUDFLARE_API_TOKEN", ai.cloudflare.apiToken),
-      `DATABASE_URL=${Redacted.value(database.url)}`,
-      ...Option.toArray(Option.map(recording.bucket, (bucket) => `RECORDINGS_BUCKET=${bucket}`)),
-      ...envLine("SENTRY_DSN", sentry.dsn),
-      "SENTRY_ENVIRONMENT=production",
-      ...Option.toArray(Option.map(commit, (sha) => `SENTRY_RELEASE=${sha}`)),
-      "",
-    ].join("\n"),
+    Array.join(
+      [
+        `DISCORD_BOT_TOKEN=${Redacted.value(discord.botToken)}`,
+        `DISCORD_OFFICE_CHANNEL_ID=${discord.officeChannelId}`,
+        `SLACK_BOT_TOKEN=${Redacted.value(slack.botToken)}`,
+        `SLACK_APP_TOKEN=${Redacted.value(slack.appToken)}`,
+        `SLACK_CHANNEL_ID=${slack.channelId}`,
+        ...envLine("OPENROUTER_API_KEY", ai.openRouter.apiKey),
+        ...envLine("CLOUDFLARE_ACCOUNT_ID", ai.cloudflare.accountId),
+        ...envLine("CLOUDFLARE_API_TOKEN", ai.cloudflare.apiToken),
+        `DATABASE_URL=${Redacted.value(database.url)}`,
+        ...Option.toArray(Option.map(recording.bucket, (bucket) => `RECORDINGS_BUCKET=${bucket}`)),
+        ...envLine("SENTRY_DSN", sentry.dsn),
+        "SENTRY_ENVIRONMENT=production",
+        ...Option.toArray(Option.map(commit, (sha) => `SENTRY_RELEASE=${sha}`)),
+        "",
+      ],
+      "\n",
+    ),
     { mode: 0o600 },
   );
 
@@ -163,7 +180,7 @@ const packRelease = Effect.fnUntraced(function* (modules: string, envFile: strin
   yield* run("Packing the release", "tar", [
     "-czf",
     archive,
-    ...entries.flatMap((entry) => ["-C", path.dirname(entry), path.basename(entry)]),
+    ...Array.flatMap(entries, (entry) => ["-C", path.dirname(entry), path.basename(entry)]),
   ]);
 
   return archive;
@@ -198,25 +215,28 @@ const program = Effect.gen(function* () {
       instance,
       ...target,
       "--command",
-      [
-        "set -eu",
-        "release=$(mktemp -d)",
-        `trap 'rm -rf "$release"' EXIT`,
-        'tar -xzf - -C "$release"',
-        'cd "$release"',
-        `sudo install -m 600 -o root -g root ${ENV_FILE} /etc/${ENV_FILE}`,
-        `sudo install -m 644 -o root -g root ${SERVICE}.service /etc/systemd/system/${SERVICE}.service`,
-        `sudo install -m 644 -o root -g root main.js main.js.map ${APP_DIR}/`,
-        `sudo rm -rf ${APP_DIR}/node_modules`,
-        `sudo tar -xzf ${MODULES_ARCHIVE} -C ${APP_DIR} --no-same-owner`,
-        "sudo systemctl daemon-reload",
-        `sudo systemctl enable ${SERVICE}`,
-        `sudo systemctl restart ${SERVICE}`,
-        // A bad token or missing variable crashes on startup; wait long enough
-        // to catch it so the deploy fails instead of silently restart-looping.
-        "sleep 15",
-        `systemctl is-active --quiet ${SERVICE} || { sudo journalctl -u ${SERVICE} -n 50 --no-pager; exit 1; }`,
-      ].join("\n"),
+      Array.join(
+        [
+          "set -eu",
+          "release=$(mktemp -d)",
+          `trap 'rm -rf "$release"' EXIT`,
+          'tar -xzf - -C "$release"',
+          'cd "$release"',
+          `sudo install -m 600 -o root -g root ${ENV_FILE} /etc/${ENV_FILE}`,
+          `sudo install -m 644 -o root -g root ${SERVICE}.service /etc/systemd/system/${SERVICE}.service`,
+          `sudo install -m 644 -o root -g root main.js main.js.map ${APP_DIR}/`,
+          `sudo rm -rf ${APP_DIR}/node_modules`,
+          `sudo tar -xzf ${MODULES_ARCHIVE} -C ${APP_DIR} --no-same-owner`,
+          "sudo systemctl daemon-reload",
+          `sudo systemctl enable ${SERVICE}`,
+          `sudo systemctl restart ${SERVICE}`,
+          // A bad token or missing variable crashes on startup; wait long enough
+          // to catch it so the deploy fails instead of silently restart-looping.
+          "sleep 15",
+          `systemctl is-active --quiet ${SERVICE} || { sudo journalctl -u ${SERVICE} -n 50 --no-pager; exit 1; }`,
+        ],
+        "\n",
+      ),
     ],
     fs.stream(release),
   );

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Fiber, Layer } from "effect";
+import { Effect, Fiber, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
@@ -22,6 +22,8 @@ import {
   slackOk,
   withEnv,
 } from "./fakes.ts";
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const makeClient = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>) {
   const http = yield* makeFakeSlackHttp(replies);
@@ -278,7 +280,7 @@ describe("SlackClient", () => {
       const error = yield* Fiber.join(fiber);
 
       assert.instanceOf(error.reason, Transport);
-      assert.notInclude(`${String(error)} ${JSON.stringify(error)}`, "secret");
+      assert.notInclude(`${String(error)} ${yield* encodeJson(error)}`, "secret");
     }),
   );
 });

@@ -1,6 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer } from "effect";
+import { Array, DateTime, Effect, Layer, Schema } from "effect";
+import { SecureRandom } from "effect/crypto";
 import { SqlClient, SqlError } from "effect/sql";
 
 import { ActivityLog, BadRow, classify, Outage } from "../src/ActivityLog.ts";
@@ -70,7 +71,7 @@ describe("ActivityLog", () => {
       yield* log.startSession(SESSION, DateTime.makeUnsafe(0));
       yield* log.record(
         SESSION,
-        crypto.randomUUID(),
+        SecureRandom.uuidV4Unsafe(),
         joined(1, inVoice({ selfMute: true, requestToSpeakAt: DateTime.makeUnsafe(5) })),
       );
 
@@ -103,9 +104,13 @@ describe("ActivityLog", () => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* log.startSession(SESSION, DateTime.makeUnsafe(0));
-      yield* log.record(SESSION, crypto.randomUUID(), joined(1));
+      yield* log.record(SESSION, SecureRandom.uuidV4Unsafe(), joined(1));
       yield* sql`UPDATE office.members SET real_name = 'Ada Lovelace' WHERE user_id = 'u1'`;
-      yield* log.record(SESSION, crypto.randomUUID(), observation(2, { displayName: "Ada L." }));
+      yield* log.record(
+        SESSION,
+        SecureRandom.uuidV4Unsafe(),
+        observation(2, { displayName: "Ada L." }),
+      );
 
       const [member] = yield* sql<{
         readonly displayName: string;
@@ -129,8 +134,12 @@ describe("ActivityLog", () => {
       const sql = yield* SqlClient.SqlClient;
 
       yield* log.startSession(SESSION, DateTime.makeUnsafe(0));
-      yield* log.record(SESSION, crypto.randomUUID(), joined(1));
-      yield* log.record(SESSION, crypto.randomUUID(), observation(2, { displayName: "u1" }));
+      yield* log.record(SESSION, SecureRandom.uuidV4Unsafe(), joined(1));
+      yield* log.record(
+        SESSION,
+        SecureRandom.uuidV4Unsafe(),
+        observation(2, { displayName: "u1" }),
+      );
 
       const [member] = yield* sql<{ readonly displayName: string; readonly lastSeenAt: Date }>`
         SELECT display_name, last_seen_at FROM office.members
@@ -147,7 +156,7 @@ describe("ActivityLog", () => {
 
       const log = yield* ActivityLog;
       const sql = yield* SqlClient.SqlClient;
-      const entryId = crypto.randomUUID();
+      const entryId = SecureRandom.uuidV4Unsafe();
 
       yield* log.startSession(SESSION, DateTime.makeUnsafe(0));
       yield* log.startSession(SESSION, DateTime.makeUnsafe(0));
@@ -189,11 +198,12 @@ describe("ActivityLog", () => {
       const log = yield* ActivityLog;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* log.reject(
-        JSON.stringify({ userId: "u1", selfMute: true }),
-        "violates check",
-        DateTime.makeUnsafe(0),
-      );
+      const payload = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
+        userId: "u1",
+        selfMute: true,
+      });
+
+      yield* log.reject(payload, "violates check", DateTime.makeUnsafe(0));
 
       const [rejected] = yield* sql<{ readonly payload: unknown; readonly error: string }>`
         SELECT payload, error FROM office.rejected_updates
@@ -211,7 +221,9 @@ describe("ActivityLog", () => {
       const log = yield* ActivityLog;
 
       // No session was started, so the snapshot breaks its foreign key.
-      const error = yield* log.record(SESSION, crypto.randomUUID(), joined(1)).pipe(Effect.flip);
+      const error = yield* log
+        .record(SESSION, SecureRandom.uuidV4Unsafe(), joined(1))
+        .pipe(Effect.flip);
 
       assert.instanceOf(error.reason, BadRow);
     }).pipe(Effect.provide(TestLayer)),
@@ -220,8 +232,8 @@ describe("ActivityLog", () => {
 
 describe("classify", () => {
   const serverError = (code: string) =>
-    new SqlError.SqlError({
-      reason: new SqlError.UnknownError({
+    SqlError.SqlError.make({
+      reason: SqlError.UnknownError.make({
         message: "PgConnection: Query failed",
         cause: Object.assign(new Error("server said no"), { code }),
       }),
@@ -237,8 +249,8 @@ describe("classify", () => {
     assert.instanceOf(classify(serverError("XX000")).reason, Outage);
     assert.instanceOf(
       classify(
-        new SqlError.SqlError({
-          reason: new SqlError.ConnectionError({ message: "closed", cause: undefined }),
+        SqlError.SqlError.make({
+          reason: SqlError.ConnectionError.make({ message: "closed", cause: undefined }),
         }),
       ).reason,
       Outage,
@@ -286,7 +298,9 @@ describe("voice_activity", () => {
         }),
       ];
 
-      yield* Effect.forEach(steps, (step) => log.record(SESSION, crypto.randomUUID(), step));
+      yield* Effect.forEach(steps, (step) =>
+        log.record(SESSION, SecureRandom.uuidV4Unsafe(), step),
+      );
 
       const rows = yield* sql<{
         readonly userId: string;
@@ -297,7 +311,7 @@ describe("voice_activity", () => {
       `;
 
       assert.deepStrictEqual(
-        rows.map((row) => `${row.userId} ${row.event}`),
+        Array.map(rows, (row) => `${row.userId} ${row.event}`),
         [
           "u2 AlreadyThere",
           "u2 CameraOn",

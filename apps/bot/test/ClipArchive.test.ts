@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option } from "effect";
+import { Array, DateTime, Effect, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import { ClipArchive, objectPathOf } from "../src/ClipArchive.ts";
@@ -81,7 +81,7 @@ describe("ClipArchive", () => {
 
       const sent = yield* requests;
       assert.deepStrictEqual(
-        sent.map((request) => request.headers["authorization"] ?? "token request"),
+        Array.map(sent, (request) => request.headers["authorization"] ?? "token request"),
         ["token request", "Bearer tok-1", "Bearer tok-1", "token request", "Bearer tok-2"],
       );
     }),

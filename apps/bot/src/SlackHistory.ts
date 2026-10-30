@@ -116,7 +116,7 @@ export interface LinkedMember {
 const jsonb = (value: ClefRequest | Readonly<Record<string, number>>): string =>
   JSON.stringify(value);
 
-const notRecording = () => Effect.fail(new HistoryUnavailable({ reason: "Nothing is recorded" }));
+const notRecording = () => Effect.fail(HistoryUnavailable.make({ reason: "Nothing is recorded" }));
 
 export class SlackHistory extends Context.Service<
   SlackHistory,
@@ -134,7 +134,7 @@ export class SlackHistory extends Context.Service<
       realName: string,
     ): Effect.Effect<Option.Option<LinkedMember>, HistoryUnavailable>;
   }
->()("virtual-office-notifier/SlackHistory") {
+>()("bot/SlackHistory") {
   static readonly layer = Layer.effect(
     SlackHistory,
     Effect.gen(function* () {
@@ -144,11 +144,11 @@ export class SlackHistory extends Context.Service<
       const onceReady = <A, E extends Error>(query: Effect.Effect<A, E>) =>
         database.ready.pipe(
           Effect.andThen(query),
-          Effect.mapError((error) => new HistoryUnavailable({ reason: describeError(error) })),
+          Effect.mapError((error) => HistoryUnavailable.make({ reason: describeError(error) })),
           Effect.timeoutOrElse({
             duration: READ_TIMEOUT,
             orElse: () =>
-              Effect.fail(new HistoryUnavailable({ reason: "Timed out after 10 seconds" })),
+              Effect.fail(HistoryUnavailable.make({ reason: "Timed out after 10 seconds" })),
           }),
         );
 

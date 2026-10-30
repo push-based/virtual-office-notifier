@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Option, Random } from "effect";
+import { Array, Effect, Fiber, Layer, Option, Random, Schema } from "effect";
 import { TestClock } from "effect/testing";
 
 import { HeadlineWriter } from "../src/HeadlineWriter.ts";
@@ -20,6 +20,12 @@ import {
   slackOk,
   withEnv,
 } from "./fakes.ts";
+
+const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
+
+const decodePostText = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Struct({ text: Schema.String })),
+);
 
 const makeSlack = Effect.fnUntraced(function* (
   replies: ReadonlyArray<Reply>,
@@ -46,7 +52,7 @@ describe("SlackNotifier", () => {
       const requests = yield* slack.requests;
       assert.strictEqual(requests.length, 1);
       assert.strictEqual(requests[0]?.url, "https://slack.com/api/chat.postMessage");
-      assert.deepStrictEqual(JSON.parse(requestText(requests[0]!)), {
+      assert.deepStrictEqual(yield* requests[0]!.pipe(requestText, decodeJson), {
         channel: SLACK_ENV.SLACK_CHANNEL_ID,
         ...Option.getOrThrow(formatMessage(opened, 0)),
       });
@@ -91,7 +97,8 @@ describe("SlackNotifier", () => {
       yield* slack.notifier.notify(opened);
 
       const [request] = yield* slack.requests;
-      assert.strictEqual(JSON.parse(requestText(request!)).text, "🛋️ *Ada* saved you a seat!");
+      const { text } = yield* request!.pipe(requestText, decodePostText);
+      assert.strictEqual(text, "🛋️ *Ada* saved you a seat!");
     }),
   );
 
@@ -135,7 +142,7 @@ describe("SlackNotifier", () => {
         SlackHistory,
         SlackHistory.of({
           ...disabled,
-          recordPost: () => Effect.fail(new HistoryUnavailable({ reason: "down" })),
+          recordPost: () => Effect.fail(HistoryUnavailable.make({ reason: "down" })),
         }),
       );
 
@@ -156,7 +163,7 @@ describe("SlackNotifier", () => {
       yield* TestClock.adjust("2 seconds");
       yield* Fiber.join(fiber);
 
-      const [first, second] = (yield* slack.requests).map(requestText);
+      const [first, second] = Array.map(yield* slack.requests, requestText);
       assert.strictEqual(first, second);
     }),
   );
