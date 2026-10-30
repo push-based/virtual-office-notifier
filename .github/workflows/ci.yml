@@ -95,6 +95,11 @@ jobs:
           RECORDINGS_BUCKET: ${{ secrets.RECORDINGS_BUCKET }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
-      - run: vp run console#deploy
+      - run: >-
+          vp run console#deploy
+          --var "SENTRY_DSN:$SENTRY_DSN"
+          --var SENTRY_ENVIRONMENT:production
+          --var "SENTRY_RELEASE:$GITHUB_SHA"
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_DEPLOY_TOKEN }}
+          SENTRY_DSN: ${{ secrets.SENTRY_CONSOLE_DSN }}

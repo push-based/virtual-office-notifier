@@ -21,6 +21,7 @@ catalogs:
     "@angular/compiler-cli": 22.3.0-next.2
     "@angular/core": 22.3.0-next.2
     "@angular/platform-browser": 22.3.0-next.2
+    "@angular/router": 22.3.0-next.2
     "@push-based/vite-plugin-ngp": 0.2.0
     typescript: 6.0.3
 

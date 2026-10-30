@@ -192,8 +192,14 @@ for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SESSION_SECRET; do pnpm --fi
 
 ## Sentry
 
-Optional. With `SENTRY_DSN` set, the bot sends errors, traces and logs to [Sentry](https://sentry.io); what it sends is in [Monitoring](operations.md#monitoring). To turn it on, create a Node.js project in Sentry and set its DSN as a repository secret, then re-run the latest `CI` workflow on `main`:
+Optional. With `SENTRY_DSN` set, the bot sends errors, traces and logs to [Sentry](https://sentry.io), and with `SENTRY_CONSOLE_DSN` set, so does the Console; what it sends is in [Monitoring](operations.md#monitoring). To turn it on, create a Node.js project in Sentry and set its DSN as a repository secret, then re-run the latest `CI` workflow on `main`:
 
 ```bash
 gh secret set SENTRY_DSN
+```
+
+The Console reports to a project of its own. Create an Angular project in Sentry, then set its DSN and re-run the latest `CI` workflow on `main`:
+
+```bash
+gh secret set SENTRY_CONSOLE_DSN
 ```

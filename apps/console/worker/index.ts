@@ -1,4 +1,5 @@
 import { PgClient } from "@effect/sql-pg";
+import * as Sentry from "@sentry/cloudflare";
 import { DiscordOAuth } from "activity-sign-in/DiscordOAuth";
 import { Sessions } from "activity-sign-in/Sessions";
 import { SignInSettings } from "activity-sign-in/SignInSettings";
@@ -19,7 +20,16 @@ import { SignedInLayer, SignInHandlers } from "recording-requests/SignInHandlers
 import { StatsHandlers } from "recording-requests/StatsHandlers";
 import { columnNaming } from "recording-requests/SqlNaming";
 
-interface Env {
+import {
+  ObservabilityLayer,
+  RouteSpanNames,
+  type SentryEnv,
+  sentryOptions,
+  telemetryFrom,
+} from "./Observability.ts";
+import { TelemetryRoutes } from "./Telemetry.ts";
+
+interface Env extends SentryEnv {
   readonly DISCORD_CLIENT_ID: string;
   readonly DISCORD_CLIENT_SECRET: string;
   readonly DATABASE: Hyperdrive;
@@ -45,7 +55,7 @@ const connectionTo = (env: Env) =>
     ...columnNaming,
   });
 
-const routes = (env: Env) =>
+const api = (env: Env) =>
   HttpApiBuilder.layer(RecordingApi).pipe(
     Layer.provide([
       SignInHandlers.pipe(Layer.provide(DiscordOAuth.layer)),
@@ -56,8 +66,13 @@ const routes = (env: Env) =>
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),
-    Layer.provide([settingsFrom(env), FetchHttpClient.layer]),
-    Layer.provide(HttpServer.layerServices),
+    Layer.provide(settingsFrom(env)),
+  );
+
+const routes = (env: Env) =>
+  Layer.mergeAll(api(env), TelemetryRoutes(telemetryFrom(env))).pipe(
+    Layer.provide([RouteSpanNames.layer, FetchHttpClient.layer, HttpServer.layerServices]),
+    Layer.provideMerge(ObservabilityLayer),
   );
 
 const makeApp = (env: Env) => HttpRouter.toWebHandler(routes(env), { disableLogger: true });
@@ -76,6 +91,6 @@ const appFor = (env: Env) => {
   return app;
 };
 
-export default {
-  fetch: (request: Request, env: Env): Promise<Response> => appFor(env).handler(request),
-};
+export default Sentry.withSentry<Env>(sentryOptions, {
+  fetch: (request, env) => appFor(env).handler(request),
+});

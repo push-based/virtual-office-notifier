@@ -59,6 +59,7 @@ This creates a `github-deploy` service account and a Workload Identity pool trus
 | `DATABASE_URL`                                                                                             | The Supabase session pooler connection string. See [Database](setup.md#database).                                                                                      |
 | `OPENROUTER_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `RECORDINGS_BUCKET`, `SENTRY_DSN`   | Optional, your local `.env`                                                                                                                                            |
 | `CLOUDFLARE_DEPLOY_TOKEN`                                                                                  | Set by hand, not from `.env`: the token `wrangler` deploys the Console with. See [Worker](setup.md#worker). Without it, the deploy job fails before shipping anything. |
+| `SENTRY_CONSOLE_DSN`                                                                                       | Optional, the Console's own Sentry project. See [Sentry](setup.md#sentry).                                                                                             |
 
 What each variable means is in [Configuration](setup.md#configuration). `CLOUDFLARE_ACCOUNT_ID` is also part of the Console build's cache fingerprint, so the deploy job sets it for every step.
 
@@ -80,7 +81,7 @@ The `deploy` job builds the Console first, page and Worker, so nothing ships if 
 4. Installs them under `/opt/virtual-office-notifier` and `/etc`, replacing the previous `node_modules`, reloads systemd, enables the service and restarts it.
 5. Waits 15 seconds and fails, printing the last 50 log lines, if the service isn't running.
 
-Last, the Console's `deploy` task runs `wrangler deploy`, which picks up the Worker and page that were just built through the `wrangler.json` the build generates.
+Last, the Console's `deploy` task runs `wrangler deploy`, which picks up the Worker and page that were just built through the `wrangler.json` the build generates. It sets the Worker's `SENTRY_DSN` from the `SENTRY_CONSOLE_DSN` secret, `SENTRY_ENVIRONMENT` to `production` and `SENTRY_RELEASE` to the commit SHA.
 
 The [unit](../apps/bot/deploy/virtual-office-notifier.service) runs as the unprivileged `notifier` user with systemd's sandboxing turned on. It restarts 30 seconds after a crash and gives up after 5 failed starts in 10 minutes, so a bad token doesn't keep hammering Discord's login.
 
@@ -103,6 +104,18 @@ With `SENTRY_DSN` set, the bot sends errors, traces and logs to [Sentry](https:/
 - **Issues.** A crash, including at startup, is an error. A Slack call that only failed after retries is a warning; lost access or a rejected payload is an error. Discord client errors are errors, and every AI model failing to write a headline or reply is a warning. So are Clef failing and the Slack Socket Mode connection dropping. For the [database](database.md), every retry while it's unreachable and every update it rejects is a warning, and an update that could only be logged, or a database client that couldn't be created, is an error. These never include the update itself.
 - **Traces.** Each announcement is its own trace: the Slack post with each attempt, and the AI model calls. HTTP client spans are turned off, so request details never leave the VM.
 - **Logs.** Every log line, linked to the trace it was logged in. Only the message is sent, not the annotations.
+
+### The Console
+
+With `SENTRY_CONSOLE_DSN` set, the Console reports to a Sentry project of its own, from both the Worker ([`apps/console/worker/Observability.ts`](../apps/console/worker/Observability.ts), through [`@sentry/cloudflare`](https://docs.sentry.io/platforms/javascript/guides/cloudflare/)) and the page ([`apps/console/src/app/telemetry/telemetry.ts`](../apps/console/src/app/telemetry/telemetry.ts), through [`@sentry/angular`](https://docs.sentry.io/platforms/javascript/guides/angular/)).
+
+- **Issues.** A defect or a `5xx` in an `/api/*` handler is an error, using its `[ErrorReporter.severity]` when it has one; a `4xx` isn't reported. On the page, every error that reaches Angular's `ErrorHandler` is an error.
+- **Traces.** Each `/api/*` request is a trace named after its route, like `GET /api/recordings/:id`. The page's load and its `/api/*` calls are traced too, and join the Worker's traces.
+- **Logs.** The Worker's log lines, with the message only.
+
+The page runs inside Discord's Activity frame, which only lets it reach mapped URLs. So it asks the Worker where to report at `/api/telemetry`, and sends everything to `POST /api/sentry`, which forwards it to Sentry only if it's for the Console's DSN. That traffic isn't traced, and without a DSN both routes are off.
+
+Both projects fit in Sentry's free Developer plan: the office sees a handful of errors and a few thousand spans a month, against 5,000 errors and 5 million spans shared by every project.
 
 What Sentry does and doesn't receive about people is in [Privacy](privacy.md#sentry).
 

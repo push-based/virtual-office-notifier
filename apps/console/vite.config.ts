@@ -13,9 +13,21 @@ export default defineConfig(({ mode }) => ({
     mode === "test" ? [] : cloudflare({ viteEnvironment: { name: "worker" } }),
   ]),
   test: {
-    environment: "jsdom",
-    include: ["src/**/*.spec.ts"],
-    setupFiles: ["src/test-setup.ts"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "page",
+          environment: "jsdom",
+          include: ["src/**/*.spec.ts"],
+          setupFiles: ["src/test-setup.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: { name: "worker", environment: "node", include: ["worker/**/*.spec.ts"] },
+      },
+    ],
   },
   run: {
     tasks: {

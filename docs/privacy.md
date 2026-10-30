@@ -29,3 +29,5 @@ The exception is a [recording](recording.md), which someone in the office has to
 ## Sentry
 
 [Sentry](operations.md#monitoring), when it's configured, gets error reports, timings, database queries without their values, and log messages without their annotations, so no names or Discord user IDs. User IDs are also redacted in the announcement logs; an update the database couldn't store is logged in full, but only to the journal.
+
+From the Console, Sentry gets the same: no request or response bodies, so no sign-in codes, tokens, titles or agendas; no headers or cookies; no session replays; and no console lines or clicks in the breadcrumbs. It does get the URLs of `/api/*` calls, which carry recording IDs but no names.
