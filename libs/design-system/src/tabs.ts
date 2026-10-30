@@ -67,17 +67,47 @@ const MOVES = new Map<string, (index: number, count: number) => number>([
     }
 
     :host(.underline) {
-      border-bottom: 1px solid var(--color-border);
+      gap: var(--space-6);
+      border-bottom: 1px solid var(--color-neutral-200);
     }
 
     :host(.underline) button {
-      margin-bottom: -1px;
-      border-bottom: 2px solid transparent;
+      position: relative;
+      padding: var(--space-3) 0;
+      font-size: 0.9375rem;
+    }
+
+    :host(.underline) button::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 -1px;
+      height: 2px;
+      border-radius: var(--radius-full);
+      background: transparent;
+      transition: background-color 0.2s ease-out;
+    }
+
+    :host(.underline) button:hover {
+      color: var(--color-text);
+    }
+
+    :host(.underline) button:hover::after {
+      background: var(--color-neutral-300);
     }
 
     :host(.underline) button[aria-selected="true"] {
-      color: var(--color-brand-hover);
-      border-bottom-color: var(--color-brand-hover);
+      color: var(--color-text-heading);
+    }
+
+    :host(.underline) button[aria-selected="true"]::after {
+      background: var(--color-brand);
+    }
+
+    :host(.underline) button:focus-visible {
+      box-shadow: none;
+      border-radius: var(--radius-md);
+      outline: 2px solid var(--color-primary-300);
+      outline-offset: 2px;
     }
 
     :host(.pills) {

@@ -45,7 +45,7 @@ export const personOf = (member: OfficeMember): Person => ({
       flex-direction: column;
       gap: var(--space-2);
       width: 100%;
-      padding: var(--space-3);
+      padding: var(--space-4);
       border: 1px solid var(--color-border);
       border-radius: var(--radius-lg);
       background: var(--color-surface);
