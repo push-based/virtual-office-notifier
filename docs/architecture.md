@@ -50,7 +50,7 @@ Everything else runs in its own fiber, so nothing can hold up or stop the announ
 
 ## The bot in the office
 
-Discord only sends soundboard sounds and emoji reactions (`voiceChannelEffectSend`) to clients in the voice channel. So while anyone is in the office, the bot is too: it joins when the office opens and leaves when it empties, already muted and deafened. It only sends the gateway's voice-state message and never opens an audio connection, so it can't hear or send anything. It also leaves an empty office at startup, in case an earlier run left it behind. Whenever its Discord connection comes back after a drop, it goes back to where it should be. If someone disconnects it by hand, it's back the next time the office opens.
+Discord only sends soundboard sounds and emoji (`voiceChannelEffectSend`) to clients in the voice channel. So while anyone is in the office, the bot is too: it joins when the office opens and leaves when it empties, already muted and deafened. It only sends the gateway's voice-state message and never opens an audio connection, so it can't hear or send anything. It also leaves an empty office at startup, in case an earlier run left it behind. Whenever its Discord connection comes back after a drop, it goes back to where it should be. If someone disconnects it by hand, it's back the next time the office opens.
 
 The one exception is a [recording](recording.md): for as long as one is on, the bot un-deafens, opens an audio connection and is renamed `🔴 Recording`, so everyone in the channel can see it's listening. It goes back to muted and deafened the moment the recording stops or is paused, and is renamed `⏸️ Recording paused` while paused. Renaming needs the Change Nickname permission; without it the bot logs a warning and records anyway.
 
@@ -75,7 +75,7 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 | [`OfficeEvent.ts`](../apps/bot/src/OfficeEvent.ts)           | The event types and the occupancy tracking that decides when the office opens or empties.                                                                          |
 | [`BotPresence.ts`](../apps/bot/src/BotPresence.ts)           | Whether the bot should be in the office, from who's there at startup and the office opening and emptying.                                                          |
 | [`VoiceObservation.ts`](../apps/bot/src/VoiceObservation.ts) | Decides which voice-state updates are worth recording.                                                                                                             |
-| [`VoiceEffect.ts`](../apps/bot/src/VoiceEffect.ts)           | Soundboard sounds and emoji reactions, and which ones are worth recording.                                                                                         |
+| [`VoiceEffect.ts`](../apps/bot/src/VoiceEffect.ts)           | Soundboard sounds and emoji, and which ones are worth recording.                                                                                                   |
 
 **Posting to Slack**
 
@@ -128,6 +128,7 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 | [`Recording.ts`](../apps/bot/src/Recording.ts)           | Why a recording stopped, and the clip rules: the shortest clip worth transcribing and how often to retry one.               |
 | [`RecordingStore.ts`](../apps/bot/src/RecordingStore.ts) | The repository for recordings and their clips.                                                                              |
 | [`VoiceCapture.ts`](../apps/bot/src/VoiceCapture.ts)     | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses.                                     |
+| [`ClipCutter.ts`](../apps/bot/src/ClipCutter.ts)         | Cuts one speaker's packets into clips: a clip ends at a pause or at 5 minutes.                                              |
 | [`Speaking.ts`](../apps/bot/src/Speaking.ts)             | Who the bot hears speaking right now, holding each person for 2 seconds after they stop so brief pauses don't flicker.      |
 | [`OggOpus.ts`](../apps/bot/src/OggOpus.ts)               | Writes Opus packets into an Ogg file without transcoding.                                                                   |
 | [`ClipArchive.ts`](../apps/bot/src/ClipArchive.ts)       | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back.                                           |

@@ -14,7 +14,7 @@ For [headlines](slack.md#ai-headlines), the AI providers only get the instructio
 
 ## The activity record
 
-The [database](database.md#whats-recorded) keeps a detailed record of each person's activity in the office: when they joined and left, when they muted, deafened, turned on their camera or streamed, and every soundboard sound and emoji reaction they sent, with their Discord user ID and display name, and a real name if one is filled in. Nothing is ever deleted. Tell the team it's being recorded before turning it on.
+The [database](database.md#whats-recorded) keeps a detailed record of each person's activity in the office: when they joined and left, when they muted, deafened, turned on their camera or streamed, and every soundboard sound and emoji they sent, with their Discord user ID and display name, and a real name if one is filled in. Nothing is ever deleted. Tell the team it's being recorded before turning it on.
 
 ## Answering in Slack
 

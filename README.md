@@ -12,19 +12,19 @@ A bot for a team whose office is a Discord voice channel. It tells Slack when th
 
 - **Announces when the office opens and when it empties**, and nothing in between. The first person in opens it and the last one out empties it, with a recap of how long it was open and how many people stopped by. [More](docs/slack.md#when-it-posts)
 - **Reminds people on weekdays** at 11:15 office time to come hang out.
-- **Writes banter** about what's happened in the office, up to five times a working day, at random. [More](docs/slack.md#banter)
+- **Writes banter** about what's happened in the office, up to five times an office day, at random. [More](docs/slack.md#banter)
 - **Answers** when someone mentions it, and when Clef, a decision model, thinks a reply under one of its posts wants one. Capped per day and per thread, and switched on in the database. [More](docs/slack.md#answering-in-slack)
 - **Lets free AI models write the headlines and button labels**, on OpenRouter or Workers AI, with fixed phrasings when none answers. [More](docs/slack.md#ai-headlines)
 
 **In Discord**
 
-- **Sits in the office while it's occupied**, muted and deafened, so it sees soundboard sounds and emoji reactions. It never hears anything unless someone records. [More](docs/architecture.md#the-bot-in-the-office)
+- **Sits in the office while it's occupied**, muted and deafened, so it sees soundboard sounds and emoji. It never hears anything unless someone records. [More](docs/architecture.md#the-bot-in-the-office)
 - **Records on demand.** Anyone in the office opens the Console and presses Start. Each person's speech is transcribed with Whisper, and the summary and action items land in Slack with the full transcript. Pause to go off the record, and give a recording a title, an agenda and a summary style. [More](docs/recording.md)
 - **Shows the recording history and office stats** in the Console: every recording with its transcript and summary, and for this week, this month or all time, who was in for how long, first in and last out, the busiest hours and the soundboard leaderboard. [More](docs/recording.md#recording-history)
 
 **Behind it**
 
-- **Records voice activity** to Postgres: joins, leaves, mute, deafen, camera, streaming, sounds and reactions, exactly as Discord reports them. The database can never stop the announcements. [More](docs/database.md)
+- **Records voice activity** to Postgres: joins, leaves, mute, deafen, camera, streaming, sounds and emoji, exactly as Discord reports them. The database can never stop the announcements. [More](docs/database.md)
 - **Keeps going** through Slack outages, restarts mid-occupancy and a database that's down. Failures are retried and logged, and reported to Sentry when it's configured. [More](docs/operations.md#monitoring)
 
 ## What it looks like

@@ -32,7 +32,7 @@ Once it logs `Watching the virtual office`, join the office and the post should 
 
 1. Create an application at <https://discord.com/developers/applications> and add a bot. Revealing the token requires the account password.
 2. Under **Bot**, turn off **Public Bot**. No privileged intents are needed; the bot only uses `Guilds`, `GuildVoiceStates` and `GuildExpressions` (to keep the server's soundboard sound names up to date).
-3. Under **OAuth2 → URL Generator**, pick the `bot` scope with the **View Channels** and **Connect** permissions, open the URL and add the bot to the server. Without **Connect** it can't join the office, so soundboard sounds and emoji reactions aren't recorded, and it logs a warning at startup saying so.
+3. Under **OAuth2 → URL Generator**, pick the `bot` scope with the **View Channels** and **Connect** permissions, open the URL and add the bot to the server. Without **Connect** it can't join the office, so soundboard sounds and emoji aren't recorded, and it logs a warning at startup saying so.
 
 The bot token goes in `DISCORD_BOT_TOKEN`, and the office's channel ID in `DISCORD_OFFICE_CHANNEL_ID` (Developer Mode → right-click the channel → Copy Channel ID).
 

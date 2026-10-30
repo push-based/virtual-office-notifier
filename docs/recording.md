@@ -85,7 +85,7 @@ The **Stats** tab shows the office stats for this week, this month or all time. 
 - **Time in the office** runs from `Joined` (or `AlreadyThere`, for anyone in when the bot started) to that person's next `Left`. Someone who's still in counts until now. When the bot stopped without seeing them leave, the stay ends at the last thing that run of the bot saw. Stays that cross the start of the range only count from the start.
 - **First in** and **last out** count, for each day, who arrived first and who left last. A day where someone's still in has no last out yet.
 - **Busiest hours** is a weekday × hour grid of how many people were in on average, over every such hour in the range.
-- **Soundboard**, **reactions** and **recordings** count what happened in the range, with the top 10 of each list.
+- **Soundboard**, **emoji** and **recordings** count what happened in the range, with the top 10 of each list.
 
 ## Rich Presence
 

@@ -46,7 +46,7 @@ A [recording](recording.md#the-summary) also ends in a Slack post, with its summ
 | Banter   | At random, between 1 and 2½ hours apart, from 09:00 to 18:00 office time on weekdays, and at most 5 a day. See [Banter](#banter).                                                                   |
 | Reply    | In the thread, when someone mentions the bot or Clef decides a reply under one of its posts wants an answer, 09:00 to 18:00 office time on weekdays. See [Answering in Slack](#answering-in-slack). |
 
-Only the first person in and the last person out are announced. Joins and leaves in between aren't, to keep the channel quiet. It only watches the one office and ignores bots, itself included. Mute, deafen and camera changes, soundboard sounds and emoji reactions aren't announced, only [recorded](database.md#whats-recorded).
+Only the first person in and the last person out are announced. Joins and leaves in between aren't, to keep the channel quiet. It only watches the one office and ignores bots, itself included. Mute, deafen and camera changes, soundboard sounds and emoji aren't announced, only [recorded](database.md#whats-recorded).
 
 The bot counts whoever is already in the office at startup, so a restart mid-occupancy doesn't announce the office opening again.
 
@@ -78,7 +78,7 @@ Workers AI includes 10,000 Neurons a day for free, which covers a few hundred he
 
 ## Banter
 
-Up to five times a working day, at random, an AI model reads what happened in the office and posts something playful about it. It needs the [database](setup.md#database) and at least one [AI provider](setup.md#ai-providers). Without the database, every chance is skipped with a `Skipped banter` warning.
+Up to five times an office day, at random, an AI model reads what happened in the office and posts something playful about it. It needs the [database](setup.md#database) and at least one [AI provider](setup.md#ai-providers). Without the database, every chance is skipped with a `Skipped banter` warning.
 
 **When it posts**
 
