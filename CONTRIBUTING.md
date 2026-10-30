@@ -48,7 +48,9 @@ The app is built on [Effect](https://effect.website) v4. Follow the patterns alr
 - A failure worth an alert is reported to Sentry with `Effect.withErrorReporting` or `ErrorReporter.report`, before it's caught. Set its severity with `[ErrorReporter.severity]`.
 - Comments explain why, not what.
 
-There's no separate formatter. `pnpm vp run lint` runs Oxlint with the vendored [anti-slop](tools/oxlint/anti-slop/UPSTREAM.md) rules, configured in the root [`vite.config.ts`](vite.config.ts), and `pnpm vp lint --fix` applies the fixes it can.
+`pnpm vp run check` checks formatting with Oxfmt and lints with Oxlint and the vendored [anti-slop](tools/oxlint/anti-slop/UPSTREAM.md) rules, both configured in the root [`vite.config.ts`](vite.config.ts). `pnpm vp check --fix` formats every file and applies the lint fixes it can. In VS Code, the recommended Vite+ extension pack formats on save with the same config.
+
+The one-off reformat that turned Oxfmt on is listed in [`.git-blame-ignore-revs`](.git-blame-ignore-revs). GitHub skips it in blame views, and `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes your local `git blame` skip it too.
 
 ### Tests
 
@@ -77,9 +79,10 @@ CI runs these on every push and pull request. Run them before you push:
 
 ```bash
 pnpm vp run -r typecheck
-pnpm vp run lint
+pnpm vp run check
 pnpm vp run -r test
 pnpm vp run -r build
+pnpm vp run office-recorder#check
 ```
 
 ## Commits and pull requests

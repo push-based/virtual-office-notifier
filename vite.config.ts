@@ -65,7 +65,7 @@ export default defineConfig({
   run: {
     tasks: {
       typecheck: "tsc --noEmit",
-      lint: "vp lint",
+      check: "vp check",
     },
   },
 });

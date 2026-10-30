@@ -480,7 +480,7 @@ The workspace runs on [Vite+](https://viteplus.dev). Each package defines its ta
 | Command                             | What it does                                                                                                                                                                                                                        |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm vp run -r typecheck`          | Type-check every package with TypeScript 7 and the Effect diagnostics.                                                                                                                                                              |
-| `pnpm vp run lint`                  | Lint the whole repo with Oxlint and the rules in the root `vite.config.ts`. `pnpm vp lint --fix` applies the automatic fixes.                                                                                                       |
+| `pnpm vp run check`                 | Check formatting with Oxfmt and lint with Oxlint, across the whole repo, with the `fmt` and `lint` config in the root `vite.config.ts`. `pnpm vp check --fix` formats every file and applies the automatic lint fixes.              |
 | `pnpm vp run -r test`               | Run every package's tests with Vitest.                                                                                                                                                                                              |
 | `pnpm vp run -r build`              | Bundle the bot to `apps/bot/dist/main.js` with a source map, and build the Activity to `apps/office-recorder/dist`: the page in `client/`, type-checked on the way, and the Worker with its generated `wrangler.json` in `worker/`. |
 | `pnpm vp run office-recorder#check` | Build the Activity and run `wrangler deploy --dry-run` on the result.                                                                                                                                                               |
@@ -490,7 +490,7 @@ The workspace runs on [Vite+](https://viteplus.dev). Each package defines its ta
 
 Run a single package's task with `pnpm vp run <package>#<task>`, for example `pnpm vp run bot#test`. `pnpm vp cache clean` clears the task cache.
 
-CI runs the same typecheck, lint, test and build tasks on every push and pull request, and dry-runs the Activity's deploy. It keeps the task cache between runs.
+CI runs the same typecheck, check, test and build tasks on every push and pull request, and dry-runs the Activity's deploy. It keeps the task cache between runs.
 
 Running the Activity locally needs a Postgres for its `DATABASE` Hyperdrive binding, with a password in the URL, even if you never record. Set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE`, for example to `postgres://postgres:postgres@localhost:5432/postgres` (the `office-recorder` preview in [`.claude/launch.json`](.claude/launch.json) uses that), and put the Worker's secrets in `apps/office-recorder/.dev.vars`.
 
@@ -498,7 +498,7 @@ The tests run the program against fakes for Discord, Slack and the AI models, so
 
 TypeScript is pinned to the exact version `@effect/tsgo` supports, so upgrade the two together. The `prepare` script patches it on install.
 
-Vite, Vitest and Oxlint come from Vite+. The catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml) points `vite` at Vite+'s core, and its overrides keep a single copy of Vite and Vitest across the workspace, which `@effect/vitest` needs to register its tests with the runner `vp test` starts. Upgrade them by bumping `vite-plus` and `vitest` there together.
+Vite, Vitest, Oxlint and Oxfmt come from Vite+. The catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml) points `vite` at Vite+'s core, and its overrides keep a single copy of Vite and Vitest across the workspace, which `@effect/vitest` needs to register its tests with the runner `vp test` starts. Upgrade them by bumping `vite-plus` and `vitest` there together.
 
 The Activity's page and the design system are compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package is pinned to exactly that version in the `angular` catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml), with the plugin and the TypeScript 6 that Angular's compiler needs. Upgrade them together there. The Activity's Worker is type-checked with the root's TypeScript 7 instead, from its own [`tsconfig.json`](apps/office-recorder/worker/tsconfig.json), and ngp only compiles the browser build, not the Worker.
 
