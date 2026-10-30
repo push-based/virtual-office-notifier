@@ -13,6 +13,7 @@ import {
   Queue,
   Ref,
   Schema,
+  Stream,
   String,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
@@ -98,6 +99,7 @@ interface HarnessOptions {
     RecordingStore | SqlClient.SqlClient
   >;
   readonly slack?: FakeSlackClientOptions;
+  readonly archive?: ClipArchive["Service"];
 }
 
 const transcribeAll = () => Effect.succeed({ text: "hello world", model: "whisper" });
@@ -115,6 +117,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const summaryStyles = yield* Ref.make<ReadonlyArray<SummaryStyle>>([]);
   const whileSummarizing = yield* Ref.make<Effect.Effect<void>>(Effect.void);
   const actionItemRequests = yield* Ref.make<ReadonlyArray<string>>([]);
+  const capturesEnded = yield* Ref.make(0);
 
   const nextActionItems = yield* Ref.make(
     options.actionItems ?? Option.some({ value: [], model: "m" }),
@@ -152,9 +155,25 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     }),
   );
 
+  const voice = Layer.effect(
+    VoiceCapture,
+    Effect.gen(function* () {
+      const fake = yield* VoiceCapture;
+
+      return VoiceCapture.of({
+        capture: (office, until) =>
+          fake
+            .capture(office, until)
+            .pipe(Stream.ensuring(Ref.update(capturesEnded, (ended) => ended + 1))),
+      });
+    }),
+  ).pipe(Layer.provide(VoiceCapture.layerTest(heard)));
+
   const layer = Layer.mergeAll(
-    VoiceCapture.layerTest(heard),
-    ClipArchive.layerDisabled,
+    voice,
+    options.archive === undefined
+      ? ClipArchive.layerDisabled
+      : Layer.succeed(ClipArchive, options.archive),
     transcriber,
     summaries,
     actionItemWriter,
@@ -333,6 +352,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     settle: Effect.repeat(Effect.yieldNow, { times: SETTLE_TURNS }),
     tick: TestClock.adjust(POLL_INTERVAL),
     recordings: Queue.clear(recordings),
+    capturesEnded: Ref.get(capturesEnded),
     posts: slack.posts,
     uploads: slack.uploads,
     updates: slack.updates,
@@ -577,6 +597,43 @@ describe("Recorder", () => {
       ]);
       assert.deepStrictEqual(yield* h.recordingRows, []);
       assert.deepStrictEqual(yield* h.recordings, []);
+    }),
+  );
+
+  it.effect("keeps a clip that was still being saved when someone stopped the recording", () =>
+    Effect.gen(function* () {
+      const uploading = yield* Deferred.make<void>();
+      const saved = yield* Deferred.make<void>();
+
+      const h = yield* makeHarness({
+        present: [ada],
+        archive: ClipArchive.of({
+          bucket: Option.some("office-recordings"),
+          upload: () =>
+            Deferred.succeed(uploading, undefined).pipe(Effect.andThen(Deferred.await(saved))),
+          download: () => Effect.succeed(new Uint8Array([1])),
+        }),
+      });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.speak(clip("u1", 2));
+      yield* Deferred.await(uploading);
+
+      yield* h.request("u1", "stop");
+      yield* h.tick;
+      yield* h.eventually(h.capturesEnded, (ended) => ended === 1);
+      yield* h.settle;
+      yield* Deferred.succeed(saved, undefined);
+
+      yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
+      yield* recordingStopped(h);
+      yield* TestClock.adjust(FINISH_POLL);
+
+      const [recording] = yield* recordingFinished(h);
+      assert.include(recording?.transcript, "Ada: hello world");
+      assert.strictEqual((yield* h.posts).length, 1);
     }),
   );
 

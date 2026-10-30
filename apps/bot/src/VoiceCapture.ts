@@ -57,7 +57,7 @@ const destroy = (connection: VoiceConnection) =>
 export class VoiceCapture extends Context.Service<
   VoiceCapture,
   {
-    capture(office: OfficeLocation): Stream.Stream<Heard, CaptureError>;
+    capture(office: OfficeLocation, until: Effect.Effect<void>): Stream.Stream<Heard, CaptureError>;
   }
 >()("bot/VoiceCapture") {
   static readonly layer = Layer.effect(
@@ -65,7 +65,7 @@ export class VoiceCapture extends Context.Service<
     Effect.gen(function* () {
       const gateway = yield* DiscordGateway;
 
-      const capture = (office: OfficeLocation) =>
+      const capture = (office: OfficeLocation, until: Effect.Effect<void>) =>
         Stream.callback<Heard, CaptureError>(
           Effect.fnUntraced(function* (queue) {
             const adapterCreator = yield* Effect.fromOption(gateway.voiceAdapter, () =>
@@ -84,6 +84,18 @@ export class VoiceCapture extends Context.Service<
               ),
               destroy,
             );
+
+            const flushes = new Set<() => void>();
+
+            const leave = Effect.gen(function* () {
+              yield* destroy(connection);
+
+              for (const flushPartial of flushes) flushPartial();
+
+              yield* Queue.end(queue);
+            });
+
+            yield* until.pipe(Effect.andThen(leave), Effect.forkScoped);
 
             const clock = yield* Clock.Clock;
             const now = () => DateTime.makeUnsafe(clock.currentTimeMillisUnsafe());
@@ -145,6 +157,13 @@ export class VoiceCapture extends Context.Service<
 
               const flushPartial = () => take(flush(partial));
 
+              const close = () => {
+                flushes.delete(flushPartial);
+                flushPartial();
+              };
+
+              flushes.add(flushPartial);
+
               stream.on("data", (packet: Buffer) =>
                 take(
                   addPacket(
@@ -156,8 +175,8 @@ export class VoiceCapture extends Context.Service<
                 ),
               );
 
-              stream.on("end", flushPartial);
-              stream.on("error", flushPartial);
+              stream.on("end", close);
+              stream.on("error", close);
             };
 
             const onSpeakingEnd = (userId: string) => {
@@ -182,5 +201,10 @@ export class VoiceCapture extends Context.Service<
   );
 
   static readonly layerTest = (heard: Queue.Dequeue<Heard, Cause.Done | CaptureError>) =>
-    Layer.succeed(VoiceCapture, VoiceCapture.of({ capture: () => Stream.fromQueue(heard) }));
+    Layer.succeed(
+      VoiceCapture,
+      VoiceCapture.of({
+        capture: (_office, until) => Stream.fromQueue(heard).pipe(Stream.interruptWhen(until)),
+      }),
+    );
 }
