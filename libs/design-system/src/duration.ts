@@ -12,6 +12,9 @@ export const formatElapsed = (since: string, now: number): string => {
 const formatMinutes = (minutes: number): string =>
   minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 
+export const formatDuration = (seconds: number): string =>
+  formatMinutes(Math.max(0, Math.round(seconds / 60)));
+
 export const formatTimeLeft = (until: string, now: number): string =>
   formatMinutes(Math.max(0, Math.ceil((Date.parse(until) - now) / 60_000)));
 

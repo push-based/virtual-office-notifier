@@ -10,6 +10,7 @@ import {
   HttpApiSecurity,
 } from "effect/http-api";
 
+import { OfficeStats, StatsQuery } from "./OfficeStats.ts";
 import { RecordingDetail, RecordingId, RecordingPage } from "./Recording.ts";
 import { RecordingStatus, RequestSubmission, SubmittedRequest } from "./RecordingRequest.ts";
 
@@ -66,6 +67,17 @@ export class RecordingGroup extends HttpApiGroup.make("recording")
   .middleware(SignedIn)
   .prefix("/api") {}
 
+export class StatsGroup extends HttpApiGroup.make("stats")
+  .add(
+    HttpApiEndpoint.get("office", "/stats", {
+      query: StatsQuery,
+      success: OfficeStats,
+      error: HttpApiError.ServiceUnavailable,
+    }),
+  )
+  .middleware(SignedIn)
+  .prefix("/api") {}
+
 export class HistoryGroup extends HttpApiGroup.make("history")
   .add(
     HttpApiEndpoint.get("recordings", "/recordings", {
@@ -85,4 +97,5 @@ export class HistoryGroup extends HttpApiGroup.make("history")
 export class RecordingApi extends HttpApi.make("office-recorder")
   .add(SignInGroup.prefix("/api"))
   .add(RecordingGroup)
+  .add(StatsGroup)
   .add(HistoryGroup) {}

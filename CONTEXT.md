@@ -70,6 +70,14 @@ _Avoid_: task, todo, follow-up
 One change to a recording's title, agenda, summary style or action items, by one person, which the bot applies and keeps on record.
 _Avoid_: update, rename
 
+**Office stats**:
+Totals over the recorded voice activity for this week, this month or all time, in office time: time in the office, first in and last out, the busiest hours, the soundboard leaderboard, top reactions and recordings.
+_Avoid_: analytics, metrics, dashboard
+
+**Office time**:
+UTC+2 all year, with no daylight saving. Days, weeks and hours in the office stats, the reminder and the transcripts are all in office time.
+_Avoid_: local time, CET
+
 **Recording status**:
 What the Office Recorder shows: whether the bot is in the office, who is there and which of them the bot hears speaking, and the recording that is running, if any.
 _Avoid_: state, office state
