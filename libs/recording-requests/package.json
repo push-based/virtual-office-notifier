@@ -3,10 +3,6 @@
   "private": true,
   "description": "Recording requests and the recording status, shared by the bot, the Office Recorder's Worker and its page",
   "type": "module",
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
   "exports": {
     "./wire": "./src/Wire.ts",
     "./*": "./src/*.ts"
@@ -19,6 +15,8 @@
     "@effect/vitest": "catalog:",
     "effect": "catalog:",
     "typescript": "7.0.2",
-    "vitest": "5.0.5"
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   }
 }

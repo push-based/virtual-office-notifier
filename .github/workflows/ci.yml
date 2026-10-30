@@ -19,15 +19,30 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm typecheck
+      - name: Restore the task cache
+        id: task-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: node_modules/.vite/task-cache
+          key: vite-task-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vite-task-${{ runner.os }}-${{ runner.arch }}-
 
-      - run: pnpm lint
+      - run: pnpm exec vp run -r typecheck
 
-      - run: pnpm test
+      - run: pnpm exec vp run lint
 
-      - run: pnpm build
+      - run: pnpm exec vp run -r test
 
-      - run: pnpm --filter office-recorder-worker check
+      - run: pnpm exec vp run -r build
+
+      - run: pnpm exec vp run office-recorder-worker#check
+
+      - name: Save the task cache
+        uses: actions/cache/save@v6
+        with:
+          path: node_modules/.vite/task-cache
+          key: ${{ steps.task-cache.outputs.cache-primary-key }}
 
   deploy:
     needs: check
@@ -61,7 +76,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter office-recorder-page build
+      - run: pnpm exec vp run office-recorder-page#build
 
       - uses: google-github-actions/auth@v3
         with:
@@ -70,7 +85,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - run: pnpm --filter bot run deploy
+      - run: pnpm exec vp run bot#deploy
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_OFFICE_CHANNEL_ID: ${{ secrets.DISCORD_OFFICE_CHANNEL_ID }}
@@ -84,7 +99,7 @@ jobs:
           RECORDINGS_BUCKET: ${{ secrets.RECORDINGS_BUCKET }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
-      - run: pnpm --filter office-recorder-worker run deploy
+      - run: pnpm exec vp run office-recorder-worker#deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_DEPLOY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

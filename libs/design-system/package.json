@@ -3,9 +3,6 @@
   "private": true,
   "description": "The Office Recorder's Angular components, pipes and design tokens",
   "type": "module",
-  "scripts": {
-    "test": "vitest run"
-  },
   "exports": {
     ".": "./src/index.ts",
     "./tokens.css": "./src/tokens.css",
@@ -25,6 +22,7 @@
     "rxjs": "7.8.2",
     "tslib": "2.8.1",
     "typescript": "catalog:angular",
-    "vitest": "5.0.5"
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
   }
 }
