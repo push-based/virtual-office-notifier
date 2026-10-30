@@ -1,11 +1,17 @@
 import { Component, booleanAttribute, input, model } from "@angular/core";
-import { PbTextField } from "design-system";
+import { PbSelectField, PbTextField } from "design-system";
 
-import { AGENDA_MAX_LENGTH, TITLE_MAX_LENGTH } from "./models";
+import {
+  AGENDA_MAX_LENGTH,
+  DEFAULT_SUMMARY_STYLE,
+  type SummaryStyle,
+  TITLE_MAX_LENGTH,
+} from "./models";
+import { STYLE_OPTIONS, summaryStyleOf } from "./plan";
 
 @Component({
   selector: "app-plan-fields",
-  imports: [PbTextField],
+  imports: [PbSelectField, PbTextField],
   template: `
     <pb-text-field
       label="Title"
@@ -22,6 +28,13 @@ import { AGENDA_MAX_LENGTH, TITLE_MAX_LENGTH } from "./models";
       [disabled]="disabled()"
       [(value)]="agenda"
     />
+    <pb-select-field
+      label="Summary"
+      [options]="styleOptions"
+      [disabled]="disabled()"
+      [value]="summaryStyle()"
+      (valueChange)="summaryStyle.set(styleOf($event))"
+    />
   `,
   styles: `
     :host {
@@ -36,9 +49,15 @@ export class PlanFields {
 
   readonly agenda = model("");
 
+  readonly summaryStyle = model<SummaryStyle>(DEFAULT_SUMMARY_STYLE);
+
   readonly disabled = input(false, { transform: booleanAttribute });
 
   protected readonly titleMaxLength = TITLE_MAX_LENGTH;
 
   protected readonly agendaMaxLength = AGENDA_MAX_LENGTH;
+
+  protected readonly styleOptions = STYLE_OPTIONS;
+
+  protected readonly styleOf = summaryStyleOf;
 }

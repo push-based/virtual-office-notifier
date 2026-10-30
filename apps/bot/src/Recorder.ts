@@ -23,6 +23,7 @@ import {
   String,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
+import { rewritesSummary } from "recording-requests/RecordingEdit";
 import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEdits";
 import {
   type ActiveRecording,
@@ -35,6 +36,7 @@ import {
   RecordingRequests,
   type StatusUpdate,
 } from "recording-requests/RecordingRequests";
+import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 
 import { ActionItemList, ActionItemWriter, actionItemsRequest, ownedBy } from "./ActionItems.ts";
 import type { BotPresence } from "./BotPresence.ts";
@@ -53,7 +55,7 @@ import {
 } from "./RecordingStore.ts";
 import { SlackClient } from "./SlackClient.ts";
 import { SlackHistory } from "./SlackHistory.ts";
-import { type SlackMessage, summaryMessage } from "./SlackMessage.ts";
+import { rewriteNote, type SlackMessage, summaryMessage } from "./SlackMessage.ts";
 import { noVoices, speakingAt, startedSpeaking, stoppedSpeaking, type Voices } from "./Speaking.ts";
 import {
   hasSpeech,
@@ -81,6 +83,10 @@ const FINISH_ATTEMPTS = 6;
 
 const UPLOAD_ATTEMPTS = 3;
 
+const REWRITE_RETRY = Duration.minutes(1);
+
+const REWRITE_ATTEMPTS = 5;
+
 interface Session {
   readonly recording: ActiveRecording;
   readonly capture: Option.Option<Fiber.Fiber<void>>;
@@ -107,6 +113,15 @@ const captureRetry = Schedule.spaced("5 seconds").pipe(
   Schedule.tap(({ input, attempt }) =>
     Effect.logWarning("Lost the voice connection, rejoining").pipe(
       Effect.annotateLogs({ reason: input.reason, attempt }),
+    ),
+  ),
+);
+
+const rewriteRetry = Schedule.spaced(REWRITE_RETRY).pipe(
+  Schedule.upTo({ times: REWRITE_ATTEMPTS - 1 }),
+  Schedule.tap(({ attempt }) =>
+    Effect.logWarning("Couldn't rewrite the summary, trying again later").pipe(
+      Effect.annotateLogs({ attempt }),
     ),
   ),
 );
@@ -175,6 +190,7 @@ export class Recorder extends Context.Service<
         const unavailableAttempts = yield* Ref.make(0);
         const mutex = yield* Semaphore.make(1);
         const updatingPost = yield* Semaphore.make(1);
+        const rewrites = yield* Ref.make<ReadonlyMap<string, boolean>>(new Map());
 
         const storeIssue = (what: string) => (error: StoreUnavailable | RecordingUnavailable) =>
           Ref.getAndSet(storeHealthy, false).pipe(
@@ -390,7 +406,7 @@ export class Recorder extends Context.Service<
             const lines = yield* store.clipsOf(id);
             const actionItems = yield* store.actionItemsOf(id);
             const { startedAt, stoppedAt, startedByName, title } = details.value;
-            const { slackChannelId, slackTs, summary, summaryModel } = post.value;
+            const { slackChannelId, slackTs, summary, summaryModel, summaryStyle } = post.value;
 
             return Option.some({
               channel: slackChannelId,
@@ -405,7 +421,11 @@ export class Recorder extends Context.Service<
                 summary:
                   summary === null || summaryModel === null
                     ? Option.none()
-                    : Option.some({ text: summary, model: summaryModel }),
+                    : Option.some({
+                        text: summary,
+                        model: summaryModel,
+                        style: summaryStyle ?? DEFAULT_SUMMARY_STYLE,
+                      }),
                 actionItems,
               }),
             });
@@ -463,6 +483,136 @@ export class Recorder extends Context.Service<
             return yield* store.actionItemsOf(id);
           });
 
+        const repullActionItems = (id: string, request: string) =>
+          Effect.gen(function* () {
+            if (yield* store.actionItemsTouched(id)) return;
+
+            const members = yield* store.presentDuring(id);
+            const pulled = yield* actionItemWriter.pull(actionItemsRequest(members, request));
+
+            if (Option.isNone(pulled)) return;
+
+            const { value, model } = pulled.value;
+
+            yield* store.replaceActionItems(
+              id,
+              { model, items: ownedBy(members, value) },
+              yield* DateTime.now,
+            );
+          });
+
+        const noteRewrite = (id: string, note: SlackMessage) =>
+          store.summaryPost(id).pipe(
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.void,
+                onSome: ({ slackChannelId, slackTs }) =>
+                  slack
+                    .postMessage({ channel: slackChannelId, threadTs: slackTs, ...note })
+                    .pipe(Effect.asVoid),
+              }),
+            ),
+            Effect.catchTag("SlackError", (error) =>
+              Effect.logWarning("Couldn't say in Slack that the summary was rewritten").pipe(
+                Effect.annotateLogs({ reason: error.reason._tag }),
+                Effect.andThen(report(error)),
+              ),
+            ),
+          );
+
+        const rewriteOnce = Effect.fn("Recorder.rewrite")(
+          function* (id: string) {
+            const pending = yield* store.pendingRewrite(id);
+
+            if (Option.isNone(pending)) return;
+
+            const { editId, editedByName, previousStyle } = pending.value;
+            const details = yield* store.recordingDetails(id);
+
+            if (Option.isNone(details)) {
+              yield* store.dropRewrite(id, editId);
+
+              return;
+            }
+
+            const lines = yield* store.clipsOf(id);
+            const pauses = yield* store.pausesOf(id);
+            const transcript = transcriptText(details.value, lines, pauses);
+            const style = details.value.summaryStyle;
+
+            const request = summaryRequest(details.value, transcript);
+            const summary = yield* summaries.write(request, style);
+
+            if (Option.isNone(summary)) {
+              yield* store.dropRewrite(id, editId);
+              yield* Effect.logWarning(
+                "No AI model could rewrite the summary, so it stays as it was",
+              );
+
+              return;
+            }
+
+            yield* repullActionItems(id, request);
+
+            yield* store.saveRewrite(id, {
+              editId,
+              style,
+              text: summary.value.text,
+              model: summary.value.model,
+              writtenAt: yield* DateTime.now,
+            });
+
+            yield* updatePost(id);
+            yield* noteRewrite(
+              id,
+              rewriteNote(
+                previousStyle === null || previousStyle === style
+                  ? Option.none()
+                  : Option.some(style),
+                editedByName,
+              ),
+            );
+            yield* Effect.logInfo("Rewrote the recording's summary").pipe(
+              Effect.annotateLogs({ style, edit: editId }),
+            );
+          },
+          Effect.retry(rewriteRetry),
+          Effect.catchTag("StoreUnavailable", (error) =>
+            Effect.logError("Gave up rewriting the summary").pipe(
+              Effect.annotateLogs({ reason: error.reason }),
+            ),
+          ),
+          (effect, id) => Effect.annotateLogs(effect, { recordingId: id }),
+        );
+
+        const rewriteAgain = (id: string) =>
+          Ref.modify(rewrites, (all): readonly [boolean, ReadonlyMap<string, boolean>] => {
+            const next = new Map(all);
+
+            if (all.get(id) === true) return [true, next.set(id, false)];
+
+            next.delete(id);
+
+            return [false, next];
+          });
+
+        const rewriteWhileAsked = (id: string) =>
+          Effect.gen(function* () {
+            do {
+              yield* rewriteOnce(id);
+            } while (yield* rewriteAgain(id));
+          });
+
+        const rewrite = (id: string) =>
+          Ref.modify(rewrites, (all): readonly [boolean, ReadonlyMap<string, boolean>] => [
+            !all.has(id),
+            new Map(all).set(id, all.has(id)),
+          ]).pipe(
+            Effect.flatMap((fresh) =>
+              fresh ? rewriteWhileAsked(id).pipe(Effect.forkScoped, Effect.asVoid) : Effect.void,
+            ),
+          );
+
         const finish = Effect.fn("Recorder.finish")(
           function* (id: string) {
             yield* awaitClips(id);
@@ -483,6 +633,10 @@ export class Recorder extends Context.Service<
             if (!hasSpeech(lines)) {
               yield* store.finishRecording(id, {
                 transcript,
+                writtenWith: {
+                  summaryStyle: details.value.summaryStyle,
+                  agenda: details.value.agenda,
+                },
                 summary: null,
                 summaryModel: null,
                 slackChannelId: null,
@@ -495,10 +649,12 @@ export class Recorder extends Context.Service<
               return;
             }
 
+            const { startedAt, stoppedAt, startedByName, title, agenda, summaryStyle } =
+              details.value;
+
             const request = summaryRequest(details.value, transcript);
-            const summary = yield* summaries.write(request);
+            const summary = yield* summaries.write(request, summaryStyle);
             const actionItems = yield* pullActionItems(id, request);
-            const { startedAt, stoppedAt, startedByName, title } = details.value;
 
             const message = summaryMessage({
               office,
@@ -557,8 +713,9 @@ export class Recorder extends Context.Service<
               ),
             );
 
-            yield* store.finishRecording(id, {
+            const rewriting = yield* store.finishRecording(id, {
               transcript,
+              writtenWith: { summaryStyle, agenda },
               summary: Option.getOrNull(Option.map(summary, ({ text }) => text)),
               summaryModel: Option.getOrNull(Option.map(summary, ({ model }) => model)),
               slackChannelId: posted.channel,
@@ -568,6 +725,8 @@ export class Recorder extends Context.Service<
             });
 
             yield* updatePostIfChanged(id, message);
+
+            if (rewriting) yield* rewrite(id);
 
             yield* Effect.logInfo("Posted the recording summary").pipe(
               Effect.annotateLogs({
@@ -678,6 +837,7 @@ export class Recorder extends Context.Service<
                 startedByName: request.requestedByName,
                 title: request.title,
                 agenda: request.agenda,
+                summaryStyle: request.summaryStyle ?? DEFAULT_SUMMARY_STYLE,
               });
 
               return {
@@ -754,14 +914,18 @@ export class Recorder extends Context.Service<
 
         const editHandler: EditHandler<StoreUnavailable, Scope.Scope> = {
           apply: (edit) =>
-            store.applyEdit(edit.recordingId, edit.change).pipe(
-              Effect.as({
-                afterCommit:
-                  edit.change.kind === "agenda"
-                    ? Effect.void
-                    : updatePost(edit.recordingId).pipe(Effect.forkScoped, Effect.asVoid),
-              }),
-            ),
+            Effect.gen(function* () {
+              yield* store.applyEdit(edit.recordingId, edit.change);
+
+              if (!rewritesSummary(edit.change))
+                return {
+                  afterCommit: updatePost(edit.recordingId).pipe(Effect.forkScoped, Effect.asVoid),
+                };
+
+              const rewriting = yield* store.requestRewrite(edit.recordingId, edit.id);
+
+              return { afterCommit: rewriting ? rewrite(edit.recordingId) : Effect.void };
+            }),
         };
 
         const applyEdits = edits
@@ -800,6 +964,8 @@ export class Recorder extends Context.Service<
             for (const id of unfinished) yield* finish(id).pipe(Effect.forkScoped);
 
             yield* linkPosts.pipe(Effect.forkScoped);
+
+            for (const id of yield* store.pendingRewrites) yield* rewrite(id);
 
             const active = yield* store.activeRecording;
 

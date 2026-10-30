@@ -38,6 +38,7 @@ describe("describePhase", () => {
       pause: null,
       title: null,
       agenda: null,
+      summaryStyle: "brief" as const,
     };
 
     expect(describePhase({ kind: "recording", recording }, now)).toEqual({
@@ -58,6 +59,7 @@ describe("describePhase", () => {
       pause,
       title: null,
       agenda: null,
+      summaryStyle: "brief" as const,
     };
 
     expect(describePhase({ kind: "paused", recording, pause }, now)).toEqual({

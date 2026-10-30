@@ -138,6 +138,28 @@ describe("HistoryStore", () => {
     expect(api.page).toHaveBeenCalledTimes(listPolls);
   });
 
+  it("keeps refreshing a finished recording while its summary is being rewritten", async () => {
+    const api = fakeApi();
+    api.recording.mockReturnValue(of(recordingDetail({ id: "r2", rewriting: true })));
+    const { store, timing } = await signedIn(api);
+
+    store.openRecording("r2");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(store.open()?.rewriting).toBe(true);
+
+    api.recording.mockReturnValue(
+      of(recordingDetail({ id: "r2", summary: "• Rewritten", rewriting: false })),
+    );
+    await vi.advanceTimersByTimeAsync(timing.recordingPollMs);
+
+    expect(store.open()?.summary).toBe("• Rewritten");
+
+    await vi.advanceTimersByTimeAsync(timing.recordingPollMs * 3);
+
+    expect(api.recording).toHaveBeenCalledTimes(2);
+  });
+
   it("goes back to the list and refreshes it straight away", async () => {
     const api = fakeApi();
     const { store } = await signedIn(api);

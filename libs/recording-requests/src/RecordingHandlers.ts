@@ -34,6 +34,7 @@ export const RecordingHandlers = HttpApiBuilder.group(
           return yield* requests.submit(requester, payload.action, {
             title: payload.title ?? null,
             agenda: payload.agenda ?? null,
+            summaryStyle: payload.summaryStyle ?? null,
           });
         }).pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
       find: ({ params }) =>

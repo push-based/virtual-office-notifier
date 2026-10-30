@@ -40,6 +40,9 @@ const detail: RecordingDetail = {
   stoppedBy: ada,
   summary: "• Ada said hello",
   summaryModel: "model",
+  summaryStyle: "detailed",
+  summaryWrittenStyle: "brief",
+  rewriting: true,
   slackPermalink: "https://office.slack.com/archives/C1/p12",
   clips: [{ speaker: ada, startedAt: DateTime.makeUnsafe("2026-10-29T12:06:00Z"), text: "Hello" }],
   actionItems: [
@@ -197,6 +200,9 @@ describe("the recording history API", () => {
         title: "Deploy retro",
         agenda: "What broke on Friday",
         stopReason: "requested",
+        summaryStyle: "detailed",
+        summaryWrittenStyle: "brief",
+        rewriting: true,
         slackPermalink: "https://office.slack.com/archives/C1/p12",
         clips: [{ speaker: ada, startedAt: "2026-10-29T12:06:00.000Z", text: "Hello" }],
         actionItems: [
@@ -272,7 +278,7 @@ describe("the recording edits API", () => {
   );
 
   it.effect(
-    "refuses a title over 80 characters, an agenda over 500, and a kind it doesn't know",
+    "refuses a title over 80 characters, an agenda over 500, a style or a kind it doesn't know",
     () =>
       Effect.gen(function* () {
         const call = yield* signedIn;
@@ -283,7 +289,13 @@ describe("the recording edits API", () => {
         assert.strictEqual((yield* post(`{"kind":"title","title":"${xs(81)}"}`)).status, 400);
         assert.strictEqual((yield* post(`{"kind":"title","title":"${xs(80)}"}`)).status, 202);
         assert.strictEqual((yield* post(`{"kind":"agenda","agenda":"${xs(501)}"}`)).status, 400);
-        assert.strictEqual((yield* post(`{"kind":"summary_style","style":"brief"}`)).status, 400);
+        assert.strictEqual((yield* post(`{"kind":"summary_style","style":"long"}`)).status, 400);
+        assert.strictEqual(
+          (yield* post(`{"kind":"summary_style","style":"detailed"}`)).status,
+          202,
+        );
+        assert.strictEqual((yield* post(`{"kind":"rewrite_summary"}`)).status, 202);
+        assert.strictEqual((yield* post(`{"kind":"action_items","items":[]}`)).status, 400);
       }),
   );
 

@@ -1,12 +1,19 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Effect, Layer, Option, String } from "effect";
-import { SqlClient } from "effect/sql";
+import { Migrator, SqlClient } from "effect/sql";
 
 import { ActionItemList } from "../src/ActionItems.ts";
 import { columnNaming, Database } from "../src/Database.ts";
+import { migrations } from "../src/migrations.ts";
 import { MAX_TRANSCRIPTION_ATTEMPTS } from "../src/Recording.ts";
-import { type NewClip, type RecordingDetails, RecordingStore } from "../src/RecordingStore.ts";
+import {
+  type FinishedRecording,
+  type NewClip,
+  type NewRecording,
+  type RecordingDetails,
+  RecordingStore,
+} from "../src/RecordingStore.ts";
 
 const TestLayer = RecordingStore.layer.pipe(
   Layer.provideMerge(Database.layerNoDeps()),
@@ -17,7 +24,7 @@ const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 
 const minute = (n: number) => DateTime.makeUnsafe(n * 60_000);
 
-const newRecording = (id = RECORDING) => ({
+const newRecording = (id = RECORDING): NewRecording => ({
   id,
   guildId: "g1",
   channelId: "office",
@@ -26,6 +33,7 @@ const newRecording = (id = RECORDING) => ({
   startedByName: "Ada",
   title: null,
   agenda: null,
+  summaryStyle: "brief",
 });
 
 const clip = (overrides: Partial<NewClip> = {}): NewClip => ({
@@ -87,6 +95,43 @@ const snapshot = (
 const joined = { from: null, to: "office" };
 
 const left = { from: "office", to: null };
+
+const finished = (overrides: Partial<FinishedRecording> = {}): FinishedRecording => ({
+  transcript: "10:00 Ada: Hello",
+  writtenWith: { summaryStyle: "brief", agenda: null },
+  summary: "• Ada said hello",
+  summaryModel: "model",
+  slackChannelId: "C1",
+  slackTs: "1.2",
+  slackPermalink: null,
+  finishedAt: minute(31),
+  ...overrides,
+});
+
+const appliedEdit = (kind: string, change: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    const [row] = yield* sql<{ readonly id: string }>`
+      INSERT INTO office.recording_edits
+        (recording_id, edited_by, edited_by_name, kind, change, handled_at, outcome)
+      VALUES (${RECORDING}, 'u2', 'Ben', ${kind}, ${change}::jsonb, now(), 'applied')
+      RETURNING id::text
+    `;
+
+    return Number(row?.id);
+  });
+
+const summaryVersions = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+
+  return yield* sql<{
+    readonly style: string;
+    readonly summary: string;
+    readonly model: string;
+    readonly editId: number | null;
+  }>`SELECT style, summary, model, edit_id::int FROM office.recording_summaries ORDER BY id`;
+});
 
 const started = Effect.gen(function* () {
   const store = yield* RecordingStore;
@@ -171,6 +216,7 @@ describe("RecordingStore", () => {
 
       yield* store.finishRecording(RECORDING, {
         transcript: "nothing",
+        writtenWith: { summaryStyle: "brief", agenda: null },
         summary: null,
         summaryModel: null,
         slackChannelId: null,
@@ -370,6 +416,7 @@ describe("RecordingStore", () => {
         ...newRecording(),
         title: "Deploy retro",
         agenda: "What broke on Friday",
+        summaryStyle: "brief",
       });
       yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
 
@@ -401,6 +448,7 @@ describe("RecordingStore", () => {
 
       yield* store.finishRecording(RECORDING, {
         transcript: "10:00 Ada: Hello",
+        writtenWith: { summaryStyle: "brief", agenda: null },
         summary: null,
         summaryModel: null,
         slackChannelId: "C1",
@@ -411,7 +459,13 @@ describe("RecordingStore", () => {
 
       assert.deepStrictEqual(
         yield* store.summaryPost(RECORDING),
-        Option.some({ slackChannelId: "C1", slackTs: "1.2", summary: null, summaryModel: null }),
+        Option.some({
+          slackChannelId: "C1",
+          slackTs: "1.2",
+          summary: null,
+          summaryModel: null,
+          summaryStyle: null,
+        }),
       );
     }).pipe(Effect.provide(TestLayer)),
   );
@@ -438,11 +492,13 @@ describe("RecordingStore", () => {
           stopReason: "requested",
           title: null,
           agenda: null,
+          summaryStyle: "brief",
         }),
       );
 
       yield* store.finishRecording(RECORDING, {
         transcript: "10:00 Ada: Hello",
+        writtenWith: { summaryStyle: "brief", agenda: null },
         summary: "• Ada said hello",
         summaryModel: "model",
         slackChannelId: "C1",
@@ -477,6 +533,7 @@ describe("RecordingStore", () => {
 
         yield* store.finishRecording(RECORDING, {
           transcript: "10:00 Ada: Hello",
+          writtenWith: { summaryStyle: "brief", agenda: null },
           summary: null,
           summaryModel: null,
           slackChannelId: "C1",
@@ -617,6 +674,26 @@ describe("RecordingStore", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
+  it.effect("starts in the chosen summary style and changes it as an edit", () =>
+    Effect.gen(function* () {
+      const store = yield* RecordingStore;
+
+      yield* store.startRecording({ ...newRecording(), summaryStyle: "decisions" });
+      yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+
+      const styleOf = store
+        .recordingDetails(RECORDING)
+        .pipe(Effect.map(Option.map(({ summaryStyle }) => summaryStyle)));
+
+      assert.deepStrictEqual(yield* styleOf, Option.some("decisions"));
+
+      yield* store.applyEdit(RECORDING, { kind: "summary_style", style: "detailed" });
+      yield* store.applyEdit(RECORDING, { kind: "rewrite_summary" });
+
+      assert.deepStrictEqual(yield* styleOf, Option.some("detailed"));
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
   it.effect(
     "ticks, unticks and reassigns an action item, to someone from the office or nobody",
     () =>
@@ -657,6 +734,288 @@ describe("RecordingStore", () => {
         yield* store.applyEdit("8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10", { kind: "tick", item: id });
         assert.deepStrictEqual(yield* current, [{ ownerName: null, done: false }]);
       }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "keeps the first summary on record with its style, and asks for no rewrite when nothing changed",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* started;
+
+        yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+
+        assert.isFalse(yield* store.finishRecording(RECORDING, finished()));
+        assert.deepStrictEqual(yield* summaryVersions, [
+          { style: "brief", summary: "• Ada said hello", model: "model", editId: null },
+        ]);
+        assert.deepStrictEqual(yield* store.pendingRewrites, []);
+        assert.strictEqual(
+          Option.getOrNull(yield* store.summaryPost(RECORDING))?.summaryStyle,
+          "brief",
+        );
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "asks for a rewrite by the latest edit when the style or agenda changed while the summary was written",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* started;
+
+        yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+        yield* appliedEdit("title", '{"kind":"title","title":"Retro"}');
+        yield* appliedEdit("agenda", '{"kind":"agenda","agenda":"Friday"}');
+
+        const latest = yield* appliedEdit(
+          "summary_style",
+          '{"kind":"summary_style","style":"detailed"}',
+        );
+
+        yield* appliedEdit("title", '{"kind":"title","title":"Retro 2"}');
+        yield* store.applyEdit(RECORDING, { kind: "summary_style", style: "detailed" });
+
+        assert.isTrue(yield* store.finishRecording(RECORDING, finished()));
+        assert.deepStrictEqual(yield* store.pendingRewrites, [RECORDING]);
+        assert.deepStrictEqual(
+          yield* store.pendingRewrite(RECORDING),
+          Option.some({ editId: latest, editedByName: "Ben", previousStyle: "brief" }),
+        );
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("asks for no rewrite of a recording nobody spoke in", () =>
+    Effect.gen(function* () {
+      const store = yield* started;
+
+      yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+      yield* appliedEdit("summary_style", '{"kind":"summary_style","style":"detailed"}');
+      yield* store.applyEdit(RECORDING, { kind: "summary_style", style: "detailed" });
+
+      const silent = finished({
+        summary: null,
+        summaryModel: null,
+        slackChannelId: null,
+        slackTs: null,
+      });
+
+      assert.isFalse(yield* store.finishRecording(RECORDING, silent));
+      assert.deepStrictEqual(yield* summaryVersions, []);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("asks for a rewrite only of a recording whose summary is posted", () =>
+    Effect.gen(function* () {
+      const store = yield* started;
+      const edit = yield* appliedEdit("rewrite_summary", '{"kind":"rewrite_summary"}');
+
+      assert.isFalse(yield* store.requestRewrite(RECORDING, edit));
+
+      yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+      assert.isFalse(yield* store.requestRewrite(RECORDING, edit));
+
+      yield* store.finishRecording(RECORDING, finished());
+      assert.isTrue(yield* store.requestRewrite(RECORDING, edit));
+      assert.deepStrictEqual(yield* store.pendingRewrites, [RECORDING]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "keeps every rewritten summary, and stops asking for a rewrite only once the latest edit has one",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* started;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+        yield* store.finishRecording(RECORDING, finished());
+
+        const first = yield* appliedEdit(
+          "summary_style",
+          '{"kind":"summary_style","style":"detailed"}',
+        );
+
+        yield* store.requestRewrite(RECORDING, first);
+        const second = yield* appliedEdit("rewrite_summary", '{"kind":"rewrite_summary"}');
+        yield* store.requestRewrite(RECORDING, second);
+
+        yield* store.saveRewrite(RECORDING, {
+          editId: first,
+          style: "detailed",
+          text: "• In detail",
+          model: "m2",
+          writtenAt: minute(40),
+        });
+
+        assert.deepStrictEqual(
+          yield* store.pendingRewrite(RECORDING),
+          Option.some({ editId: second, editedByName: "Ben", previousStyle: "detailed" }),
+        );
+
+        yield* store.dropRewrite(RECORDING, first);
+        assert.deepStrictEqual(yield* store.pendingRewrites, [RECORDING]);
+
+        yield* store.saveRewrite(RECORDING, {
+          editId: second,
+          style: "detailed",
+          text: "• In more detail",
+          model: "m3",
+          writtenAt: minute(41),
+        });
+
+        assert.deepStrictEqual(yield* store.pendingRewrites, []);
+        assert.deepStrictEqual(yield* store.pendingRewrite(RECORDING), Option.none());
+        assert.deepStrictEqual(yield* summaryVersions, [
+          { style: "brief", summary: "• Ada said hello", model: "model", editId: null },
+          { style: "detailed", summary: "• In detail", model: "m2", editId: first },
+          { style: "detailed", summary: "• In more detail", model: "m3", editId: second },
+        ]);
+        assert.deepStrictEqual(
+          yield* sql`SELECT summary, summary_model, summary_written_style FROM office.recordings`,
+          [{ summary: "• In more detail", summaryModel: "m3", summaryWrittenStyle: "detailed" }],
+        );
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "replaces the action items by retiring the old ones, only while nobody has ticked, unticked or reassigned one",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* stopped;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* store.recordActionItems(
+          RECORDING,
+          Option.some({ model: "m", items: [{ text: "write it up", owner: null }] }),
+          minute(31),
+        );
+
+        assert.isFalse(yield* store.actionItemsTouched(RECORDING));
+        assert.isTrue(
+          yield* store.replaceActionItems(
+            RECORDING,
+            { model: "m2", items: [{ text: "book the room", owner: "u1" }] },
+            minute(40),
+          ),
+        );
+        assert.deepStrictEqual(
+          Array.map(itemsOf(yield* store.actionItemsOf(RECORDING)), ({ text }) => text),
+          ["book the room"],
+        );
+        assert.deepStrictEqual(
+          yield* sql`SELECT text, replaced_at FROM office.recording_action_items ORDER BY id`,
+          [
+            { text: "write it up", replacedAt: DateTime.toDate(minute(40)) },
+            { text: "book the room", replacedAt: null },
+          ],
+        );
+
+        yield* appliedEdit("tick", '{"kind":"tick","item":2}');
+
+        assert.isTrue(yield* store.actionItemsTouched(RECORDING));
+        assert.isFalse(
+          yield* store.replaceActionItems(
+            RECORDING,
+            { model: "m3", items: [{ text: "something else", owner: null }] },
+            minute(50),
+          ),
+        );
+        assert.deepStrictEqual(
+          Array.map(itemsOf(yield* store.actionItemsOf(RECORDING)), ({ text }) => text),
+          ["book the room"],
+        );
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("stops asking for a rewrite that no model could write", () =>
+    Effect.gen(function* () {
+      const store = yield* started;
+
+      yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+      yield* store.finishRecording(RECORDING, finished());
+
+      const edit = yield* appliedEdit("rewrite_summary", '{"kind":"rewrite_summary"}');
+      yield* store.requestRewrite(RECORDING, edit);
+      yield* store.dropRewrite(RECORDING, edit);
+
+      assert.deepStrictEqual(yield* store.pendingRewrites, []);
+      assert.lengthOf(yield* summaryVersions, 1);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "keeps the summaries written before styles existed as Brief, and starts them in Brief",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+
+        const ready = (loader: Migrator.Loader) =>
+          Effect.gen(function* () {
+            const database = yield* Database;
+
+            yield* database.ready;
+          }).pipe(Effect.provide(Database.layerNoDeps(loader)));
+
+        yield* ready(migrations.pipe(Effect.map(Array.filter(([id]) => id < 10))));
+
+        yield* sql`
+          INSERT INTO office.members (user_id, display_name, first_seen_at, last_seen_at)
+          VALUES ('u1', 'Ada', now(), now())
+        `;
+        yield* sql`
+          INSERT INTO office.recordings ${sql.insert([
+            {
+              id: RECORDING,
+              guildId: "g1",
+              channelId: "office",
+              startedAt: DateTime.toDate(minute(0)),
+              startedBy: "u1",
+              stoppedAt: DateTime.toDate(minute(30)),
+              stopReason: "requested",
+              summary: "• Ada said hello",
+              summaryModel: "model",
+              slackChannelId: "C1",
+              slackTs: "1.2",
+              finishedAt: DateTime.toDate(minute(31)),
+            },
+            {
+              id: "8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10",
+              guildId: "g1",
+              channelId: "office",
+              startedAt: DateTime.toDate(minute(40)),
+              startedBy: "u1",
+              stoppedAt: DateTime.toDate(minute(45)),
+              stopReason: "requested",
+              finishedAt: DateTime.toDate(minute(46)),
+            },
+          ])}
+        `;
+
+        yield* ready(migrations);
+
+        assert.deepStrictEqual(
+          yield* sql`
+            SELECT summary_style, summary_written_style, summary_rewrite_edit_id
+            FROM office.recordings ORDER BY started_at
+          `,
+          [
+            { summaryStyle: "brief", summaryWrittenStyle: "brief", summaryRewriteEditId: null },
+            { summaryStyle: "brief", summaryWrittenStyle: null, summaryRewriteEditId: null },
+          ],
+        );
+        assert.deepStrictEqual(
+          yield* sql`SELECT recording_id, written_at, style, summary, model, edit_id FROM office.recording_summaries`,
+          [
+            {
+              recordingId: RECORDING,
+              writtenAt: DateTime.toDate(minute(31)),
+              style: "brief",
+              summary: "• Ada said hello",
+              model: "model",
+              editId: null,
+            },
+          ],
+        );
+      }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
   );
 
   it.effect("records nothing and says so when there's no database", () =>

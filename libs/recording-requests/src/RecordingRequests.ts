@@ -1,7 +1,8 @@
 import { Context, Duration, Effect, Layer, Match, Option, Schema } from "effect";
 import { SqlClient, SqlError } from "effect/sql";
 
-import { NO_PLAN, type RecordingPlan } from "./Recording.ts";
+import { NO_PLAN, type RecordingPlan, SummaryStyle } from "./Recording.ts";
+import { DEFAULT_SUMMARY_STYLE } from "./Wire.ts";
 import type { Requester } from "./RecordingApi.ts";
 import {
   type ActiveRecording,
@@ -79,6 +80,7 @@ const decodePending = Schema.decodeUnknownEffect(
       action: RequestAction,
       title: Schema.NullOr(Schema.String),
       agenda: Schema.NullOr(Schema.String),
+      summaryStyle: Schema.NullOr(SummaryStyle),
       checkedAt: Schema.DateTimeUtcFromDate,
     }),
   ),
@@ -104,6 +106,7 @@ const decodeStatus = Schema.decodeUnknownEffect(
       pausedByName: Schema.NullOr(Schema.String),
       title: Schema.NullOr(Schema.String),
       agenda: Schema.NullOr(Schema.String),
+      summaryStyle: Schema.NullOr(SummaryStyle),
     }),
   ),
 );
@@ -150,11 +153,11 @@ export class RecordingRequests extends Context.Service<
       (requester: Requester, action: RequestAction, plan: RecordingPlan = NO_PLAN) =>
         connected(
           Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
-            const { title, agenda } = action === "start" ? plan : NO_PLAN;
+            const { title, agenda, summaryStyle = null } = action === "start" ? plan : NO_PLAN;
 
             const rows = yield* onceReady(
               sql`
-                INSERT INTO office.recording_requests ${sql.insert({ requestedBy: requester.id, requestedByName: requester.name, action, title, agenda })}
+                INSERT INTO office.recording_requests ${sql.insert({ requestedBy: requester.id, requestedByName: requester.name, action, title, agenda, summaryStyle })}
                 RETURNING id, outcome, reason
               `.pipe(Effect.flatMap(decodeSubmitted)),
             );
@@ -186,7 +189,7 @@ export class RecordingRequests extends Context.Service<
             SELECT s.bot_in_office, s.occupants, s.updated_at, r.id AS recording_id, r.started_at, r.started_by,
                    coalesce(m.real_name, m.display_name) AS started_by_name,
                    r.paused_at, r.paused_by, coalesce(p.real_name, p.display_name) AS paused_by_name,
-                   r.title, r.agenda
+                   r.title, r.agenda, r.summary_style
             FROM office.recording_status s
             LEFT JOIN office.recordings r ON r.id = s.recording_id AND r.stopped_at IS NULL
             LEFT JOIN office.members m ON m.user_id = r.started_by
@@ -214,6 +217,7 @@ export class RecordingRequests extends Context.Service<
                 pause,
                 title: row.title,
                 agenda: row.agenda,
+                summaryStyle: row.summaryStyle ?? DEFAULT_SUMMARY_STYLE,
               };
 
         const current: RecordingStatus = {
@@ -271,7 +275,7 @@ export class RecordingRequests extends Context.Service<
             const pending = yield* onceReady(
               sql`
                 SELECT id, requested_at, requested_by, requested_by_name, action, title, agenda,
-                       now() AS checked_at
+                       summary_style, now() AS checked_at
                 FROM office.recording_requests
                 WHERE handled_at IS NULL
                 ORDER BY id

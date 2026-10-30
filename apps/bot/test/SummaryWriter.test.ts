@@ -1,13 +1,31 @@
+import { OpenAiLanguageModel } from "@effect/ai-openai-compat";
 import { assert, describe, it } from "@effect/vitest";
-import { Array, DateTime, Effect, Exit, pipe, Schema, String } from "effect";
+import {
+  Array,
+  DateTime,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  pipe,
+  Ref,
+  Schema,
+  Stream,
+  String,
+} from "effect";
+import { LanguageModel, Model } from "effect/ai";
 
 import type { ClipLine, PauseLine, RecordingDetails } from "../src/RecordingStore.ts";
 import {
+  DETAILED_OUTPUT_TOKENS,
+  DetailedSummaryText,
   hasSpeech,
   MAX_SUMMARY_LENGTH,
+  SLACK_SECTION_LIMIT,
   speakersOf,
-  SUMMARY_PROMPT,
+  STYLE_BRIEFS,
   SummaryText,
+  SummaryWriter,
   summaryRequest,
   transcriptLines,
   transcriptText,
@@ -28,6 +46,7 @@ const details: RecordingDetails = {
   stopReason: "requested",
   title: null,
   agenda: null,
+  summaryStyle: "brief",
 };
 
 const line = (overrides: Partial<ClipLine> = {}): ClipLine => ({
@@ -41,6 +60,57 @@ const line = (overrides: Partial<ClipLine> = {}): ClipLine => ({
 });
 
 const decode = Schema.decodeUnknownEffect(SummaryText);
+
+const decodeDetailed = Schema.decodeUnknownEffect(DetailedSummaryText);
+
+interface ModelCall {
+  readonly system: string;
+  readonly maxOutputTokens: number | null;
+}
+
+const makeWriter = Effect.fnUntraced(function* (reply: string) {
+  const calls = yield* Ref.make<ReadonlyArray<ModelCall>>([]);
+
+  const model = Model.make(
+    "test",
+    "model-1",
+    Layer.effect(
+      LanguageModel.LanguageModel,
+      LanguageModel.make({
+        generateText: (options) =>
+          Effect.serviceOption(OpenAiLanguageModel.Config).pipe(
+            Effect.flatMap((config) =>
+              Ref.update(calls, (all) => [
+                ...all,
+                {
+                  system: Array.findFirst(
+                    options.prompt.content,
+                    (message) => message.role === "system",
+                  ).pipe(
+                    Option.map((message) => (message.role === "system" ? message.content : "")),
+                    Option.getOrElse(() => ""),
+                  ),
+                  maxOutputTokens: Option.getOrNull(
+                    Option.flatMap(config, (found) =>
+                      Option.fromUndefinedOr(found.max_output_tokens),
+                    ),
+                  ),
+                },
+              ]),
+            ),
+            Effect.as([{ type: "text" as const, text: reply }]),
+          ),
+        streamText: () => Stream.empty,
+      }),
+    ),
+  );
+
+  const writer = yield* Effect.service(SummaryWriter).pipe(
+    Effect.provide(SummaryWriter.layerProviders([[model]])),
+  );
+
+  return { writer, calls: Ref.get(calls) };
+});
 
 describe("transcriptLines", () => {
   it("writes one line per clip with the office time and who spoke", () => {
@@ -158,6 +228,81 @@ describe("speakersOf and hasSpeech", () => {
   });
 });
 
+describe("SummaryWriter", () => {
+  it.effect("writes each style with its own instructions, and says which style it wrote", () =>
+    Effect.gen(function* () {
+      const { writer, calls } = yield* makeWriter("• Shipped it");
+
+      for (const style of ["brief", "detailed", "decisions"] as const) {
+        assert.deepStrictEqual(
+          yield* writer.write("transcript", style),
+          Option.some({ text: "• Shipped it", model: "model-1", style }),
+        );
+      }
+
+      const [brief, detailed, decisions] = yield* calls;
+
+      assert.include(brief?.system ?? "", "what was discussed and any decisions");
+      assert.include(brief?.system ?? "", "under 1,200 characters");
+      assert.include(detailed?.system ?? "", "grouped by topic");
+      assert.include(detailed?.system ?? "", "under 2,800 characters");
+      assert.include(decisions?.system ?? "", "Write only what was decided");
+      assert.include(decisions?.system ?? "", "under 1,200 characters");
+
+      for (const call of [brief, detailed, decisions])
+        assert.include(call?.system ?? "", "The agenda is what people meant to cover");
+    }),
+  );
+
+  it.effect("gives a Detailed summary room to answer, and the others the usual budget", () =>
+    Effect.gen(function* () {
+      const { writer, calls } = yield* makeWriter("• Shipped it");
+
+      yield* writer.write("transcript", "brief");
+      yield* writer.write("transcript", "detailed");
+      yield* writer.write("transcript", "decisions");
+
+      assert.deepStrictEqual(
+        Array.map(yield* calls, ({ maxOutputTokens }) => maxOutputTokens),
+        [null, DETAILED_OUTPUT_TOKENS, null],
+      );
+    }),
+  );
+
+  it.effect("checks each style's length: a Detailed summary may be longer than a Brief one", () =>
+    Effect.gen(function* () {
+      const long = pipe("•", String.repeat(MAX_SUMMARY_LENGTH + 1));
+      const { writer } = yield* makeWriter(long);
+
+      assert.deepStrictEqual(yield* writer.write("transcript", "brief"), Option.none());
+      assert.deepStrictEqual(yield* writer.write("transcript", "decisions"), Option.none());
+      assert.deepStrictEqual(
+        Option.map(yield* writer.write("transcript", "detailed"), ({ text }) => text),
+        Option.some(long),
+      );
+    }),
+  );
+});
+
+describe("DetailedSummaryText", () => {
+  it.effect("takes a summary that fits one Slack section once it's escaped", () =>
+    Effect.gen(function* () {
+      const fits = pipe("•", String.repeat(SLACK_SECTION_LIMIT));
+
+      assert.strictEqual(yield* decodeDetailed(fits), fits);
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(decodeDetailed(`${fits}•`))));
+      assert.isTrue(
+        Exit.isFailure(
+          yield* Effect.exit(
+            decodeDetailed(`${pipe("•", String.repeat(SLACK_SECTION_LIMIT - 4))}&`),
+          ),
+        ),
+      );
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(decodeDetailed("• See <https://x.y>"))));
+    }),
+  );
+});
+
 describe("SummaryText", () => {
   it.effect("trims the reply and strips wrapping quotes", () =>
     Effect.gen(function* () {
@@ -184,9 +329,12 @@ describe("SummaryText", () => {
   );
 });
 
-describe("SUMMARY_PROMPT", () => {
-  it("leaves the action items out of the summary, since they're pulled out on their own", () => {
-    assert.include(SUMMARY_PROMPT, "Leave out the action items, which are listed separately");
-    assert.notInclude(SUMMARY_PROMPT, "any action items");
+describe("STYLE_BRIEFS", () => {
+  it("leaves the action items out of every style, since they're pulled out on their own", () => {
+    for (const { prompt } of [STYLE_BRIEFS.brief, STYLE_BRIEFS.detailed, STYLE_BRIEFS.decisions]) {
+      assert.include(prompt, "the action items, which are listed separately");
+      assert.notInclude(prompt, "any action items");
+      assert.notInclude(prompt, "who took what on");
+    }
   });
 });

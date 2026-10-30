@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   Array,
   type Cause,
+  Deferred,
   DateTime,
   Duration,
   Effect,
@@ -15,9 +16,9 @@ import {
   String,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
-import { SqlClient } from "effect/sql";
+import { SqlClient, type SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
-import { NO_PLAN, type RecordingPlan } from "recording-requests/Recording";
+import { NO_PLAN, type RecordingPlan, type SummaryStyle } from "recording-requests/Recording";
 import { RECORDING_LIMIT, type RequestAction } from "recording-requests/RecordingRequest";
 import { RecordingEdits } from "recording-requests/RecordingEdits";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
@@ -84,9 +85,13 @@ const clip = (userId: string, seconds: number): Clip => ({
 interface HarnessOptions {
   readonly present?: ReadonlyArray<VoiceStateUpdate>;
   readonly transcribe?: (audio: Uint8Array) => Effect.Effect<Transcript, TranscriptionError>;
-  readonly summary?: Option.Option<WrittenSummary>;
+  readonly summary?: Option.Option<Omit<WrittenSummary, "style">>;
   readonly actionItems?: Option.Option<Written<ReadonlyArray<PulledItem>>>;
-  readonly before?: Effect.Effect<void, StoreUnavailable, RecordingStore>;
+  readonly before?: Effect.Effect<
+    void,
+    StoreUnavailable | SqlError.SqlError,
+    RecordingStore | SqlClient.SqlClient
+  >;
   readonly slack?: FakeSlackClientOptions;
 }
 
@@ -102,8 +107,17 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const slack = yield* makeFakeSlackClient(options.slack);
   const history = yield* makeFakeSlackHistory();
   const summaryRequests = yield* Ref.make<ReadonlyArray<string>>([]);
+  const summaryStyles = yield* Ref.make<ReadonlyArray<SummaryStyle>>([]);
   const whileSummarizing = yield* Ref.make<Effect.Effect<void>>(Effect.void);
   const actionItemRequests = yield* Ref.make<ReadonlyArray<string>>([]);
+
+  const nextActionItems = yield* Ref.make(
+    options.actionItems ?? Option.some({ value: [], model: "m" }),
+  );
+
+  const nextSummary = yield* Ref.make(
+    options.summary ?? Option.some({ text: "• They said hello", model: "m" }),
+  );
 
   const transcriber = Layer.succeed(
     Transcriber,
@@ -113,10 +127,12 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const summaries = Layer.succeed(
     SummaryWriter,
     SummaryWriter.of({
-      write: (request) =>
+      write: (request, style) =>
         Ref.update(summaryRequests, (all) => [...all, request]).pipe(
+          Effect.andThen(Ref.update(summaryStyles, (all) => [...all, style])),
           Effect.andThen(Effect.flatten(Ref.get(whileSummarizing))),
-          Effect.as(options.summary ?? Option.some({ text: "• They said hello", model: "m" })),
+          Effect.andThen(Ref.get(nextSummary)),
+          Effect.map(Option.map((written) => ({ ...written, style }))),
         ),
     }),
   );
@@ -126,7 +142,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     ActionItemWriter.of({
       pull: (request) =>
         Ref.update(actionItemRequests, (all) => [...all, request]).pipe(
-          Effect.as(options.actionItems ?? Option.some({ value: [], model: "m" })),
+          Effect.andThen(Ref.get(nextActionItems)),
         ),
     }),
   );
@@ -243,6 +259,17 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     readonly done: boolean;
   }>`SELECT text, owner, done FROM office.recording_action_items ORDER BY position`;
 
+  const currentActionItems = sql<{
+    readonly text: string;
+    readonly done: boolean;
+  }>`
+    SELECT text, done FROM office.recording_action_items WHERE replaced_at IS NULL ORDER BY position
+  `;
+
+  const replacedActionItems = sql<{ readonly text: string }>`
+    SELECT text FROM office.recording_action_items WHERE replaced_at IS NOT NULL ORDER BY position
+  `;
+
   const actionItemIds = sql<{
     readonly id: number;
   }>`SELECT id::int AS id FROM office.recording_action_items ORDER BY position`;
@@ -267,6 +294,26 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     SELECT paused_at, paused_by FROM office.recordings ORDER BY started_at
   `;
 
+  const summaryRows = sql<{
+    readonly style: string;
+    readonly summary: string;
+    readonly model: string;
+    readonly editId: string | null;
+  }>`SELECT style, summary, model, edit_id::text FROM office.recording_summaries ORDER BY id`;
+
+  const styleRows = sql<{
+    readonly summaryStyle: string;
+    readonly summaryWrittenStyle: string | null;
+    readonly rewriting: boolean;
+  }>`
+    SELECT summary_style, summary_written_style, summary_rewrite_edit_id IS NOT NULL AS rewriting
+    FROM office.recordings ORDER BY started_at
+  `;
+
+  const editIds = sql<{ readonly id: string }>`
+    SELECT id::text FROM office.recording_edits ORDER BY id
+  `;
+
   const statusRows = sql<{
     readonly recordingId: string | null;
     readonly botInOffice: boolean;
@@ -285,11 +332,16 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     editRows,
     actionItemRows,
     actionItemIds,
+    currentActionItems,
+    replacedActionItems,
     clipRows,
     requestRows,
     eventRows,
     pauseRows,
     statusRows,
+    summaryRows,
+    styleRows,
+    editIds,
     offer: (update: VoiceStateUpdate) => Queue.offer(updates, update),
     speak: (spoken: Clip) => Queue.offer(heard, Heard.Spoke({ clip: spoken })),
     hear: (event: Heard) => Queue.offer(heard, event),
@@ -302,7 +354,11 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     recordedPosts: history.posts,
     summaryRequests: Ref.get(summaryRequests),
     actionItemRequests: Ref.get(actionItemRequests),
+    summaryStyles: Ref.get(summaryStyles),
     whileSummarizing: (effect: Effect.Effect<void>) => Ref.set(whileSummarizing, effect),
+    summarizeAs: (next: Option.Option<Omit<WrittenSummary, "style">>) => Ref.set(nextSummary, next),
+    pullAs: (next: Option.Option<Written<ReadonlyArray<PulledItem>>>) =>
+      Ref.set(nextActionItems, next),
   };
 });
 
@@ -439,6 +495,7 @@ describe("Recorder", () => {
             startedByName: "Ada",
             title: null,
             agenda: null,
+            summaryStyle: "brief",
           });
           yield* store.stopRecording(
             "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
@@ -448,6 +505,7 @@ describe("Recorder", () => {
           );
           yield* store.finishRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", {
             transcript: "12:00 Ada: hello",
+            writtenWith: { summaryStyle: "brief", agenda: null },
             summary: "• Ada said hello",
             summaryModel: "m",
             slackChannelId: "C1",
@@ -486,6 +544,7 @@ describe("Recorder", () => {
             startedByName: "Ada",
             title: null,
             agenda: null,
+            summaryStyle: "brief",
           });
           yield* store.stopRecording(
             "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
@@ -495,6 +554,7 @@ describe("Recorder", () => {
           );
           yield* store.finishRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", {
             transcript: "12:00 Ada: hello",
+            writtenWith: { summaryStyle: "brief", agenda: null },
             summary: null,
             summaryModel: null,
             slackChannelId: "C1",
@@ -580,6 +640,7 @@ describe("Recorder", () => {
             startedByName: "Ada",
             title: null,
             agenda: null,
+            summaryStyle: "brief",
           });
         }),
       });
@@ -612,6 +673,7 @@ describe("Recorder", () => {
             startedByName: "Ada",
             title: null,
             agenda: null,
+            summaryStyle: "brief",
           });
         }),
       });
@@ -745,6 +807,7 @@ describe("Recorder", () => {
             startedByName: "Ada",
             title: null,
             agenda: null,
+            summaryStyle: "brief",
           });
           yield* store.pauseRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", now, "u1", "Ada");
         }),
@@ -779,6 +842,7 @@ describe("Recorder", () => {
               startedByName: "Ada",
               title: null,
               agenda: null,
+              summaryStyle: "brief",
             });
             yield* store.pauseRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", now, "u1", "Ada");
           }),
@@ -916,16 +980,15 @@ describe("Recorder", () => {
         const card = yield* encodeJson(renamed?.message.blocks);
         assert.include(card, "📝 *Deploy retro* · <!date^");
         assert.include(card, "• They said hello");
-        assert.include(card, "✨ Summary by m");
+        assert.include(card, "✨ Brief summary by m");
 
-        yield* h.edit("u2", id, { kind: "agenda", agenda: "Friday's outage" });
         yield* h.edit("u2", id, { kind: "title", title: null });
         yield* h.tick;
 
         const updates = yield* h.eventually(h.updates, (all) => all.length === 2);
         assert.strictEqual(updates[1]?.message.text, "📝 Office recording, under a minute");
         assert.strictEqual((yield* h.posts).length, 1);
-        assert.strictEqual((yield* h.recordingRows)[0]?.agenda, "Friday's outage");
+        assert.lengthOf(yield* h.summaryRequests, 1);
       }),
   );
 
@@ -1048,6 +1111,242 @@ describe("Recorder", () => {
   );
 
   it.effect(
+    "writes the summary in the style chosen with the Start request, keeps it on record, and names the style in the post",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+
+        yield* finishedRecording(h, { title: null, agenda: null, summaryStyle: "detailed" });
+
+        assert.deepStrictEqual(yield* h.summaryStyles, ["detailed"]);
+        assert.include(yield* encodeJson((yield* h.posts)[0]?.blocks), "✨ Detailed summary by m");
+        assert.deepStrictEqual(yield* h.styleRows, [
+          { summaryStyle: "detailed", summaryWrittenStyle: "detailed", rewriting: false },
+        ]);
+        assert.deepStrictEqual(yield* h.summaryRows, [
+          { style: "detailed", summary: "• They said hello", model: "m", editId: null },
+        ]);
+      }),
+  );
+
+  it.effect(
+    "only decides how the summary will be written when the style changes while recording",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+
+        yield* h.request("u1", "start");
+        yield* h.tick;
+
+        const [running] = yield* recordingStarted(h);
+
+        yield* h.edit("u2", running?.id ?? "", { kind: "summary_style", style: "decisions" });
+        yield* h.tick;
+        yield* allHandled(h);
+
+        yield* h.speak(clip("u1", 2));
+        yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
+        yield* h.request("u1", "stop");
+        yield* h.tick;
+        yield* recordingStopped(h);
+        yield* TestClock.adjust(FINISH_POLL);
+        yield* recordingFinished(h);
+        yield* h.settle;
+
+        assert.deepStrictEqual(yield* h.summaryStyles, ["decisions"]);
+        assert.include(
+          yield* encodeJson((yield* h.posts)[0]?.blocks),
+          "✨ Decisions &amp; actions summary by m",
+        );
+        assert.deepStrictEqual(yield* h.updates, []);
+        assert.lengthOf(yield* h.summaryRows, 1);
+      }),
+  );
+
+  it.effect(
+    "rewrites a finished recording's summary in its new style, edits the Slack post and says so in the thread",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+        const id = yield* finishedRecording(h);
+
+        yield* h.summarizeAs(Option.some({ text: "• Hello\n• Then more", model: "m2" }));
+        yield* h.edit("u2", id, { kind: "summary_style", style: "detailed" });
+        yield* h.tick;
+
+        const [updated] = yield* h.eventually(h.updates, (all) => all.length === 1);
+        assert.strictEqual(updated?.ts, "900.0");
+
+        const card = yield* encodeJson(updated?.message.blocks);
+        assert.include(card, "• Hello\\n• Then more");
+        assert.include(card, "✨ Detailed summary by m2");
+
+        const posts = yield* h.eventually(h.posts, (all) => all.length === 2);
+        assert.strictEqual(posts[1]?.threadTs, "900.0");
+        assert.strictEqual(posts[1]?.text, "✨ Summary rewritten as Detailed by U2");
+
+        const [edit] = yield* h.editIds;
+        assert.deepStrictEqual(yield* h.summaryRows, [
+          { style: "brief", summary: "• They said hello", model: "m", editId: null },
+          {
+            style: "detailed",
+            summary: "• Hello\n• Then more",
+            model: "m2",
+            editId: edit?.id ?? "",
+          },
+        ]);
+        assert.deepStrictEqual(yield* h.styleRows, [
+          { summaryStyle: "detailed", summaryWrittenStyle: "detailed", rewriting: false },
+        ]);
+        assert.strictEqual((yield* h.recordingRows)[0]?.summary, "• Hello\n• Then more");
+        assert.deepStrictEqual(yield* h.summaryStyles, ["brief", "detailed"]);
+      }),
+  );
+
+  it.effect(
+    "rewrites the summary in the same style on Rewrite summary, and with the new agenda when it changes",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+        const id = yield* finishedRecording(h);
+
+        yield* h.edit("u2", id, { kind: "rewrite_summary" });
+        yield* h.tick;
+
+        const posts = yield* h.eventually(h.posts, (all) => all.length === 2);
+        assert.strictEqual(posts[1]?.text, "✨ Summary rewritten by U2");
+
+        yield* h.edit("u3", id, { kind: "agenda", agenda: "Friday's outage" });
+        yield* h.tick;
+
+        const more = yield* h.eventually(h.posts, (all) => all.length === 3);
+        assert.strictEqual(more[2]?.text, "✨ Summary rewritten by U3");
+        assert.deepStrictEqual(yield* h.summaryStyles, ["brief", "brief", "brief"]);
+        assert.include((yield* h.summaryRequests)[2] ?? "", "Friday's outage");
+        assert.lengthOf(yield* h.summaryRows, 3);
+        assert.lengthOf(yield* h.updates, 2);
+      }),
+  );
+
+  it.effect(
+    "writes one more summary with the latest settings for all the edits made during a rewrite",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+        const id = yield* finishedRecording(h);
+        const release = yield* Deferred.make<void>();
+
+        yield* h.whileSummarizing(Deferred.await(release));
+        yield* h.edit("u2", id, { kind: "summary_style", style: "detailed" });
+        yield* h.tick;
+        yield* h.eventually(h.summaryRequests, (all) => all.length === 2);
+
+        yield* h.edit("u2", id, { kind: "agenda", agenda: "Friday's outage" });
+        yield* h.edit("u3", id, { kind: "summary_style", style: "decisions" });
+        yield* h.tick;
+        yield* allHandled(h);
+
+        assert.deepStrictEqual(yield* h.styleRows, [
+          { summaryStyle: "decisions", summaryWrittenStyle: "brief", rewriting: true },
+        ]);
+
+        yield* h.whileSummarizing(Effect.void);
+        yield* Deferred.succeed(release, undefined);
+
+        const posts = yield* h.eventually(h.posts, (all) => all.length === 3);
+        yield* h.settle;
+
+        assert.deepStrictEqual(yield* h.summaryStyles, ["brief", "detailed", "decisions"]);
+        assert.include((yield* h.summaryRequests)[2] ?? "", "Friday's outage");
+        assert.deepStrictEqual(
+          Array.map(posts, ({ text }) => text),
+          [
+            "📝 Office recording, under a minute",
+            "✨ Summary rewritten as Detailed by U2",
+            "✨ Summary rewritten as Decisions &amp; actions by U3",
+          ],
+        );
+
+        const edits = yield* h.editIds;
+        assert.deepStrictEqual(
+          Array.map(yield* h.summaryRows, ({ editId }) => editId),
+          [null, edits[0]?.id ?? "", edits[2]?.id ?? ""],
+        );
+        assert.deepStrictEqual(yield* h.styleRows, [
+          { summaryStyle: "decisions", summaryWrittenStyle: "decisions", rewriting: false },
+        ]);
+      }),
+  );
+
+  it.effect("keeps the summary as it was when no model can rewrite it", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada] });
+      const id = yield* finishedRecording(h);
+
+      yield* h.summarizeAs(Option.none());
+      yield* h.edit("u2", id, { kind: "summary_style", style: "detailed" });
+      yield* h.tick;
+
+      yield* h.eventually(h.styleRows, (rows) => rows[0]?.rewriting === false);
+      yield* h.settle;
+
+      assert.lengthOf(yield* h.summaryRequests, 2);
+      assert.deepStrictEqual(yield* h.styleRows, [
+        { summaryStyle: "detailed", summaryWrittenStyle: "brief", rewriting: false },
+      ]);
+      assert.strictEqual((yield* h.recordingRows)[0]?.summary, "• They said hello");
+      assert.lengthOf(yield* h.summaryRows, 1);
+      assert.deepStrictEqual(yield* h.updates, []);
+      assert.lengthOf(yield* h.posts, 1);
+    }),
+  );
+
+  it.effect("writes the summary on Rewrite summary when no model could write it at first", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada], summary: Option.none() });
+      const id = yield* finishedRecording(h);
+
+      assert.include(
+        yield* encodeJson((yield* h.posts)[0]?.blocks),
+        "No AI model could write a summary",
+      );
+      assert.deepStrictEqual(yield* h.summaryRows, []);
+
+      yield* h.summarizeAs(Option.some({ text: "• At last", model: "m" }));
+      yield* h.edit("u2", id, { kind: "rewrite_summary" });
+      yield* h.tick;
+
+      const posts = yield* h.eventually(h.posts, (all) => all.length === 2);
+      assert.strictEqual(posts[1]?.text, "✨ Summary rewritten by U2");
+
+      const [updated] = yield* h.updates;
+      const card = yield* encodeJson(updated?.message.blocks);
+      assert.include(card, "• At last");
+      assert.include(card, "✨ Brief summary by m");
+      assert.lengthOf(yield* h.summaryRows, 1);
+    }),
+  );
+
+  it.effect("ignores Rewrite summary before the summary is written, and says why", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada] });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+
+      const [running] = yield* recordingStarted(h);
+
+      yield* h.edit("u2", running?.id ?? "", { kind: "rewrite_summary" });
+      yield* h.tick;
+
+      const [edit] = yield* allHandled(h);
+      assert.strictEqual(edit?.outcome, "ignored");
+      assert.strictEqual(edit?.reason, "unfinished");
+      assert.deepStrictEqual(yield* h.summaryRequests, []);
+    }),
+  );
+
+  it.effect(
     "ticks, unticks and reassigns action items through recording edits, and edits the Slack post with no thread note",
     () =>
       Effect.gen(function* () {
@@ -1112,6 +1411,158 @@ describe("Recorder", () => {
         assert.strictEqual((yield* h.posts).length, 1);
         assert.strictEqual((yield* h.uploads).length, 1);
       }),
+  );
+
+  it.effect(
+    "pulls the action items out again on a rewrite, retiring the old ones, while nobody has touched them",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({
+          present: [ada],
+          actionItems: Option.some({
+            value: [{ text: "write up the deploy checklist", ownerName: "Ada" }],
+            model: "m",
+          }),
+        });
+
+        const id = yield* finishedRecording(h);
+
+        yield* h.pullAs(
+          Option.some({ value: [{ text: "book the room", ownerName: null }], model: "m" }),
+        );
+        yield* h.edit("u2", id, { kind: "rewrite_summary" });
+        yield* h.tick;
+
+        yield* h.eventually(h.posts, (all) => all.length === 2);
+
+        assert.lengthOf(yield* h.actionItemRequests, 2);
+        assert.deepStrictEqual(yield* h.currentActionItems, [
+          { text: "book the room", done: false },
+        ]);
+        assert.deepStrictEqual(yield* h.replacedActionItems, [
+          { text: "write up the deploy checklist" },
+        ]);
+        assert.include(
+          yield* encodeJson((yield* h.updates)[0]?.message.blocks),
+          "*Action items*\\n• Unassigned: book the room",
+        );
+      }),
+  );
+
+  it.effect("keeps the action items as they are on a rewrite once someone has ticked one", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({
+        present: [ada],
+        actionItems: Option.some({
+          value: [{ text: "write up the deploy checklist", ownerName: "Ada" }],
+          model: "m",
+        }),
+      });
+
+      const id = yield* finishedRecording(h);
+      const [checklist] = Array.map(yield* h.actionItemIds, (row) => row.id);
+
+      yield* h.edit("u2", id, { kind: "tick", item: checklist ?? 0 });
+      yield* h.tick;
+      yield* h.eventually(h.updates, (all) => all.length === 1);
+
+      yield* h.pullAs(
+        Option.some({ value: [{ text: "book the room", ownerName: null }], model: "m" }),
+      );
+      yield* h.edit("u2", id, { kind: "summary_style", style: "detailed" });
+      yield* h.tick;
+
+      yield* h.eventually(h.posts, (all) => all.length === 2);
+
+      assert.lengthOf(yield* h.actionItemRequests, 1);
+      assert.deepStrictEqual(yield* h.currentActionItems, [
+        { text: "write up the deploy checklist", done: true },
+      ]);
+      assert.deepStrictEqual(yield* h.replacedActionItems, []);
+    }),
+  );
+
+  it.effect(
+    "rewrites the summary once it's posted when the style changed while it was being written",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({ present: [ada] });
+
+        yield* h.whileSummarizing(
+          Effect.gen(function* () {
+            yield* h.sql`UPDATE office.recordings SET summary_style = 'detailed'`;
+            yield* h.sql`
+              INSERT INTO office.recording_edits
+                (recording_id, edited_by, edited_by_name, kind, change, handled_at, outcome)
+              SELECT id, 'u2', 'Ben', 'summary_style', '{"kind":"summary_style","style":"detailed"}'::jsonb,
+                     now(), 'applied'
+              FROM office.recordings
+            `;
+            yield* h.whileSummarizing(Effect.void);
+          }).pipe(Effect.orDie),
+        );
+        yield* finishedRecording(h);
+
+        const posts = yield* h.eventually(h.posts, (all) => all.length === 2);
+        assert.strictEqual(posts[1]?.text, "✨ Summary rewritten as Detailed by Ben");
+        assert.deepStrictEqual(yield* h.summaryStyles, ["brief", "detailed"]);
+        assert.include(
+          yield* encodeJson((yield* h.updates)[0]?.message.blocks),
+          "✨ Detailed summary by m",
+        );
+      }),
+  );
+
+  it.effect("picks up a rewrite that was waiting before a restart", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({
+        before: Effect.gen(function* () {
+          const store = yield* RecordingStore;
+          const sql = yield* SqlClient.SqlClient;
+          const now = yield* DateTime.now;
+          const id = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
+
+          yield* store.startRecording({
+            id,
+            guildId: "guild",
+            channelId: OFFICE,
+            startedAt: now,
+            startedBy: "u1",
+            startedByName: "Ada",
+            title: null,
+            agenda: null,
+            summaryStyle: "brief",
+          });
+          yield* store.stopRecording(id, now, "requested", "u1");
+          yield* store.finishRecording(id, {
+            transcript: "12:00 Ada: hello",
+            writtenWith: { summaryStyle: "brief", agenda: null },
+            summary: "• Ada said hello",
+            summaryModel: "m",
+            slackChannelId: "C1",
+            slackTs: "123.456",
+            slackPermalink: "https://office.slack.com/archives/C1/p123456",
+            finishedAt: now,
+          });
+
+          const [edit] = yield* sql<{ readonly id: string }>`
+            INSERT INTO office.recording_edits
+              (recording_id, edited_by, edited_by_name, kind, change, handled_at, outcome)
+            VALUES (${id}, 'u2', 'Ben', 'rewrite_summary', '{"kind":"rewrite_summary"}'::jsonb, now(), 'applied')
+            RETURNING id::text
+          `;
+
+          assert.isTrue(yield* store.requestRewrite(id, Number(edit?.id)));
+        }),
+      });
+
+      const posts = yield* h.eventually(h.posts, (all) => all.length === 1);
+      assert.strictEqual(posts[0]?.threadTs, "123.456");
+      assert.strictEqual(posts[0]?.text, "✨ Summary rewritten by Ben");
+      assert.deepStrictEqual(yield* h.styleRows, [
+        { summaryStyle: "brief", summaryWrittenStyle: "brief", rewriting: false },
+      ]);
+    }),
   );
 
   it.effect("keeps the status row current for the Activity", () =>

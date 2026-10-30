@@ -15,7 +15,9 @@ export class RecorderApi {
 
   submit(action: RequestAction, plan?: Plan): Observable<SubmittedRequest> {
     const body: RequestSubmission =
-      plan === undefined ? { action } : { action, title: plan.title, agenda: plan.agenda };
+      plan === undefined
+        ? { action }
+        : { action, title: plan.title, agenda: plan.agenda, summaryStyle: plan.summaryStyle };
 
     return this.http.post<SubmittedRequest>("/api/requests", body);
   }

@@ -1,4 +1,5 @@
 import { Array, DateTime, Duration, Option, pipe, String } from "effect";
+import { type SummaryStyle, summaryStyleLabel } from "recording-requests/Recording";
 
 import { type ActionItemLine, ActionItemList } from "./ActionItems.ts";
 import { OfficeEvent, type OfficeLocation, type SessionRecap } from "./OfficeEvent.ts";
@@ -233,7 +234,11 @@ export interface RecordingSummary {
   readonly startedByName: string;
   readonly title: string | null;
   readonly speakers: ReadonlyArray<string>;
-  readonly summary: Option.Option<{ readonly text: string; readonly model: string }>;
+  readonly summary: Option.Option<{
+    readonly text: string;
+    readonly model: string;
+    readonly style: SummaryStyle;
+  }>;
   readonly actionItems: ActionItemList;
 }
 
@@ -309,8 +314,8 @@ export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
       context(
         ...Option.match(recording.summary, {
           onNone: () => ["📄 Full transcript in the thread"],
-          onSome: ({ model }) => [
-            `✨ Summary by ${escapeSlackText(model)}`,
+          onSome: ({ model, style }) => [
+            `✨ ${escapeSlackText(summaryStyleLabel(style))} summary by ${escapeSlackText(model)}`,
             AI_DISCLAIMER,
             "📄 Full transcript in the thread",
           ],
@@ -318,6 +323,21 @@ export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
       ),
     ],
   };
+};
+
+export const rewriteNote = (
+  newStyle: Option.Option<SummaryStyle>,
+  byName: string,
+): SlackMessage => {
+  const by = escapeSlackText(byName);
+
+  const text = Option.match(newStyle, {
+    onNone: () => `✨ Summary rewritten by ${by}`,
+    onSome: (style) =>
+      `✨ Summary rewritten as ${escapeSlackText(summaryStyleLabel(style))} by ${by}`,
+  });
+
+  return { text, blocks: [context(text)] };
 };
 
 export const replyMessage = (text: string, model: string): SlackMessage => {

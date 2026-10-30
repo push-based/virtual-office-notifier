@@ -11,6 +11,7 @@ import {
   Unauthorized,
 } from "recording-requests/RecordingApi";
 import { EditHandlers, RecordingHandlers } from "recording-requests/RecordingHandlers";
+import { explainEdit } from "recording-requests/RecordingEdit";
 import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEdits";
 import type { ActiveRecording } from "recording-requests/RecordingRequest";
 import { RecordingRequests, type RequestHandler } from "recording-requests/RecordingRequests";
@@ -78,6 +79,7 @@ const officeHandler = Effect.fnUntraced(function* (office: Office) {
           startedByName: request.requestedByName,
           title: request.title,
           agenda: request.agenda,
+          summaryStyle: request.summaryStyle ?? "brief",
         });
 
         if (office.failStartAfterWriting === true)
@@ -290,6 +292,43 @@ describe("RecordingRequests", () => {
       }).pipe(Effect.provide(TestLayer)),
   );
 
+  it.effect(
+    "starts the recording in the summary style of the Start request, and in Brief when none was chosen",
+    () =>
+      Effect.gen(function* () {
+        const requests = yield* RecordingRequests;
+        const sql = yield* SqlClient.SqlClient;
+        const { handler } = yield* officeHandler({ occupants: ["u1"] });
+
+        yield* requests.submit(ada, "start", {
+          title: null,
+          agenda: null,
+          summaryStyle: "detailed",
+        });
+        yield* requests.submit(ada, "stop", { title: null, agenda: null, summaryStyle: "brief" });
+        yield* requests.handlePending(handler);
+
+        assert.deepStrictEqual(
+          yield* sql`SELECT action, summary_style FROM office.recording_requests ORDER BY id`,
+          [
+            { action: "start", summaryStyle: "detailed" },
+            { action: "stop", summaryStyle: null },
+          ],
+        );
+        assert.deepStrictEqual(yield* sql`SELECT summary_style FROM office.recordings`, [
+          { summaryStyle: "detailed" },
+        ]);
+
+        yield* requests.publishStatus({
+          recordingId: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+          botInOffice: true,
+          occupants: [],
+        });
+
+        assert.strictEqual((yield* requests.status).recording?.summaryStyle, "detailed");
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
   it.effect("ignores a request with the reason and an explanation", () =>
     Effect.gen(function* () {
       const requests = yield* RecordingRequests;
@@ -448,6 +487,7 @@ const recorded = (finished: { readonly posted: boolean } | null) =>
       startedByName: "Ada",
       title: null,
       agenda: null,
+      summaryStyle: "brief",
     });
 
     if (finished === null) return;
@@ -455,6 +495,7 @@ const recorded = (finished: { readonly posted: boolean } | null) =>
     yield* store.stopRecording(RECORDING, DateTime.makeUnsafe(60_000), "requested", "u1");
     yield* store.finishRecording(RECORDING, {
       transcript: "",
+      writtenWith: { summaryStyle: "brief", agenda: null },
       summary: null,
       summaryModel: null,
       slackChannelId: finished.posted ? "C1" : null,
@@ -591,6 +632,45 @@ describe("RecordingEdits", () => {
       assert.deepStrictEqual(committed, []);
       assert.isNull(yield* titleOf);
     }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "changes the summary style on its own, and ignores Rewrite summary of a recording still running",
+    () =>
+      Effect.gen(function* () {
+        const edits = yield* RecordingEdits;
+        const sql = yield* SqlClient.SqlClient;
+        const { handler, committed } = yield* editHandler(false);
+
+        yield* recorded(null);
+
+        yield* edits.submit(ada, RECORDING, { kind: "summary_style", style: "decisions" });
+        const rewrite = yield* edits.submit(ada, RECORDING, { kind: "rewrite_summary" });
+        yield* edits.handlePending(handler);
+
+        assert.deepStrictEqual(
+          yield* sql`SELECT kind, outcome, reason FROM office.recording_edits ORDER BY id`,
+          [
+            { kind: "summary_style", outcome: "applied", reason: null },
+            { kind: "rewrite_summary", outcome: "ignored", reason: "unfinished" },
+          ],
+        );
+        assert.deepStrictEqual(committed, ["summary_style by u1"]);
+        assert.deepStrictEqual(yield* sql`SELECT summary_style, title FROM office.recordings`, [
+          { summaryStyle: "decisions", title: null },
+        ]);
+
+        const id = Option.getOrThrow(rewrite).id;
+        assert.deepStrictEqual(
+          yield* edits.find(ada, id),
+          Option.some({
+            id,
+            outcome: "ignored" as const,
+            reason: "unfinished" as const,
+            explanation: explainEdit("unfinished"),
+          }),
+        );
+      }).pipe(Effect.provide(TestLayer)),
   );
 
   it.effect("ignores an edit it can't read instead of getting stuck on it", () =>
@@ -761,6 +841,14 @@ describe("the Office Recorder's HTTP API", () => {
         .pipe(Effect.flip);
 
       assert.strictEqual(tooLong._tag, "SchemaError");
+
+      yield* client.recording.submit({ payload: { action: "start", summaryStyle: "decisions" } });
+
+      const [styled] = yield* sql`
+        SELECT summary_style FROM office.recording_requests ORDER BY id DESC LIMIT 1
+      `;
+
+      assert.deepStrictEqual(styled, { summaryStyle: "decisions" });
     }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), EditHttpLayer))),
   );
 

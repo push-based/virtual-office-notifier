@@ -13,35 +13,47 @@ import {
   Order,
   pipe,
   Schema,
+  type SchemaAST,
   SchemaTransformation,
   String,
 } from "effect";
+import type { SummaryStyle } from "recording-requests/Recording";
 
 import {
   configuredProviders,
   failureReason,
+  type Brief,
   type Providers,
   writeWithProviders,
 } from "./AiWriting.ts";
 import { officeClock } from "./Banter.ts";
 import type { ClipLine, PauseLine, RecordingDetails } from "./RecordingStore.ts";
-import { formatDuration } from "./SlackMessage.ts";
+import { escapeSlackText, formatDuration } from "./SlackMessage.ts";
 
 export const MAX_SUMMARY_LENGTH = 1500;
 
-export const SummaryText = Schema.String.pipe(
-  Schema.decodeTo(
-    Schema.String.check(
-      Schema.isMinLength(1),
-      Schema.isMaxLength(MAX_SUMMARY_LENGTH),
-      Schema.isPattern(/^[^<>]+$/s),
+export const SLACK_SECTION_LIMIT = 3000;
+
+export const DETAILED_OUTPUT_TOKENS = 1000;
+
+const summaryText = (limit: SchemaAST.Check<string>) =>
+  Schema.String.pipe(
+    Schema.decodeTo(
+      Schema.String.check(Schema.isMinLength(1), limit, Schema.isPattern(/^[^<>]+$/s)),
+      SchemaTransformation.transform({
+        decode: (text) =>
+          pipe(text, String.trim, String.replace(/^["'“]+|["'”]+$/g, ""), String.trim),
+        encode: identity,
+      }),
     ),
-    SchemaTransformation.transform({
-      decode: (text) =>
-        pipe(text, String.trim, String.replace(/^["'“]+|["'”]+$/g, ""), String.trim),
-      encode: identity,
-    }),
-  ),
+  );
+
+export const SummaryText = summaryText(Schema.isMaxLength(MAX_SUMMARY_LENGTH));
+
+export const DetailedSummaryText = summaryText(
+  Schema.makeFilter<string>((text) => escapeSlackText(text).length <= SLACK_SECTION_LIMIT, {
+    expected: `a summary that fits one Slack section of ${SLACK_SECTION_LIMIT} characters`,
+  }),
 );
 
 export class NoAiSummary extends Schema.TaggedError<
@@ -66,20 +78,47 @@ export class NoAiSummary extends Schema.TaggedError<
 export interface WrittenSummary {
   readonly text: string;
   readonly model: string;
+  readonly style: SummaryStyle;
 }
 
-export const SUMMARY_PROMPT = Array.join(
-  [
-    "You summarize a recorded conversation from a team's virtual office, a Discord voice channel where people work alongside each other. The transcript was made by speech recognition, one line per stretch of speech, each with the time in UTC+2 and who spoke.",
-    "Write a summary for the team's Slack channel: what was discussed and any decisions. Leave out the action items, which are listed separately, and small talk unless it's the whole conversation.",
-    "The request can start with the recording's title and agenda. The agenda is what people meant to cover when they planned it, not what happened: use it to make sense of the conversation, but never say something was discussed or decided unless the transcript shows it.",
-    "A line like '14:20–14:35 Paused by Ben' marks a pause: nothing was recorded in that stretch, so don't join what was said before and after it into one topic, and don't guess what was said during it.",
-    "Only say what the transcript shows. Speech recognition gets words wrong, so when a line makes no sense, skip it rather than guess.",
-    "Name people exactly as they're written in the transcript. Refer to people by name or as they, never as he or she.",
-    "Reply with plain text only: short lines starting with •, no headings, no markdown, no quotes, no labels, nothing in angle brackets. Keep the whole reply under 1,200 characters.",
-  ],
-  "\n",
-);
+const summaryPrompt = (task: string, format: string): string =>
+  Array.join(
+    [
+      "You summarize a recorded conversation from a team's virtual office, a Discord voice channel where people work alongside each other. The transcript was made by speech recognition, one line per stretch of speech, each with the time in UTC+2 and who spoke.",
+      task,
+      "The request can start with the recording's title and agenda. The agenda is what people meant to cover when they planned it, not what happened: use it to make sense of the conversation, but never say something was discussed or decided unless the transcript shows it.",
+      "A line like '14:20–14:35 Paused by Ben' marks a pause: nothing was recorded in that stretch, so don't join what was said before and after it into one topic, and don't guess what was said during it.",
+      "Only say what the transcript shows. Speech recognition gets words wrong, so when a line makes no sense, skip it rather than guess.",
+      "Name people exactly as they're written in the transcript. Refer to people by name or as they, never as he or she.",
+      format,
+    ],
+    "\n",
+  );
+
+export const STYLE_BRIEFS: Record<SummaryStyle, Omit<Brief<string>, "request">> = {
+  brief: {
+    prompt: summaryPrompt(
+      "Write a summary for the team's Slack channel: what was discussed and any decisions. Leave out the action items, which are listed separately, and small talk unless it's the whole conversation.",
+      "Reply with plain text only: short lines starting with •, no headings, no markdown, no quotes, no labels, nothing in angle brackets. Keep the whole reply under 1,200 characters.",
+    ),
+    reply: SummaryText,
+  },
+  detailed: {
+    prompt: summaryPrompt(
+      "Write a detailed summary for the team's Slack channel, grouped by topic: for each topic that was discussed, its main points and anything decided about it. Leave out the action items, which are listed separately, and small talk unless it's the whole conversation.",
+      "Reply with plain text only: for each topic, one short line naming it, then its points and decisions on lines starting with •, with an empty line between topics. No markdown, no quotes, no labels, nothing in angle brackets. Keep the whole reply under 2,800 characters.",
+    ),
+    reply: DetailedSummaryText,
+    maxOutputTokens: DETAILED_OUTPUT_TOKENS,
+  },
+  decisions: {
+    prompt: summaryPrompt(
+      "Write only what was decided, for the team's Slack channel: each decision, with who it concerns when the transcript says. Leave out the discussion that led there, anything that wasn't decided, and the action items, which are listed separately. If nothing was decided, say so in one line.",
+      "Reply with plain text only: short lines starting with •, one per decision, no headings, no markdown, no quotes, no labels, nothing in angle brackets. Keep the whole reply under 1,200 characters.",
+    ),
+    reply: SummaryText,
+  },
+};
 
 const clock = (at: DateTime.Utc): string => pipe(officeClock(at), String.slice(-5));
 
@@ -159,7 +198,7 @@ export const hasSpeech = (lines: ReadonlyArray<ClipLine>): boolean =>
 export class SummaryWriter extends Context.Service<
   SummaryWriter,
   {
-    write(transcript: string): Effect.Effect<Option.Option<WrittenSummary>>;
+    write(request: string, style: SummaryStyle): Effect.Effect<Option.Option<WrittenSummary>>;
   }
 >()("bot/SummaryWriter") {
   static readonly layerProviders = (providers: Providers) =>
@@ -167,13 +206,13 @@ export class SummaryWriter extends Context.Service<
       SummaryWriter,
       SummaryWriter.of({
         write: Effect.fn("SummaryWriter.write")(
-          function* (transcript: string) {
+          function* (request: string, style: SummaryStyle) {
             const { value, model } = yield* writeWithProviders(
-              { prompt: SUMMARY_PROMPT, request: transcript, reply: SummaryText },
+              { ...STYLE_BRIEFS[style], request },
               providers,
             );
 
-            return { text: value, model };
+            return { text: value, model, style };
           },
           Effect.tapError((error) =>
             Effect.logWarning("No AI model could summarize the recording").pipe(

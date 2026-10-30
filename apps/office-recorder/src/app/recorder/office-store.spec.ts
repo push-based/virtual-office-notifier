@@ -26,6 +26,7 @@ const chris: RunningRecording = {
   pause: null,
   title: null,
   agenda: null,
+  summaryStyle: "brief",
 };
 
 const recording: RecordingStatus = { ...idle, recording: chris };
@@ -220,7 +221,11 @@ describe("OfficeStore", () => {
 
     await vi.advanceTimersByTimeAsync(timing.requestPollMs);
 
-    expect(api.submit).toHaveBeenCalledWith("start", { title: null, agenda: null });
+    expect(api.submit).toHaveBeenCalledWith("start", {
+      title: null,
+      agenda: null,
+      summaryStyle: "brief",
+    });
     expect(api.find).toHaveBeenCalledWith(7);
     expect(store.busy()).toBe(false);
     expect(store.notice()).toEqual({ kind: "info", text: "Recording started." });
@@ -234,17 +239,20 @@ describe("OfficeStore", () => {
 
     store.draftTitle.set("  Deploy   retro ");
     store.draftAgenda.set("What broke on Friday\n");
+    store.draftSummaryStyle.set("detailed");
     store.press();
 
     expect(api.submit).toHaveBeenCalledWith("start", {
       title: "Deploy retro",
       agenda: "What broke on Friday",
+      summaryStyle: "detailed",
     });
 
     await vi.advanceTimersByTimeAsync(timing.requestPollMs);
 
     expect(store.draftTitle()).toBe("");
     expect(store.draftAgenda()).toBe("");
+    expect(store.draftSummaryStyle()).toBe("brief");
   });
 
   it("keeps the title and agenda when the bot didn't start the recording", async () => {

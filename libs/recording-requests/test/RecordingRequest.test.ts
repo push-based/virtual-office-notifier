@@ -24,6 +24,7 @@ const request = (overrides: Partial<RecordingRequest> = {}): RecordingRequest =>
   action: "start",
   title: null,
   agenda: null,
+  summaryStyle: null,
   ...overrides,
 });
 
@@ -240,6 +241,7 @@ describe("the page's types", () => {
           pause: { since: DateTime.makeUnsafe(60_000), byName: "Ben" },
           title: "Deploy retro",
           agenda: null,
+          summaryStyle: "detailed",
         },
         updatedAt: DateTime.makeUnsafe(0),
       });
