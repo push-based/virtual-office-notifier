@@ -35,12 +35,31 @@ describe("describePhase", () => {
       startedAt: "2026-10-27T12:00:00Z",
       startedByName: "Chris",
       endsAt: "2026-10-27T12:59:34Z",
+      pause: null,
     };
 
     expect(describePhase({ kind: "recording", recording }, now)).toEqual({
       heading: "Recording · 00:12:34",
       description: "Started by Chris · 47m left",
       live: true,
+    });
+  });
+
+  it("shows who paused and for how long instead of the clock, and keeps counting down", () => {
+    const pause = { since: "2026-10-27T12:09:00Z", byName: "Ben" };
+
+    const recording = {
+      id: "1",
+      startedAt: "2026-10-27T12:00:00Z",
+      startedByName: "Chris",
+      endsAt: "2026-10-27T12:59:34Z",
+      pause,
+    };
+
+    expect(describePhase({ kind: "paused", recording, pause }, now)).toEqual({
+      heading: "Paused by Ben · 3m",
+      description: "Started by Chris · 47m left",
+      live: false,
     });
   });
 });

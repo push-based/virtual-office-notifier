@@ -10,6 +10,7 @@ import {
   Layer,
   type LogLevel,
   Option,
+  Order,
   pipe,
   Schema,
   SchemaTransformation,
@@ -23,7 +24,7 @@ import {
   writeWithProviders,
 } from "./AiWriting.ts";
 import { officeClock } from "./Banter.ts";
-import type { ClipLine, RecordingDetails } from "./RecordingStore.ts";
+import type { ClipLine, PauseLine, RecordingDetails } from "./RecordingStore.ts";
 import { formatDuration } from "./SlackMessage.ts";
 
 export const MAX_SUMMARY_LENGTH = 1500;
@@ -71,6 +72,7 @@ const SUMMARY_PROMPT = Array.join(
   [
     "You summarize a recorded conversation from a team's virtual office, a Discord voice channel where people work alongside each other. The transcript was made by speech recognition, one line per stretch of speech, each with the time in UTC+2 and who spoke.",
     "Write a summary for the team's Slack channel: what was discussed, any decisions, and any action items with the name of whoever took them. Leave out small talk unless it's the whole conversation.",
+    "A line like '14:20–14:35 Paused by Ben' marks a pause: nothing was recorded in that stretch, so don't join what was said before and after it into one topic, and don't guess what was said during it.",
     "Only say what the transcript shows. Speech recognition gets words wrong, so when a line makes no sense, skip it rather than guess.",
     "Name people exactly as they're written in the transcript. Refer to people by name or as they, never as he or she.",
     "Reply with plain text only: short lines starting with •, no headings, no markdown, no quotes, no labels, nothing in angle brackets. Keep the whole reply under 1,200 characters.",
@@ -80,25 +82,52 @@ const SUMMARY_PROMPT = Array.join(
 
 const clock = (at: DateTime.Utc): string => pipe(officeClock(at), String.slice(-5));
 
-export const transcriptLines = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<string> =>
+interface TimedLine {
+  readonly at: DateTime.Utc;
+  readonly text: string;
+}
+
+const byTime = Order.mapInput(DateTime.Order, (line: TimedLine) => line.at);
+
+const spokenLines = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<TimedLine> =>
   Array.flatMap(lines, ({ startedAt, who, transcription, transcript }) => {
     if (transcription === "done") {
       const text = String.trim(transcript ?? "");
 
-      return text === "" ? [] : [`${clock(startedAt)} ${who}: ${text}`];
+      return text === "" ? [] : [{ at: startedAt, text: `${clock(startedAt)} ${who}: ${text}` }];
     }
 
     return transcription === "failed"
-      ? [`${clock(startedAt)} ${who}: [couldn't be transcribed]`]
+      ? [{ at: startedAt, text: `${clock(startedAt)} ${who}: [couldn't be transcribed]` }]
       : [];
   });
 
-export const transcriptText = (details: RecordingDetails, lines: ReadonlyArray<ClipLine>): string =>
+export const transcriptLines = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<string> =>
+  Array.map(spokenLines(lines), ({ text }) => text);
+
+export const pauseMarker = (pause: PauseLine, stoppedAt: DateTime.Utc): string =>
+  `${clock(pause.pausedAt)}–${clock(pause.resumedAt ?? stoppedAt)} Paused by ${pause.who}`;
+
+export const transcriptText = (
+  details: RecordingDetails,
+  lines: ReadonlyArray<ClipLine>,
+  pauses: ReadonlyArray<PauseLine>,
+): string =>
   Array.join(
     [
       `Office recording from ${officeClock(details.startedAt)} to ${clock(details.stoppedAt)} (UTC+2), ${formatDuration(DateTime.distance(details.startedAt, details.stoppedAt))}, started by ${details.startedByName}.`,
       "",
-      ...transcriptLines(lines),
+      ...pipe(
+        Array.appendAll(
+          spokenLines(lines),
+          Array.map(pauses, (pause) => ({
+            at: pause.pausedAt,
+            text: pauseMarker(pause, details.stoppedAt),
+          })),
+        ),
+        Array.sort(byTime),
+        Array.map(({ text }) => text),
+      ),
     ],
     "\n",
   );

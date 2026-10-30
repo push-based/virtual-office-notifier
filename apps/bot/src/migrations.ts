@@ -408,4 +408,27 @@ export const migrations = Migrator.fromRecord({
       ADD CONSTRAINT slack_posts_kind_check CHECK (kind IN ('Opened', 'Emptied', 'Reminder', 'Banter', 'Reply', 'Recording'))
     `;
   }),
+  "0006_pause_recordings": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`ALTER TABLE office.recordings ADD COLUMN paused_at timestamptz, ADD COLUMN paused_by text`;
+
+    yield* sql`ALTER TABLE office.recording_events DROP CONSTRAINT IF EXISTS recording_events_event_check`;
+    yield* sql`
+      ALTER TABLE office.recording_events
+      ADD CONSTRAINT recording_events_event_check CHECK (event IN ('started', 'resumed', 'stopped', 'paused'))
+    `;
+
+    yield* sql`ALTER TABLE office.recording_requests DROP CONSTRAINT IF EXISTS recording_requests_action_check`;
+    yield* sql`
+      ALTER TABLE office.recording_requests
+      ADD CONSTRAINT recording_requests_action_check CHECK (action IN ('start', 'stop', 'pause', 'resume'))
+    `;
+
+    yield* sql`ALTER TABLE office.recording_requests DROP CONSTRAINT IF EXISTS recording_requests_outcome_check`;
+    yield* sql`
+      ALTER TABLE office.recording_requests
+      ADD CONSTRAINT recording_requests_outcome_check CHECK (outcome IN ('started', 'stopped', 'paused', 'resumed', 'ignored'))
+    `;
+  }),
 });
