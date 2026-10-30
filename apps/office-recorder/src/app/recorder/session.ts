@@ -4,8 +4,10 @@ import { DiscordSDK } from "@discord/embedded-app-sdk";
 import type { SignInCode, SignInConfig, SignedInSession } from "recording-requests/wire";
 import { firstValueFrom } from "rxjs";
 
+import type { Presence } from "./describe-presence";
+
 export type DiscordClient = Pick<DiscordSDK, "ready"> & {
-  readonly commands: Pick<DiscordSDK["commands"], "authorize" | "authenticate">;
+  readonly commands: Pick<DiscordSDK["commands"], "authorize" | "authenticate" | "setActivity">;
 };
 
 export const DISCORD_CLIENT = new InjectionToken<(clientId: string) => DiscordClient>(
@@ -26,6 +28,8 @@ export class RecorderSession {
 
   readonly token = this.current.asReadonly();
 
+  private discord: DiscordClient | null = null;
+
   async signIn(): Promise<void> {
     const { clientId } = await firstValueFrom(this.http.get<SignInConfig>("/api/config"));
     const discord = this.createDiscordClient(clientId);
@@ -37,7 +41,7 @@ export class RecorderSession {
       response_type: "code",
       state: "",
       prompt: "none",
-      scope: ["identify"],
+      scope: ["identify", "rpc.activities.write"],
     });
 
     const body: SignInCode = { code };
@@ -46,5 +50,15 @@ export class RecorderSession {
     this.current.set(token.session);
 
     await discord.commands.authenticate({ access_token: token.accessToken });
+
+    this.discord = discord;
+  }
+
+  async showPresence(presence: Presence): Promise<void> {
+    try {
+      await this.discord?.commands.setActivity({ activity: presence });
+    } catch (error) {
+      console.warn("Couldn't update the Rich Presence", error);
+    }
   }
 }
