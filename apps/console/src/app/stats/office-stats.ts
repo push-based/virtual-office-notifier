@@ -2,6 +2,7 @@ import { Component, computed, inject, signal } from "@angular/core";
 import { rxResource } from "@angular/core/rxjs-interop";
 import {
   PbBarList,
+  PbButton,
   PbCard,
   PbDescription,
   PbEyebrow,
@@ -19,7 +20,17 @@ import { StatsApi } from "./stats-api";
 
 @Component({
   selector: "app-office-stats",
-  imports: [PbBarList, PbCard, PbDescription, PbEyebrow, PbHeatmap, PbNotice, PbStat, PbTabs],
+  imports: [
+    PbBarList,
+    PbButton,
+    PbCard,
+    PbDescription,
+    PbEyebrow,
+    PbHeatmap,
+    PbNotice,
+    PbStat,
+    PbTabs,
+  ],
   template: `
     <pb-card size="lg">
       <p pbEyebrow>Office stats</p>
@@ -39,6 +50,16 @@ import { StatsApi } from "./stats-api";
       >
         @if (stats.error(); as error) {
           <pb-notice kind="error">Couldn't count the stats: {{ error.message }}</pb-notice>
+          <button
+            pbButton
+            type="button"
+            variant="ghost"
+            class="retry"
+            [disabled]="stats.isLoading()"
+            (click)="stats.reload()"
+          >
+            {{ stats.isLoading() ? "Counting…" : "Try again" }}
+          </button>
         } @else if (view(); as view) {
           <div class="pair">
             <pb-stat [value]="view.recordings" label="Recordings" />
@@ -88,6 +109,10 @@ import { StatsApi } from "./stats-api";
       display: flex;
       flex-direction: column;
       gap: var(--space-6);
+    }
+
+    .retry {
+      align-self: flex-start;
     }
 
     .pair {
