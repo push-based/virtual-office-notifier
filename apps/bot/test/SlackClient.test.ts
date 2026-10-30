@@ -268,6 +268,19 @@ describe("SlackClient", () => {
     }),
   );
 
+  it.effect("says which field didn't match when Slack's reply has the wrong shape", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([slackOk({ channel: "C-OFFICE", ts: 1700000000 })]);
+
+      const { reason } = yield* slack.client.postMessage(message).pipe(Effect.flip);
+
+      assert.instanceOf(reason, InvalidPayload);
+      assert.strictEqual(reason.error, "unexpected_response");
+      assert.strictEqual(reason.issue, 'Expected string\n  at ["ts"]');
+      assert.strictEqual((yield* slack.requests).length, 1);
+    }),
+  );
+
   it.effect("waits for Retry-After when Slack says ratelimited", () =>
     Effect.gen(function* () {
       const slack = yield* makeClient([
