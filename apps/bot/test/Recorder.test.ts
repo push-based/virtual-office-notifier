@@ -44,11 +44,14 @@ import {
   makeFakeSlackClient,
   makeFakeSlackHistory,
   permalinkOf,
+  pollUntil,
   SLACK_ENV,
   withEnv,
 } from "./fakes.ts";
 
 const OFFICE = "office";
+
+const SETTLE_TURNS = 200;
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
@@ -215,24 +218,6 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
       .submit({ id: editedBy, name: String.toUpperCase(editedBy) }, recordingId, change)
       .pipe(Effect.asVoid);
 
-  const realSleep = TestClock.withLive(Effect.sleep("10 millis"));
-
-  const eventually = <A>(
-    query: Effect.Effect<ReadonlyArray<A>, Error>,
-    matches: (rows: ReadonlyArray<A>) => boolean,
-  ) =>
-    Effect.gen(function* () {
-      for (let attempt = 0; attempt < 300; attempt += 1) {
-        const rows = yield* query;
-
-        if (matches(rows)) return rows;
-
-        yield* realSleep;
-      }
-
-      return yield* query;
-    });
-
   const recordingRows = sql<{
     readonly id: string;
     readonly stoppedAt: Date | null;
@@ -329,7 +314,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     sql,
     request,
     edit,
-    eventually,
+    eventually: pollUntil,
     recordingRows,
     editRows,
     actionItemRows,
@@ -347,7 +332,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     offer: (update: VoiceStateUpdate) => Queue.offer(updates, update),
     speak: (spoken: Clip) => Queue.offer(heard, Heard.Spoke({ clip: spoken })),
     hear: (event: Heard) => Queue.offer(heard, event),
-    settle: Effect.repeat(realSleep, { times: 4 }),
+    settle: Effect.repeat(Effect.yieldNow, { times: SETTLE_TURNS }),
     tick: TestClock.adjust(POLL_INTERVAL),
     recordings: Queue.clear(recordings),
     posts: slack.posts,
@@ -1650,7 +1635,7 @@ describe("Recorder", () => {
 
         yield* h.request("u1", "start");
         yield* h.tick;
-        yield* h.eventually(h.statusRows, (rows) => rows[0]?.recordingId !== null);
+        yield* recordingStarted(h);
 
         yield* h.hear(Heard.StartedSpeaking({ userId: "u1" }));
         yield* h.settle;

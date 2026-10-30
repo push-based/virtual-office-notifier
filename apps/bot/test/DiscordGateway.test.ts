@@ -3,7 +3,7 @@ import { Array, type Cause, Effect, Queue, Stream } from "effect";
 
 import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
-import { withEnv } from "./fakes.ts";
+import { pollUntil, withEnv } from "./fakes.ts";
 
 const OFFICE = "office";
 
@@ -105,9 +105,7 @@ describe("DiscordGateway", () => {
         Effect.gen(function* () {
           yield* Queue.offer(queue, join());
 
-          while ((yield* gateway.occupants).length === 0) {
-            yield* Effect.yieldNow;
-          }
+          yield* pollUntil(gateway.occupants, Array.isReadonlyArrayNonEmpty);
 
           yield* Queue.end(queue);
 
