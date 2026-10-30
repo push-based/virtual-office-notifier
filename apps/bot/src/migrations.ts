@@ -408,6 +408,7 @@ export const migrations = Migrator.fromRecord({
       ADD CONSTRAINT slack_posts_kind_check CHECK (kind IN ('Opened', 'Emptied', 'Reminder', 'Banter', 'Reply', 'Recording'))
     `;
   }),
+
   "0006_pause_recordings": Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
 
@@ -430,5 +431,11 @@ export const migrations = Migrator.fromRecord({
       ALTER TABLE office.recording_requests
       ADD CONSTRAINT recording_requests_outcome_check CHECK (outcome IN ('started', 'stopped', 'paused', 'resumed', 'ignored'))
     `;
+  }),
+
+  "0007_link_recording_posts": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`ALTER TABLE office.recordings ADD COLUMN slack_permalink text`;
   }),
 });

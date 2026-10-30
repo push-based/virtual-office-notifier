@@ -1,5 +1,6 @@
 import type * as SignIn from "activity-sign-in/SignInApi";
 
+import type * as History from "./Recording.ts";
 import type * as Schemas from "./RecordingRequest.ts";
 
 export type RequestAction = typeof Schemas.RequestAction.Encoded;
@@ -36,6 +37,20 @@ export type HandledRequest =
   | IgnoredRequest;
 
 export type SubmittedRequest = typeof Schemas.SubmittedRequest.Encoded;
+
+export type RecordingState = typeof History.RecordingState.Encoded;
+
+export type StopReason = typeof History.StopReason.Encoded;
+
+export type OfficeMember = typeof History.OfficeMember.Encoded;
+
+export type ListedRecording = typeof History.ListedRecording.Encoded;
+
+export type RecordingPage = typeof History.RecordingPage.Encoded;
+
+export type TranscribedClip = typeof History.TranscribedClip.Encoded;
+
+export type RecordingDetail = typeof History.RecordingDetail.Encoded;
 
 export type SignInConfig = typeof SignIn.SignInConfig.Encoded;
 

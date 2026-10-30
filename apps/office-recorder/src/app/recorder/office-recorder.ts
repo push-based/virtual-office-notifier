@@ -12,6 +12,7 @@ import {
   type Person,
 } from "design-system";
 
+import { RecordingHistory } from "../history/recording-history";
 import { describePhase } from "./describe-phase";
 import { OfficeStore } from "./office-store";
 
@@ -27,6 +28,7 @@ import { OfficeStore } from "./office-store";
     PbPeople,
     PbRecordButton,
     PbStatusHeading,
+    RecordingHistory,
   ],
   providers: [OfficeStore],
   template: `
@@ -69,10 +71,13 @@ import { OfficeStore } from "./office-store";
         <pb-people [people]="people()" label="In the office · {{ people().length }}" />
       }
     </pb-card>
+    <app-recording-history [now]="store.now()" />
   `,
   styles: `
     :host {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
       width: 100%;
       max-width: var(--space-96);
     }
