@@ -6,7 +6,9 @@ import { type ButtonSize, type ButtonVariant, PbButton } from "./button";
 
 @Component({
   imports: [PbButton],
-  template: `<button pbButton type="button" [variant]="variant()" [size]="size()">Book a free call</button>`,
+  template: `<button pbButton type="button" [variant]="variant()" [size]="size()">
+    Book a free call
+  </button>`,
 })
 class Host {
   readonly variant = signal<ButtonVariant>("primary");

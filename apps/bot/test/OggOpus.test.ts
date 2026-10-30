@@ -1,6 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { oggChecksum, oggOpusFile, opusPacketSamples, opusPacketsDuration } from "../src/OggOpus.ts";
+import {
+  oggChecksum,
+  oggOpusFile,
+  opusPacketSamples,
+  opusPacketsDuration,
+} from "../src/OggOpus.ts";
 
 // A 20 ms CELT fullband stereo packet, as Discord sends: config 31, stereo, one frame.
 const celt20ms = (fill = 0xab): Uint8Array => new Uint8Array([0b1111_1100, fill, fill, fill]);
@@ -9,7 +14,14 @@ const text = (bytes: Uint8Array, start: number, length: number): string =>
   new TextDecoder().decode(bytes.subarray(start, start + length));
 
 const pageHeaders = (file: Uint8Array) => {
-  const headers: Array<{ offset: number; flags: number; granule: bigint; sequence: number; segments: number }> = [];
+  const headers: Array<{
+    offset: number;
+    flags: number;
+    granule: bigint;
+    sequence: number;
+    segments: number;
+  }> = [];
+
   const view = new DataView(file.buffer, file.byteOffset, file.byteLength);
   let offset = 0;
 
@@ -17,7 +29,11 @@ const pageHeaders = (file: Uint8Array) => {
     assert.strictEqual(text(file, offset, 4), "OggS");
 
     const segments = file[offset + 26] ?? 0;
-    const body = Array.from(file.subarray(offset + 27, offset + 27 + segments)).reduce((total, lace) => total + lace, 0);
+
+    const body = Array.from(file.subarray(offset + 27, offset + 27 + segments)).reduce(
+      (total, lace) => total + lace,
+      0,
+    );
 
     headers.push({
       offset,
@@ -69,7 +85,11 @@ const bitwiseChecksum = (bytes: Uint8Array): number => {
 
 describe("oggChecksum", () => {
   it("matches a bit-by-bit Ogg CRC-32", () => {
-    const samples = [new Uint8Array([0x4f, 0x67, 0x67, 0x53]), new Uint8Array(300).map((_, index) => index % 251), new Uint8Array(0)];
+    const samples = [
+      new Uint8Array([0x4f, 0x67, 0x67, 0x53]),
+      new Uint8Array(300).map((_, index) => index % 251),
+      new Uint8Array(0),
+    ];
 
     for (const sample of samples) assert.strictEqual(oggChecksum(sample), bitwiseChecksum(sample));
   });
@@ -143,7 +163,12 @@ describe("oggOpusFile", () => {
       const view = new DataView(file.buffer);
       const stored = view.getUint32(page.offset + 22, true);
       const segments = file[page.offset + 26] ?? 0;
-      const body = Array.from(file.subarray(page.offset + 27, page.offset + 27 + segments)).reduce((a, b) => a + b, 0);
+
+      const body = Array.from(file.subarray(page.offset + 27, page.offset + 27 + segments)).reduce(
+        (a, b) => a + b,
+        0,
+      );
+
       const bytes = file.slice(page.offset, page.offset + 27 + segments + body);
 
       bytes.fill(0, 22, 26);

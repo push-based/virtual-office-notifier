@@ -49,9 +49,12 @@ export const describeError = (error: Error): string => {
 
 // Reported to Sentry on every retry, connecting or writing. Like the logs, it
 // only carries the messages, never the error objects.
-export class DatabaseUnavailable extends Schema.TaggedError<DatabaseUnavailable>()("DatabaseUnavailable", {
-  reason: Schema.String,
-}) {
+export class DatabaseUnavailable extends Schema.TaggedError<DatabaseUnavailable>()(
+  "DatabaseUnavailable",
+  {
+    reason: Schema.String,
+  },
+) {
   override get message(): string {
     return `Couldn't reach the database: ${this.reason}`;
   }
@@ -69,8 +72,14 @@ const retryLogged = reconnectSchedule.pipe(
   Schedule.setInputType<SqlError.SqlError | Migrator.MigrationError>(),
   Schedule.tap(({ input, attempt, duration }) =>
     Effect.logWarning("Couldn't set up the database, retrying").pipe(
-      Effect.annotateLogs({ reason: describeError(input), attempt, delayMs: Duration.toMillis(duration) }),
-      Effect.andThen(ErrorReporter.report(Cause.fail(new DatabaseUnavailable({ reason: describeError(input) })))),
+      Effect.annotateLogs({
+        reason: describeError(input),
+        attempt,
+        delayMs: Duration.toMillis(duration),
+      }),
+      Effect.andThen(
+        ErrorReporter.report(Cause.fail(new DatabaseUnavailable({ reason: describeError(input) }))),
+      ),
     ),
   ),
 );

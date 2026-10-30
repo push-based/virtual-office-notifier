@@ -24,7 +24,9 @@ export type ClefQuestion =
   | {
       readonly type: "noul";
       readonly instructions: Decision.Description;
-      readonly criteria?: { readonly true: Decision.Description; readonly false: Decision.Description } | undefined;
+      readonly criteria?:
+        | { readonly true: Decision.Description; readonly false: Decision.Description }
+        | undefined;
     };
 
 export interface ClefRequest {
@@ -34,19 +36,30 @@ export interface ClefRequest {
 
 const question = (decision: ClefDecision): ClefQuestion =>
   Match.valueTags(decision, {
-    Classify: ({ instructions, criteria }): ClefQuestion => ({ type: "choice", instructions, criteria }),
+    Classify: ({ instructions, criteria }): ClefQuestion => ({
+      type: "choice",
+      instructions,
+      criteria,
+    }),
     Rate: ({ instructions, criteria }): ClefQuestion => ({
       type: "score",
       instructions,
       criteria: criteria.map((level) => level.description),
     }),
     Probability: ({ instructions, criteria }): ClefQuestion =>
-      criteria === undefined ? { type: "noul", instructions } : { type: "noul", instructions, criteria },
+      criteria === undefined
+        ? { type: "noul", instructions }
+        : { type: "noul", instructions, criteria },
   });
 
-export const clefRequest = (state: Schema.Json, decisions: Readonly<Record<string, ClefDecision>>): ClefRequest => ({
+export const clefRequest = (
+  state: Schema.Json,
+  decisions: Readonly<Record<string, ClefDecision>>,
+): ClefRequest => ({
   state,
-  questions: Object.fromEntries(Object.entries(decisions).map(([name, decision]) => [name, question(decision)])),
+  questions: Object.fromEntries(
+    Object.entries(decisions).map(([name, decision]) => [name, question(decision)]),
+  ),
 });
 
 const Probabilities = Schema.Record(Schema.String, Schema.Finite);
@@ -100,7 +113,10 @@ const providerAnswer = (
         confidence: answer.confidence,
       });
     case "score": {
-      const levels = decision !== undefined && Predicate.isTagged(decision, "Rate") ? decision.criteria.map((level) => level.label) : [];
+      const levels =
+        decision !== undefined && Predicate.isTagged(decision, "Rate")
+          ? decision.criteria.map((level) => level.label)
+          : [];
 
       return ProviderAnswer.Rate({
         rating: answer.score,
@@ -124,9 +140,11 @@ const failureFor = (status: number, body: string): AiError.AiErrorReason => {
 
   if (status === 401) return new AiError.AuthenticationError({ kind: "InvalidKey", http });
 
-  if (status === 403) return new AiError.AuthenticationError({ kind: "InsufficientPermissions", http });
+  if (status === 403)
+    return new AiError.AuthenticationError({ kind: "InsufficientPermissions", http });
 
-  if (status >= 500) return new AiError.InternalProviderError({ description: `HTTP ${status}`, http });
+  if (status >= 500)
+    return new AiError.InternalProviderError({ description: `HTTP ${status}`, http });
 
   return new AiError.InvalidRequestError({ description: `HTTP ${status}`, http });
 };
@@ -144,7 +162,9 @@ export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOpti
       }
 
       return yield* decodeRunResponse(body).pipe(
-        Effect.mapError(() => aiError(new AiError.InvalidOutputError({ description: "Clef's reply couldn't be read" }))),
+        Effect.mapError(() =>
+          aiError(new AiError.InvalidOutputError({ description: "Clef's reply couldn't be read" })),
+        ),
       );
     });
 
@@ -168,9 +188,15 @@ export const make = Effect.fnUntraced(function* (options: CloudflareDecisionOpti
         Effect.flatMap(readResponse),
         Effect.map(({ result }) => ({
           answers: Object.fromEntries(
-            Object.entries(result.answers).map(([name, answer]) => [name, providerAnswer(answer, decisions[name])]),
+            Object.entries(result.answers).map(([name, answer]) => [
+              name,
+              providerAnswer(answer, decisions[name]),
+            ]),
           ),
-          usage: { inputTokens: result.usage?.input_tokens, outputTokens: result.usage?.output_tokens },
+          usage: {
+            inputTokens: result.usage?.input_tokens,
+            outputTokens: result.usage?.output_tokens,
+          },
         })),
       ),
   });

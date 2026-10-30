@@ -14,7 +14,13 @@ import {
   SchemaTransformation,
 } from "effect";
 
-import { type Brief, configuredProviders, failureReason, type Providers, writeWithProviders } from "./AiWriting.ts";
+import {
+  type Brief,
+  configuredProviders,
+  failureReason,
+  type Providers,
+  writeWithProviders,
+} from "./AiWriting.ts";
 import { banterLog } from "./Banter.ts";
 import { OfficeEvent } from "./OfficeEvent.ts";
 import {
@@ -34,9 +40,17 @@ import {
 const Line = (minLength: number, maxLength: number, pattern: RegExp) =>
   Schema.String.pipe(
     Schema.decodeTo(
-      Schema.String.check(Schema.isMinLength(minLength), Schema.isMaxLength(maxLength), Schema.isPattern(pattern)),
+      Schema.String.check(
+        Schema.isMinLength(minLength),
+        Schema.isMaxLength(maxLength),
+        Schema.isPattern(pattern),
+      ),
       SchemaTransformation.transform({
-        decode: (line) => line.trim().replace(/^["'“]+|["'”]+$/g, "").trim(),
+        decode: (line) =>
+          line
+            .trim()
+            .replace(/^["'“]+|["'”]+$/g, "")
+            .trim(),
         encode: identity,
       }),
     ),
@@ -48,11 +62,15 @@ const ReplyWith = (headline: ReturnType<typeof Line>) =>
     Schema.decodeTo(
       Schema.Array(Schema.String),
       SchemaTransformation.transform({
-        decode: (text): ReadonlyArray<string> => text.split("\n").filter((line) => line.trim() !== ""),
+        decode: (text): ReadonlyArray<string> =>
+          text.split("\n").filter((line) => line.trim() !== ""),
         encode: (lines) => lines.join("\n"),
       }),
     ),
-    Schema.decodeTo(Schema.Tuple([headline, Line(3, 30, /^[^{}<>]+$/)]), SchemaTransformation.passthroughSupertype()),
+    Schema.decodeTo(
+      Schema.Tuple([headline, Line(3, 30, /^[^{}<>]+$/)]),
+      SchemaTransformation.passthroughSupertype(),
+    ),
   );
 
 export const OpenedReply = ReplyWith(Line(10, 160, /^[^{}<>]*\{name\}[^{}<>]*$/));
@@ -81,7 +99,12 @@ export class NoAiHeadline extends Schema.TaggedError<NoAiHeadline>()("NoAiHeadli
 
 type HeadlineBrief = Brief<readonly [string, string]>;
 
-const announcement = (task: string, examples: Variants, button: string, reply: typeof OpenedReply): HeadlineBrief => ({
+const announcement = (
+  task: string,
+  examples: Variants,
+  button: string,
+  reply: typeof OpenedReply,
+): HeadlineBrief => ({
   prompt: [
     "You write one-line Slack announcements for a team's virtual office, a Discord voice channel where people work alongside each other.",
     task,
@@ -131,7 +154,11 @@ export const briefFor = OfficeEvent.$match({
       JOIN_LABEL,
       UnnamedReply,
     ),
-  Banter: (context): HeadlineBrief => ({ prompt: BANTER_PROMPT, request: banterLog(context), reply: BanterReply }),
+  Banter: (context): HeadlineBrief => ({
+    prompt: BANTER_PROMPT,
+    request: banterLog(context),
+    reply: BanterReply,
+  }),
 });
 
 export class HeadlineWriter extends Context.Service<
@@ -158,7 +185,11 @@ export class HeadlineWriter extends Context.Service<
           },
           Effect.tapError((error) =>
             Effect.logWarning("No AI model could write a headline").pipe(
-              Effect.andThen(ErrorReporter.report(Cause.fail(new NoAiHeadline({ reason: failureReason(error) })))),
+              Effect.andThen(
+                ErrorReporter.report(
+                  Cause.fail(new NoAiHeadline({ reason: failureReason(error) })),
+                ),
+              ),
             ),
           ),
           Effect.option,
@@ -167,18 +198,24 @@ export class HeadlineWriter extends Context.Service<
       }),
     );
 
-  static readonly layerFixed = Layer.succeed(HeadlineWriter, HeadlineWriter.of({ write: () => Effect.succeedNone }));
+  static readonly layerFixed = Layer.succeed(
+    HeadlineWriter,
+    HeadlineWriter.of({ write: () => Effect.succeedNone }),
+  );
 
   static readonly layer = Layer.unwrap(
     Effect.gen(function* () {
       const providers = yield* configuredProviders((config) => config.openRouter.models);
-      const banterProviders = yield* configuredProviders((config) => config.openRouter.banterModels);
+
+      const banterProviders = yield* configuredProviders(
+        (config) => config.openRouter.banterModels,
+      );
 
       return Array.match(providers, {
         onEmpty: () =>
-          Layer.effectDiscard(Effect.logInfo("No AI provider configured, so using the fixed headlines")).pipe(
-            Layer.provideMerge(HeadlineWriter.layerFixed),
-          ),
+          Layer.effectDiscard(
+            Effect.logInfo("No AI provider configured, so using the fixed headlines"),
+          ).pipe(Layer.provideMerge(HeadlineWriter.layerFixed)),
         onNonEmpty: (headlineProviders) =>
           HeadlineWriter.layerProviders(
             headlineProviders,

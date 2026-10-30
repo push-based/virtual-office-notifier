@@ -25,7 +25,9 @@ export class ActivityLogError extends Schema.TaggedError<ActivityLogError>()("Ac
 const sqlStateOf = (error: SqlError.SqlError): string | undefined => {
   const cause = error.reason.cause;
 
-  return Predicate.hasProperty(cause, "code") && Predicate.isString(cause.code) ? cause.code : undefined;
+  return Predicate.hasProperty(cause, "code") && Predicate.isString(cause.code)
+    ? cause.code
+    : undefined;
 };
 
 export const classify = (error: SqlError.SqlError): ActivityLogError => {
@@ -33,13 +35,16 @@ export const classify = (error: SqlError.SqlError): ActivityLogError => {
   const message = describeError(error);
   const badRow = state !== undefined && (state.startsWith("22") || state.startsWith("23"));
 
-  return new ActivityLogError({ reason: badRow ? new BadRow({ message }) : new Outage({ message }) });
+  return new ActivityLogError({
+    reason: badRow ? new BadRow({ message }) : new Outage({ message }),
+  });
 };
 
 const toDate = (at: DateTime.Utc | null): Date | null => (at === null ? null : DateTime.toDate(at));
 
 export const memberUpsert =
-  (sql: SqlClient.SqlClient) => (userId: string, displayName: string, seenAt: DateTime.Utc) => sql`
+  (sql: SqlClient.SqlClient) => (userId: string, displayName: string, seenAt: DateTime.Utc) =>
+    sql`
     INSERT INTO office.members AS m ${sql.insert({
       userId,
       displayName,
@@ -114,8 +119,16 @@ export class ActivityLog extends Context.Service<
     // gone through: the session and `entryId` are only stored once.
     startSession(sessionId: string, at: DateTime.Utc): Effect.Effect<void, ActivityLogError>;
     stopSession(sessionId: string, at: DateTime.Utc): Effect.Effect<void, ActivityLogError>;
-    record(sessionId: string, entryId: string, observation: VoiceObservation): Effect.Effect<void, ActivityLogError>;
-    recordEffect(sessionId: string, entryId: string, effect: TimedVoiceEffect): Effect.Effect<void, ActivityLogError>;
+    record(
+      sessionId: string,
+      entryId: string,
+      observation: VoiceObservation,
+    ): Effect.Effect<void, ActivityLogError>;
+    recordEffect(
+      sessionId: string,
+      entryId: string,
+      effect: TimedVoiceEffect,
+    ): Effect.Effect<void, ActivityLogError>;
     // Sets aside something that could never be written, as JSON.
     reject(payload: string, error: string, at: DateTime.Utc): Effect.Effect<void, ActivityLogError>;
   }

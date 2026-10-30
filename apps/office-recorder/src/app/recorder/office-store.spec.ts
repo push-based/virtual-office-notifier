@@ -9,11 +9,21 @@ import { RecorderApi } from "./recorder-api";
 import { RecorderSession } from "./session";
 import { RECORDER_TIMING } from "./timing";
 
-const idle: RecordingStatus = { botInOffice: true, occupants: [], recording: null, updatedAt: "2026-10-27T12:00:00Z" };
+const idle: RecordingStatus = {
+  botInOffice: true,
+  occupants: [],
+  recording: null,
+  updatedAt: "2026-10-27T12:00:00Z",
+};
 
 const recording: RecordingStatus = {
   ...idle,
-  recording: { id: "1", startedAt: "2026-10-27T12:00:00Z", startedByName: "Chris", endsAt: "2026-10-27T16:00:00Z" },
+  recording: {
+    id: "1",
+    startedAt: "2026-10-27T12:00:00Z",
+    startedByName: "Chris",
+    endsAt: "2026-10-27T16:00:00Z",
+  },
 };
 
 const pending: SubmittedRequest = { id: 7, outcome: null };
@@ -30,7 +40,11 @@ const fakeSession = () => ({ signIn: vi.fn<() => Promise<void>>().mockResolvedVa
 
 const setup = (api: FakeApi, session = fakeSession()) => {
   TestBed.configureTestingModule({
-    providers: [OfficeStore, { provide: RecorderApi, useValue: api }, { provide: RecorderSession, useValue: session }],
+    providers: [
+      OfficeStore,
+      { provide: RecorderApi, useValue: api },
+      { provide: RecorderSession, useValue: session },
+    ],
   });
 
   return { store: TestBed.inject(OfficeStore), timing: TestBed.inject(RECORDER_TIMING) };
@@ -102,7 +116,10 @@ describe("OfficeStore", () => {
     await vi.advanceTimersByTimeAsync(timing.statePollMs);
 
     expect(store.status()).toEqual(idle);
-    expect(store.notice()).toEqual({ kind: "error", text: "Couldn't reach the bot: /api/status answered 500" });
+    expect(store.notice()).toEqual({
+      kind: "error",
+      text: "Couldn't reach the bot: /api/status answered 500",
+    });
   });
 
   it("ticks the clock", async () => {
@@ -160,7 +177,9 @@ describe("OfficeStore", () => {
     const api = fakeApi();
     const { store, timing } = await started(api);
 
-    expect(timing.requestPollMs * timing.requestPollLimit).toBeGreaterThan(REQUEST_EXPIRY_MS + CHECK_INTERVAL_MS);
+    expect(timing.requestPollMs * timing.requestPollLimit).toBeGreaterThan(
+      REQUEST_EXPIRY_MS + CHECK_INTERVAL_MS,
+    );
 
     store.press();
     await vi.advanceTimersByTimeAsync(timing.requestPollMs * (timing.requestPollLimit - 1));

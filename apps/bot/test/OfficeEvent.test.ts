@@ -16,9 +16,9 @@ const OFFICE = "office";
 
 describe("isOfficeJoin", () => {
   it("accepts a join from outside voice", () => {
-    expect(
-      isOfficeJoin(OFFICE, { oldChannelId: null, newChannelId: OFFICE, isBot: false }),
-    ).toBe(true);
+    expect(isOfficeJoin(OFFICE, { oldChannelId: null, newChannelId: OFFICE, isBot: false })).toBe(
+      true,
+    );
   });
 
   it("accepts a move from another voice channel", () => {
@@ -28,35 +28,35 @@ describe("isOfficeJoin", () => {
   });
 
   it("ignores mute, deafen and video updates inside the office", () => {
-    expect(
-      isOfficeJoin(OFFICE, { oldChannelId: OFFICE, newChannelId: OFFICE, isBot: false }),
-    ).toBe(false);
+    expect(isOfficeJoin(OFFICE, { oldChannelId: OFFICE, newChannelId: OFFICE, isBot: false })).toBe(
+      false,
+    );
   });
 
   it("ignores bots", () => {
-    expect(
-      isOfficeJoin(OFFICE, { oldChannelId: null, newChannelId: OFFICE, isBot: true }),
-    ).toBe(false);
+    expect(isOfficeJoin(OFFICE, { oldChannelId: null, newChannelId: OFFICE, isBot: true })).toBe(
+      false,
+    );
   });
 
   it("ignores joins to other voice channels", () => {
-    expect(
-      isOfficeJoin(OFFICE, { oldChannelId: null, newChannelId: "lobby", isBot: false }),
-    ).toBe(false);
+    expect(isOfficeJoin(OFFICE, { oldChannelId: null, newChannelId: "lobby", isBot: false })).toBe(
+      false,
+    );
   });
 
   it("ignores leaving the office", () => {
-    expect(
-      isOfficeJoin(OFFICE, { oldChannelId: OFFICE, newChannelId: null, isBot: false }),
-    ).toBe(false);
+    expect(isOfficeJoin(OFFICE, { oldChannelId: OFFICE, newChannelId: null, isBot: false })).toBe(
+      false,
+    );
   });
 });
 
 describe("isOfficeLeave", () => {
   it("accepts disconnecting from the office", () => {
-    expect(
-      isOfficeLeave(OFFICE, { oldChannelId: OFFICE, newChannelId: null, isBot: false }),
-    ).toBe(true);
+    expect(isOfficeLeave(OFFICE, { oldChannelId: OFFICE, newChannelId: null, isBot: false })).toBe(
+      true,
+    );
   });
 
   it("accepts moving from the office to another voice channel", () => {
@@ -72,15 +72,15 @@ describe("isOfficeLeave", () => {
   });
 
   it("ignores bots", () => {
-    expect(
-      isOfficeLeave(OFFICE, { oldChannelId: OFFICE, newChannelId: null, isBot: true }),
-    ).toBe(false);
+    expect(isOfficeLeave(OFFICE, { oldChannelId: OFFICE, newChannelId: null, isBot: true })).toBe(
+      false,
+    );
   });
 
   it("ignores leaving other voice channels", () => {
-    expect(
-      isOfficeLeave(OFFICE, { oldChannelId: "lobby", newChannelId: null, isBot: false }),
-    ).toBe(false);
+    expect(isOfficeLeave(OFFICE, { oldChannelId: "lobby", newChannelId: null, isBot: false })).toBe(
+      false,
+    );
   });
 });
 
@@ -100,7 +100,14 @@ describe("trackOccupancy", () => {
     at: t0,
   };
 
-  const member = { userId: "u1", displayName: "Ada", avatarUrl: null, guildId: "g1", channelId: OFFICE };
+  const member = {
+    userId: "u1",
+    displayName: "Ada",
+    avatarUrl: null,
+    guildId: "g1",
+    channelId: OFFICE,
+  };
+
   const join = { ...update, oldChannelId: null, newChannelId: OFFICE };
   const leave = { ...update, oldChannelId: OFFICE, newChannelId: "lobby" };
   const empty = sessionOf(new Set());
@@ -148,7 +155,14 @@ describe("trackOccupancy", () => {
   });
 
   it("counts someone who comes back once", () => {
-    const [, events] = run([join, { ...join, userId: "u2" }, leave, join, { ...leave, userId: "u2" }, leave]);
+    const [, events] = run([
+      join,
+      { ...join, userId: "u2" },
+      leave,
+      join,
+      { ...leave, userId: "u2" },
+      leave,
+    ]);
 
     expect(events.at(-1)).toMatchObject({ recap: Option.some({ visitors: 2 }) });
   });
@@ -161,7 +175,9 @@ describe("trackOccupancy", () => {
       { ...leave, at: later(90) },
     ]);
 
-    expect(events.at(-1)).toMatchObject({ recap: Option.some({ duration: Duration.minutes(30), visitors: 1 }) });
+    expect(events.at(-1)).toMatchObject({
+      recap: Option.some({ duration: Duration.minutes(30), visitors: 1 }),
+    });
   });
 
   it("gives no recap for a session already under way at startup", () => {
@@ -191,6 +207,9 @@ describe("trackOccupancy", () => {
   it("ignores changes inside the office", () => {
     const occupied = sessionOf(new Set(["u1"]));
 
-    expect(step(occupied, { ...update, oldChannelId: OFFICE, newChannelId: OFFICE })).toEqual([occupied, []]);
+    expect(step(occupied, { ...update, oldChannelId: OFFICE, newChannelId: OFFICE })).toEqual([
+      occupied,
+      [],
+    ]);
   });
 });

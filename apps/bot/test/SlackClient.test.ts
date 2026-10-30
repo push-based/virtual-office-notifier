@@ -2,7 +2,14 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 
-import { AccessRevoked, InvalidPayload, RateLimited, SlackClient, Transport, Unavailable } from "../src/SlackClient.ts";
+import {
+  AccessRevoked,
+  InvalidPayload,
+  RateLimited,
+  SlackClient,
+  Transport,
+  Unavailable,
+} from "../src/SlackClient.ts";
 import {
   makeFakeSlackHttp,
   networkDown,
@@ -47,7 +54,8 @@ describe("SlackClient", () => {
         blocks: [],
         thread_ts: "1699999999.000100",
       });
-    }));
+    }),
+  );
 
   it.effect("uploads a file into a thread in Slack's three steps", () =>
     Effect.gen(function* () {
@@ -83,18 +91,25 @@ describe("SlackClient", () => {
         channel_id: "C-OFFICE",
         thread_ts: "1700000000.000100",
       });
-    }));
+    }),
+  );
 
   it.effect("opens a Socket Mode connection with the app token", () =>
     Effect.gen(function* () {
-      const slack = yield* makeClient([slackOk({ url: "wss://wss-primary.slack.com/link/?ticket=abc" })]);
+      const slack = yield* makeClient([
+        slackOk({ url: "wss://wss-primary.slack.com/link/?ticket=abc" }),
+      ]);
 
-      assert.strictEqual(yield* slack.client.openConnection, "wss://wss-primary.slack.com/link/?ticket=abc");
+      assert.strictEqual(
+        yield* slack.client.openConnection,
+        "wss://wss-primary.slack.com/link/?ticket=abc",
+      );
 
       const [request] = yield* slack.requests;
       assert.strictEqual(request?.url, "https://slack.com/api/apps.connections.open");
       assert.strictEqual(request?.headers["authorization"], `Bearer ${SLACK_ENV.SLACK_APP_TOKEN}`);
-    }));
+    }),
+  );
 
   it.effect("reads a thread oldest first, with who wrote each message", () =>
     Effect.gen(function* () {
@@ -122,26 +137,35 @@ describe("SlackClient", () => {
         ["ts", "1.0"],
         ["limit", "1000"],
       ]);
-    }));
+    }),
+  );
 
   it.effect("reads someone's names, preferring the display name", () =>
     Effect.gen(function* () {
       const slack = yield* makeClient([
-        slackOk({ user: { id: "U1", real_name: "Ada Lovelace", profile: { display_name: "", real_name: "Ada Lovelace" } } }),
+        slackOk({
+          user: {
+            id: "U1",
+            real_name: "Ada Lovelace",
+            profile: { display_name: "", real_name: "Ada Lovelace" },
+          },
+        }),
       ]);
 
       assert.deepStrictEqual(yield* slack.client.userProfile("U1"), {
         displayName: "Ada Lovelace",
         realName: "Ada Lovelace",
       });
-    }));
+    }),
+  );
 
   it.effect("learns the bot's own user ID", () =>
     Effect.gen(function* () {
       const slack = yield* makeClient([slackOk({ user_id: "UBOT" })]);
 
       assert.strictEqual(yield* slack.client.botUserId, "UBOT");
-    }));
+    }),
+  );
 
   it.effect("treats a reaction that's already there as added", () =>
     Effect.gen(function* () {
@@ -150,21 +174,30 @@ describe("SlackClient", () => {
       yield* slack.client.addReaction("C-OFFICE", "2.0", "joy");
 
       const [request] = yield* slack.requests;
-      assert.deepStrictEqual(requestJson(request!), { channel: "C-OFFICE", timestamp: "2.0", name: "joy" });
-    }));
+      assert.deepStrictEqual(requestJson(request!), {
+        channel: "C-OFFICE",
+        timestamp: "2.0",
+        name: "joy",
+      });
+    }),
+  );
 
-  it.effect.each(["invalid_auth", "token_revoked", "account_inactive", "channel_not_found", "not_in_channel"])(
-    "fails without retrying when Slack says %s",
-    (code) =>
-      Effect.gen(function* () {
-        const slack = yield* makeClient([slackError(code)]);
+  it.effect.each([
+    "invalid_auth",
+    "token_revoked",
+    "account_inactive",
+    "channel_not_found",
+    "not_in_channel",
+  ])("fails without retrying when Slack says %s", (code) =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([slackError(code)]);
 
-        const { reason } = yield* slack.client.postMessage(message).pipe(Effect.flip);
+      const { reason } = yield* slack.client.postMessage(message).pipe(Effect.flip);
 
-        assert.instanceOf(reason, AccessRevoked);
-        assert.strictEqual(reason.error, code);
-        assert.strictEqual((yield* slack.requests).length, 1);
-      }),
+      assert.instanceOf(reason, AccessRevoked);
+      assert.strictEqual(reason.error, code);
+      assert.strictEqual((yield* slack.requests).length, 1);
+    }),
   );
 
   it.effect("fails without retrying on any other Slack error", () =>
@@ -176,7 +209,8 @@ describe("SlackClient", () => {
       assert.instanceOf(reason, InvalidPayload);
       assert.strictEqual(reason.error, "invalid_blocks");
       assert.strictEqual((yield* slack.requests).length, 1);
-    }));
+    }),
+  );
 
   it.effect("fails without retrying when Slack's reply makes no sense", () =>
     Effect.gen(function* () {
@@ -186,7 +220,8 @@ describe("SlackClient", () => {
 
       assert.instanceOf(reason, InvalidPayload);
       assert.strictEqual((yield* slack.requests).length, 1);
-    }));
+    }),
+  );
 
   it.effect("waits for Retry-After when Slack says ratelimited", () =>
     Effect.gen(function* () {
@@ -203,7 +238,8 @@ describe("SlackClient", () => {
       yield* TestClock.adjust("1 second");
       yield* Fiber.join(fiber);
       assert.strictEqual((yield* slack.requests).length, 2);
-    }));
+    }),
+  );
 
   it.effect("treats a 429 as rate limited too", () =>
     Effect.gen(function* () {
@@ -215,7 +251,8 @@ describe("SlackClient", () => {
       const { reason } = yield* Fiber.join(fiber);
 
       assert.instanceOf(reason, RateLimited);
-    }));
+    }),
+  );
 
   it.effect("retries when Slack is down, then gives up after 4 retries", () =>
     Effect.gen(function* () {
@@ -228,7 +265,8 @@ describe("SlackClient", () => {
 
       assert.instanceOf(reason, Unavailable);
       assert.strictEqual((yield* slack.requests).length, 5);
-    }));
+    }),
+  );
 
   it.effect("retries network errors without leaking the tokens", () =>
     Effect.gen(function* () {
@@ -241,5 +279,6 @@ describe("SlackClient", () => {
 
       assert.instanceOf(error.reason, Transport);
       assert.notInclude(`${error} ${JSON.stringify(error)}`, "secret");
-    }));
+    }),
+  );
 });

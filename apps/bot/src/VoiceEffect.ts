@@ -19,7 +19,8 @@ export interface VoiceEffect {
 export type TimedVoiceEffect = VoiceEffect & { readonly at: DateTime.Utc };
 
 export const sentInOffice = (officeChannelId: string) =>
-  Filter.make(
-    (effect: TimedVoiceEffect): Result.Result<TimedVoiceEffect, TimedVoiceEffect> =>
-      !effect.isBot && effect.channelId === officeChannelId ? Result.succeed(effect) : Result.fail(effect),
+  Filter.make((effect: TimedVoiceEffect): Result.Result<TimedVoiceEffect, TimedVoiceEffect> =>
+    !effect.isBot && effect.channelId === officeChannelId
+      ? Result.succeed(effect)
+      : Result.fail(effect),
   );

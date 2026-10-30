@@ -16,17 +16,30 @@ export interface Requester {
   readonly name: string;
 }
 
-export class CurrentRequester extends Context.Service<CurrentRequester, Requester>()("recording-requests/CurrentRequester") {}
+export class CurrentRequester extends Context.Service<CurrentRequester, Requester>()(
+  "recording-requests/CurrentRequester",
+) {}
 
-export class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {}, { httpApiStatus: 401 }) {}
+export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
+  "Unauthorized",
+  {},
+  { httpApiStatus: 401 },
+) {}
 
-export class RequestNotFound extends Schema.TaggedError<RequestNotFound>()("RequestNotFound", {}, { httpApiStatus: 404 }) {}
+export class RequestNotFound extends Schema.TaggedError<RequestNotFound>()(
+  "RequestNotFound",
+  {},
+  { httpApiStatus: 404 },
+) {}
 
-export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()("recording-requests/SignedIn", {
-  security: { session: HttpApiSecurity.bearer },
-  error: Unauthorized,
-  requiredForClient: true,
-}) {}
+export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()(
+  "recording-requests/SignedIn",
+  {
+    security: { session: HttpApiSecurity.bearer },
+    error: Unauthorized,
+    requiredForClient: true,
+  },
+) {}
 
 export class RecordingGroup extends HttpApiGroup.make("recording")
   .add(

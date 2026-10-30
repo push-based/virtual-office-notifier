@@ -25,7 +25,8 @@ describe("Config", () => {
       assert.strictEqual(config.officeChannelId, "123");
       assert.strictEqual(Redacted.value(config.botToken), "secret-token");
       assert.notInclude(String(config.botToken), "secret-token");
-    }));
+    }),
+  );
 
   it.effect("names a missing variable", () =>
     Effect.gen(function* () {
@@ -35,15 +36,20 @@ describe("Config", () => {
       );
 
       assert.include(failureMessage(exit), "DISCORD_OFFICE_CHANNEL_ID");
-    }));
+    }),
+  );
 
   it.effect("rejects an empty secret without leaking anything", () =>
     Effect.gen(function* () {
-      const exit = yield* SlackConfig.pipe(withEnv({ SLACK_BOT_TOKEN: "", SLACK_APP_TOKEN: "xapp", SLACK_CHANNEL_ID: "C1" }), Effect.exit);
+      const exit = yield* SlackConfig.pipe(
+        withEnv({ SLACK_BOT_TOKEN: "", SLACK_APP_TOKEN: "xapp", SLACK_CHANNEL_ID: "C1" }),
+        Effect.exit,
+      );
 
       assert.isTrue(Exit.isFailure(exit));
       assert.include(failureMessage(exit), "SLACK_BOT_TOKEN");
-    }));
+    }),
+  );
 
   it.effect("treats missing or blank AI credentials as unset, with free default models", () =>
     Effect.gen(function* () {
@@ -61,7 +67,8 @@ describe("Config", () => {
 
       assert.deepStrictEqual(missing.openRouter.models, DEFAULT_OPENROUTER_MODELS);
       assert.deepStrictEqual(missing.cloudflare.models, DEFAULT_CLOUDFLARE_MODELS);
-    }));
+    }),
+  );
 
   it.effect("loads the AI credentials redacted and the models in order", () =>
     Effect.gen(function* () {
@@ -75,12 +82,22 @@ describe("Config", () => {
         }),
       );
 
-      assert.deepStrictEqual(Option.map(openRouter.apiKey, Redacted.value), Option.some("sk-or-secret"));
+      assert.deepStrictEqual(
+        Option.map(openRouter.apiKey, Redacted.value),
+        Option.some("sk-or-secret"),
+      );
       assert.deepStrictEqual(openRouter.models, ["a/one:free", "openrouter/free"]);
-      assert.deepStrictEqual(Option.map(cloudflare.accountId, Redacted.value), Option.some("account"));
-      assert.deepStrictEqual(Option.map(cloudflare.apiToken, Redacted.value), Option.some("cf-secret"));
+      assert.deepStrictEqual(
+        Option.map(cloudflare.accountId, Redacted.value),
+        Option.some("account"),
+      );
+      assert.deepStrictEqual(
+        Option.map(cloudflare.apiToken, Redacted.value),
+        Option.some("cf-secret"),
+      );
       assert.deepStrictEqual(cloudflare.models, ["@cf/a/one"]);
-    }));
+    }),
+  );
 
   it.effect("treats a missing or blank database URL as unset", () =>
     Effect.gen(function* () {
@@ -89,16 +106,20 @@ describe("Config", () => {
 
         assert.isTrue(Option.isNone(url));
       }
-    }));
+    }),
+  );
 
   it.effect("loads the database URL redacted", () =>
     Effect.gen(function* () {
-      const databaseUrl = "postgresql://postgres.ref:secret@aws-0-eu-central-1.pooler.supabase.com:5432/postgres";
+      const databaseUrl =
+        "postgresql://postgres.ref:secret@aws-0-eu-central-1.pooler.supabase.com:5432/postgres";
+
       const { url } = yield* DatabaseConfig.pipe(withEnv({ DATABASE_URL: databaseUrl }));
 
       assert.deepStrictEqual(Option.map(url, Redacted.value), Option.some(databaseUrl));
       assert.notInclude(String(url), "secret");
-    }));
+    }),
+  );
 
   it.effect("requires the database URL for production, naming it when it's missing", () =>
     Effect.gen(function* () {
@@ -107,12 +128,17 @@ describe("Config", () => {
 
         assert.include(failureMessage(exit), "DATABASE_URL");
       }
-    }));
+    }),
+  );
 
   it.effect("rejects a blank entry in the model list", () =>
     Effect.gen(function* () {
-      const exit = yield* AiConfig.pipe(withEnv({ OPENROUTER_MODELS: "a/one:free,," }), Effect.exit);
+      const exit = yield* AiConfig.pipe(
+        withEnv({ OPENROUTER_MODELS: "a/one:free,," }),
+        Effect.exit,
+      );
 
       assert.include(failureMessage(exit), "OPENROUTER_MODELS");
-    }));
+    }),
+  );
 });

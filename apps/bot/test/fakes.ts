@@ -1,4 +1,15 @@
-import { ConfigProvider, DateTime, Duration, Effect, ErrorReporter, Layer, Option, Random, Ref, type Schema } from "effect";
+import {
+  ConfigProvider,
+  DateTime,
+  Duration,
+  Effect,
+  ErrorReporter,
+  Layer,
+  Option,
+  Random,
+  Ref,
+  type Schema,
+} from "effect";
 import {
   HttpBody,
   HttpClient,
@@ -63,8 +74,10 @@ export const respond =
   (request) =>
     Effect.succeed(HttpClientResponse.fromWeb(request, new Response(body, { status, headers })));
 
-export const slackOk = (fields: Readonly<Record<string, Schema.Json>> = {}, headers: Record<string, string> = {}): Reply =>
-  respond(200, JSON.stringify({ ok: true, ...fields }), headers);
+export const slackOk = (
+  fields: Readonly<Record<string, Schema.Json>> = {},
+  headers: Record<string, string> = {},
+): Reply => respond(200, JSON.stringify({ ok: true, ...fields }), headers);
 
 export const slackError = (error: string, headers: Record<string, string> = {}): Reply =>
   respond(200, JSON.stringify({ ok: false, error }), headers);
@@ -86,7 +99,8 @@ export const hang: Reply = () => Effect.never;
 export const requestText = (request: HttpClientRequest.HttpClientRequest): string =>
   request.body instanceof HttpBody.Uint8Array ? new TextDecoder().decode(request.body.body) : "";
 
-export const requestJson = (request: HttpClientRequest.HttpClientRequest): Schema.Json => JSON.parse(requestText(request));
+export const requestJson = (request: HttpClientRequest.HttpClientRequest): Schema.Json =>
+  JSON.parse(requestText(request));
 
 // A fake Slack Web API: serves the scripted replies in order, repeating the
 // last one, and records every request so tests can count attempts.
@@ -126,8 +140,12 @@ export const makeFakeSlack = Effect.fnUntraced(function* (
     layer,
     requests: http.requests,
     recordedPosts: fakeHistory.posts,
-    postedTexts: posts.pipe(Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request)).text))),
-    postedBodies: posts.pipe(Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request))))),
+    postedTexts: posts.pipe(
+      Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request)).text)),
+    ),
+    postedBodies: posts.pipe(
+      Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request)))),
+    ),
   };
 });
 
@@ -196,34 +214,50 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
   const reactions = yield* Ref.make<ReadonlyArray<ReactionRecord>>([]);
   const members = options.members ?? new Map<string, LinkedMember>();
 
-  const replies = Ref.get(posts).pipe(Effect.map((all) => all.filter((post) => post.kind === "Reply")));
+  const replies = Ref.get(posts).pipe(
+    Effect.map((all) => all.filter((post) => post.kind === "Reply")),
+  );
 
   const layer = Layer.succeed(
     SlackHistory,
     SlackHistory.of({
       settings: Ref.get(settings).pipe(
-        Effect.flatMap(Option.match({
-          onNone: () => Effect.fail(new HistoryUnavailable({ reason: "No settings" })),
-          onSome: Effect.succeed,
-        })),
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.fail(new HistoryUnavailable({ reason: "No settings" })),
+            onSome: Effect.succeed,
+          }),
+        ),
       ),
       recordPost: (post) => Ref.update(posts, (all) => [...all, post]),
-      recordMessage: (message) => Ref.modify(messages, (all) => [all.length + 1, [...all, message]]),
+      recordMessage: (message) =>
+        Ref.modify(messages, (all) => [all.length + 1, [...all, message]]),
       recordDecision: (decision) => Ref.update(decisions, (all) => [...all, decision]),
       recordReaction: (reaction) => Ref.update(reactions, (all) => [...all, reaction]),
       repliesSince: (from) =>
-        replies.pipe(Effect.map((all) => all.filter((post) => DateTime.isGreaterThanOrEqualTo(post.postedAt, from)).length)),
+        replies.pipe(
+          Effect.map(
+            (all) =>
+              all.filter((post) => DateTime.isGreaterThanOrEqualTo(post.postedAt, from)).length,
+          ),
+        ),
       reactionsSince: (from) =>
         Ref.get(decisions).pipe(
           Effect.map(
             (all) =>
-              all.filter((decision) => decision.outcome === "reacted" && DateTime.isGreaterThanOrEqualTo(decision.decidedAt, from))
-                .length,
+              all.filter(
+                (decision) =>
+                  decision.outcome === "reacted" &&
+                  DateTime.isGreaterThanOrEqualTo(decision.decidedAt, from),
+              ).length,
           ),
         ),
       repliesInThread: (channel, threadTs) =>
         replies.pipe(
-          Effect.map((all) => all.filter((post) => post.channel === channel && post.threadTs === threadTs).length),
+          Effect.map(
+            (all) =>
+              all.filter((post) => post.channel === channel && post.threadTs === threadTs).length,
+          ),
         ),
       linkMember: (slackUserId) => Effect.succeed(Option.fromUndefinedOr(members.get(slackUserId))),
     }),
@@ -248,7 +282,9 @@ export interface FakeSlackClientOptions {
 }
 
 // Slack in memory: posts land in their thread, so later reads see them.
-export const makeFakeSlackClient = Effect.fnUntraced(function* (options: FakeSlackClientOptions = {}) {
+export const makeFakeSlackClient = Effect.fnUntraced(function* (
+  options: FakeSlackClientOptions = {},
+) {
   const posts = yield* Ref.make<ReadonlyArray<OutgoingMessage>>([]);
   const reactions = yield* Ref.make<ReadonlyArray<readonly [string, string, string]>>([]);
   const uploads = yield* Ref.make<ReadonlyArray<FileUpload>>([]);
@@ -264,7 +300,10 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (options: FakeSla
         }).pipe(
           Effect.tap(({ ts, threadTs }) =>
             Ref.update(threads, (all) =>
-              new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), { ts, userId: BOT_USER_ID, text: message.text }]),
+              new Map(all).set(threadTs, [
+                ...(all.get(threadTs) ?? []),
+                { ts, userId: BOT_USER_ID, text: message.text },
+              ]),
             ),
           ),
           Effect.map(({ ts }) => ({ channel: message.channel, ts })),
@@ -275,9 +314,11 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (options: FakeSla
     SlackClient,
     SlackClient.of({
       postMessage,
-      addReaction: (channel, ts, emoji) => Ref.update(reactions, (all) => [...all, [channel, ts, emoji] as const]),
+      addReaction: (channel, ts, emoji) =>
+        Ref.update(reactions, (all) => [...all, [channel, ts, emoji] as const]),
       uploadFile: (upload) => Ref.update(uploads, (all) => [...all, upload]),
-      threadReplies: (_channel, threadTs) => Ref.get(threads).pipe(Effect.map((all) => all.get(threadTs) ?? [])),
+      threadReplies: (_channel, threadTs) =>
+        Ref.get(threads).pipe(Effect.map((all) => all.get(threadTs) ?? [])),
       userProfile: (userId) =>
         Effect.succeed(profiles.get(userId) ?? { displayName: userId, realName: "" }),
       botUserId: Effect.succeed(BOT_USER_ID),
@@ -291,6 +332,8 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (options: FakeSla
     reactions: Ref.get(reactions),
     uploads: Ref.get(uploads),
     addToThread: (threadTs: string, message: ThreadMessage) =>
-      Ref.update(threads, (all) => new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message])),
+      Ref.update(threads, (all) =>
+        new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message]),
+      ),
   };
 });

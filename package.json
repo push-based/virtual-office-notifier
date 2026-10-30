@@ -2,20 +2,20 @@
   "name": "virtual-office-notifier",
   "private": true,
   "description": "Posts to Slack when the Discord virtual office voice channel opens or empties, and records the office on demand from a Discord Activity",
+  "license": "0BSD",
+  "author": "Christopher Holder",
+  "type": "module",
   "scripts": {
     "prepare": "effect-tsgo patch --typescript"
   },
-  "author": "Christopher Holder",
-  "license": "0BSD",
-  "packageManager": "pnpm@10.34.9",
   "devDependencies": {
     "@effect/tsgo": "0.63.0",
     "@types/node": "26.6.5",
     "typescript": "7.0.2",
     "vite-plus": "catalog:"
   },
-  "type": "module",
   "engines": {
     "node": ">=26"
-  }
+  },
+  "packageManager": "pnpm@10.34.9"
 }

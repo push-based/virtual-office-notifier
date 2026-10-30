@@ -8,9 +8,12 @@ export const MAX_ACTIVITY_ENTRIES = 400;
 
 const READ_TIMEOUT = Duration.seconds(10);
 
-export class HistoryUnavailable extends Schema.TaggedError<HistoryUnavailable>()("HistoryUnavailable", {
-  reason: Schema.String,
-}) {}
+export class HistoryUnavailable extends Schema.TaggedError<HistoryUnavailable>()(
+  "HistoryUnavailable",
+  {
+    reason: Schema.String,
+  },
+) {}
 
 const decodeActivityRows = Schema.decodeUnknownEffect(
   Schema.Array(
@@ -33,10 +36,16 @@ const notRecording = () => Effect.fail(new HistoryUnavailable({ reason: "Nothing
 export class OfficeHistory extends Context.Service<
   OfficeHistory,
   {
-    latestActivityBetween(from: DateTime.Utc, until: DateTime.Utc): Effect.Effect<RecentActivity, HistoryUnavailable>;
+    latestActivityBetween(
+      from: DateTime.Utc,
+      until: DateTime.Utc,
+    ): Effect.Effect<RecentActivity, HistoryUnavailable>;
     readonly presentSinceBotStarted: Effect.Effect<ReadonlyArray<string>, HistoryUnavailable>;
     banterPostsSince(from: DateTime.Utc): Effect.Effect<number, HistoryUnavailable>;
-    recordBanterPost(at: DateTime.Utc, period: BanterPeriod): Effect.Effect<void, HistoryUnavailable>;
+    recordBanterPost(
+      at: DateTime.Utc,
+      period: BanterPeriod,
+    ): Effect.Effect<void, HistoryUnavailable>;
   }
 >()("virtual-office-notifier/OfficeHistory") {
   static readonly layer = Layer.effect(
@@ -51,7 +60,8 @@ export class OfficeHistory extends Context.Service<
           Effect.mapError((error) => new HistoryUnavailable({ reason: describeError(error) })),
           Effect.timeoutOrElse({
             duration: READ_TIMEOUT,
-            orElse: () => Effect.fail(new HistoryUnavailable({ reason: "Timed out after 10 seconds" })),
+            orElse: () =>
+              Effect.fail(new HistoryUnavailable({ reason: "Timed out after 10 seconds" })),
           }),
         );
 
@@ -74,7 +84,9 @@ export class OfficeHistory extends Context.Service<
         );
 
         return {
-          entriesOldestFirst: newestFirst.map(({ observedAt, who, event }) => ({ at: observedAt, who, event })).reverse(),
+          entriesOldestFirst: newestFirst
+            .map(({ observedAt, who, event }) => ({ at: observedAt, who, event }))
+            .reverse(),
           olderEntriesLeftOut: (newestFirst[0]?.total ?? 0) - newestFirst.length,
         };
       });
@@ -96,7 +108,9 @@ export class OfficeHistory extends Context.Service<
         Effect.withSpan("OfficeHistory.presentSinceBotStarted"),
       );
 
-      const banterPostsSince = Effect.fn("OfficeHistory.banterPostsSince")(function* (from: DateTime.Utc) {
+      const banterPostsSince = Effect.fn("OfficeHistory.banterPostsSince")(function* (
+        from: DateTime.Utc,
+      ) {
         const [row] = yield* onceReady(
           sql<{ readonly posts: number }>`
             SELECT count(*)::int AS posts FROM office.banter_posts WHERE posted_at >= ${DateTime.toDate(from)}
@@ -108,11 +122,18 @@ export class OfficeHistory extends Context.Service<
 
       const recordBanterPost = Effect.fn("OfficeHistory.recordBanterPost")(
         (at: DateTime.Utc, period: BanterPeriod) =>
-          onceReady(sql`INSERT INTO office.banter_posts ${sql.insert({ postedAt: DateTime.toDate(at), period })}`),
+          onceReady(
+            sql`INSERT INTO office.banter_posts ${sql.insert({ postedAt: DateTime.toDate(at), period })}`,
+          ),
         Effect.asVoid,
       );
 
-      return OfficeHistory.of({ latestActivityBetween, presentSinceBotStarted, banterPostsSince, recordBanterPost });
+      return OfficeHistory.of({
+        latestActivityBetween,
+        presentSinceBotStarted,
+        banterPostsSince,
+        recordBanterPost,
+      });
     }),
   );
 

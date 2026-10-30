@@ -21,7 +21,12 @@ import { OfficeHistory } from "./OfficeHistory.ts";
 import { type ClefState, ReplyDecider } from "./ReplyDecider.ts";
 import { type ThreadLine, ReplyWriter } from "./ReplyWriter.ts";
 import { isRetryable, type SlackError, SlackClient, type ThreadMessage } from "./SlackClient.ts";
-import { type ActivityContext, eligibleActivity, type Envelope, SlackActivity } from "./SlackEvent.ts";
+import {
+  type ActivityContext,
+  eligibleActivity,
+  type Envelope,
+  SlackActivity,
+} from "./SlackEvent.ts";
 import {
   type ClefVerdict,
   type DecisionReason,
@@ -54,15 +59,21 @@ interface Verdict {
   readonly clef: Option.Option<ClefVerdict>;
 }
 
-const verdictOf = (outcome: Outcome, reason: DecisionReason, clef: Option.Option<ClefVerdict> = Option.none()): Verdict => ({
+const verdictOf = (
+  outcome: Outcome,
+  reason: DecisionReason,
+  clef: Option.Option<ClefVerdict> = Option.none(),
+): Verdict => ({
   outcome,
   reason,
   clef,
 });
 
-const mailboxOf = ({ threadTs, isMention }: IncomingMessage): string => (isMention ? `${threadTs}/mention` : threadTs);
+const mailboxOf = ({ threadTs, isMention }: IncomingMessage): string =>
+  isMention ? `${threadTs}/mention` : threadTs;
 
-const truncate = (text: string): string => (text.length > MAX_MESSAGE_LENGTH ? `${text.slice(0, MAX_MESSAGE_LENGTH)}…` : text);
+const truncate = (text: string): string =>
+  text.length > MAX_MESSAGE_LENGTH ? `${text.slice(0, MAX_MESSAGE_LENGTH)}…` : text;
 
 const isBefore = (ts: string, than: string): boolean => Number(ts) < Number(than);
 
@@ -112,13 +123,13 @@ export const respondToSlack = Effect.gen(function* () {
   );
 
   const nameOf = Effect.fnUntraced(function* (userId: string) {
-    const profile = yield* slack.userProfile(userId).pipe(
-      Effect.orElseSucceed(() => ({ displayName: userId, realName: "" })),
-    );
+    const profile = yield* slack
+      .userProfile(userId)
+      .pipe(Effect.orElseSucceed(() => ({ displayName: userId, realName: "" })));
 
-    const linked = yield* history.linkMember(userId, profile.realName).pipe(
-      Effect.orElseSucceed(() => Option.none()),
-    );
+    const linked = yield* history
+      .linkMember(userId, profile.realName)
+      .pipe(Effect.orElseSucceed(() => Option.none()));
 
     return { displayName: profile.displayName, linked };
   });
@@ -139,7 +150,10 @@ export const respondToSlack = Effect.gen(function* () {
       receivedAt,
     });
 
-    return { messageId, who: Option.match(linked, { onNone: () => displayName, onSome: ({ name }) => name }) };
+    return {
+      messageId,
+      who: Option.match(linked, { onNone: () => displayName, onSome: ({ name }) => name }),
+    };
   });
 
   const recordDecision = (considered: Considered, settings: ResponderSettings, verdict: Verdict) =>
@@ -180,15 +194,20 @@ export const respondToSlack = Effect.gen(function* () {
     return { who, text: truncate(text) };
   });
 
-  const linesFor = (messages: ReadonlyArray<ThreadMessage>, botName: string, names: Map<string, string>) =>
-    Effect.forEach(messages, (message) => lineFor(message, botName, names));
+  const linesFor = (
+    messages: ReadonlyArray<ThreadMessage>,
+    botName: string,
+    names: Map<string, string>,
+  ) => Effect.forEach(messages, (message) => lineFor(message, botName, names));
 
   const readThread = Effect.fnUntraced(function* (message: IncomingMessage) {
     const all = yield* slack.threadReplies(message.channel, message.threadTs);
     const earlier = all.filter(({ ts }) => isBefore(ts, message.ts));
     const [first, ...rest] = earlier;
 
-    return first?.ts === message.threadTs ? { root: Option.some(first), rest } : { root: Option.none(), rest: earlier };
+    return first?.ts === message.threadTs
+      ? { root: Option.some(first), rest }
+      : { root: Option.none(), rest: earlier };
   });
 
   const officeNow = Effect.fnUntraced(function* (at: DateTime.Utc) {
@@ -230,7 +249,12 @@ export const respondToSlack = Effect.gen(function* () {
     if (Option.isNone(written)) return false;
 
     const { text, model } = written.value;
-    const posted = yield* slack.postMessage({ channel: message.channel, threadTs: message.threadTs, ...replyMessage(text, model) });
+
+    const posted = yield* slack.postMessage({
+      channel: message.channel,
+      threadTs: message.threadTs,
+      ...replyMessage(text, model),
+    });
 
     yield* history.recordPost({
       channel: posted.channel,
@@ -244,22 +268,37 @@ export const respondToSlack = Effect.gen(function* () {
     return true;
   });
 
-  const clefState = Effect.fnUntraced(function* (message: IncomingMessage, who: string, settings: ResponderSettings) {
+  const clefState = Effect.fnUntraced(function* (
+    message: IncomingMessage,
+    who: string,
+    settings: ResponderSettings,
+  ) {
     const names = new Map<string, string>();
     const { root, rest } = yield* readThread(message);
     const [botPost] = yield* linesFor(Option.toArray(root), "the bot", names);
 
     return {
       botPost: botPost ?? { who: "the bot", text: "" },
-      earlier: yield* linesFor(rest.slice(Math.max(0, rest.length - settings.clefThreadMessages)), "the bot", names),
+      earlier: yield* linesFor(
+        rest.slice(Math.max(0, rest.length - settings.clefThreadMessages)),
+        "the bot",
+        names,
+      ),
       message: messageLine(message, who),
     } satisfies ClefState;
   });
 
-  const replied = (succeeded: boolean, reason: DecisionReason, clef: Option.Option<ClefVerdict> = Option.none()) =>
-    succeeded ? verdictOf("replied", reason, clef) : verdictOf("ignored", "no_model", clef);
+  const replied = (
+    succeeded: boolean,
+    reason: DecisionReason,
+    clef: Option.Option<ClefVerdict> = Option.none(),
+  ) => (succeeded ? verdictOf("replied", reason, clef) : verdictOf("ignored", "no_model", clef));
 
-  const decide = Effect.fnUntraced(function* (pending: Pending, who: string, settings: ResponderSettings) {
+  const decide = Effect.fnUntraced(function* (
+    pending: Pending,
+    who: string,
+    settings: ResponderSettings,
+  ) {
     const { message, receivedAt } = pending;
     const now = yield* DateTime.now;
 
@@ -296,7 +335,11 @@ export const respondToSlack = Effect.gen(function* () {
       Effect.catchTag("ClefFailed", (error) =>
         Effect.logWarning("Clef couldn't decide, so ignoring the message").pipe(
           Effect.annotateLogs({ reason: error.reason }),
-          Effect.andThen(error.reason === "NotConfigured" ? Effect.void : ErrorReporter.report(Cause.fail(error))),
+          Effect.andThen(
+            error.reason === "NotConfigured"
+              ? Effect.void
+              : ErrorReporter.report(Cause.fail(error)),
+          ),
           Effect.as(Option.none()),
         ),
       ),
@@ -342,9 +385,12 @@ export const respondToSlack = Effect.gen(function* () {
         ),
     }),
     Effect.catchCause((cause) =>
-      Effect.logError("Couldn't handle a Slack message", cause).pipe(Effect.andThen(ErrorReporter.report(cause))),
+      Effect.logError("Couldn't handle a Slack message", cause).pipe(
+        Effect.andThen(ErrorReporter.report(cause)),
+      ),
     ),
-    (effect, pending) => Effect.annotateLogs(effect, { slackUserId: Redacted.make(pending.message.userId) }),
+    (effect, pending) =>
+      Effect.annotateLogs(effect, { slackUserId: Redacted.make(pending.message.userId) }),
   );
 
   const skipSuperseded = (pending: Pending) =>
@@ -358,7 +404,9 @@ export const respondToSlack = Effect.gen(function* () {
       yield* recordDecision(considered, settings.value, verdictOf("ignored", "superseded"));
     }).pipe(
       Effect.catchTag("HistoryUnavailable", (error) =>
-        Effect.logWarning("Couldn't record a superseded Slack message").pipe(Effect.annotateLogs({ reason: error.reason })),
+        Effect.logWarning("Couldn't record a superseded Slack message").pipe(
+          Effect.annotateLogs({ reason: error.reason }),
+        ),
       ),
     );
 
@@ -366,14 +414,19 @@ export const respondToSlack = Effect.gen(function* () {
     const pending: Pending = { message, receivedAt: yield* DateTime.now };
     const key = mailboxOf(message);
 
-    const displaced = yield* Ref.modify(waiting, (all) => [Option.fromUndefinedOr(all.get(key)), new Map(all).set(key, pending)]);
+    const displaced = yield* Ref.modify(waiting, (all) => [
+      Option.fromUndefinedOr(all.get(key)),
+      new Map(all).set(key, pending),
+    ]);
 
     yield* Queue.offer(wake, undefined);
 
     if (Option.isSome(displaced)) yield* skipSuperseded(displaced.value);
   });
 
-  const recordReaction = Effect.fnUntraced(function* (reaction: Extract<SlackActivity, { readonly _tag: "Reaction" }>) {
+  const recordReaction = Effect.fnUntraced(function* (
+    reaction: Extract<SlackActivity, { readonly _tag: "Reaction" }>,
+  ) {
     const settings = yield* enabledSettings;
 
     if (Option.isNone(settings)) return;
@@ -390,7 +443,9 @@ export const respondToSlack = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchTag("HistoryUnavailable", (error) =>
-          Effect.logWarning("Couldn't record a Slack reaction").pipe(Effect.annotateLogs({ reason: error.reason })),
+          Effect.logWarning("Couldn't record a Slack reaction").pipe(
+            Effect.annotateLogs({ reason: error.reason }),
+          ),
         ),
       );
   });
@@ -401,18 +456,21 @@ export const respondToSlack = Effect.gen(function* () {
       onSome: SlackActivity.$match({ Message: enqueue, Reaction: recordReaction }),
     });
 
-  const nextWaiting = Ref.modify(waiting, (all): readonly [Option.Option<Pending>, ReadonlyMap<string, Pending>] => {
-    const first = all.entries().next();
+  const nextWaiting = Ref.modify(
+    waiting,
+    (all): readonly [Option.Option<Pending>, ReadonlyMap<string, Pending>] => {
+      const first = all.entries().next();
 
-    if (first.done === true) return [Option.none(), all];
+      if (first.done === true) return [Option.none(), all];
 
-    const [key, pending] = first.value;
-    const rest = new Map(all);
+      const [key, pending] = first.value;
+      const rest = new Map(all);
 
-    rest.delete(key);
+      rest.delete(key);
 
-    return [Option.some(pending), rest];
-  });
+      return [Option.some(pending), rest];
+    },
+  );
 
   const drain: Effect.Effect<void> = nextWaiting.pipe(
     Effect.flatMap(
@@ -427,7 +485,10 @@ export const respondToSlack = Effect.gen(function* () {
 
   yield* Effect.logInfo("Listening to Slack");
 
-  yield* Effect.all([lane, Stream.runForEach(socket.envelopes, route)], { concurrency: "unbounded", discard: true });
+  yield* Effect.all([lane, Stream.runForEach(socket.envelopes, route)], {
+    concurrency: "unbounded",
+    discard: true,
+  });
 });
 
 export class Responder extends Context.Service<
@@ -447,7 +508,9 @@ export class Responder extends Context.Service<
         run: respondToSlack.pipe(
           Effect.provideContext(context),
           Effect.catchCause((cause) =>
-            Effect.logError("Stopped responding on Slack", cause).pipe(Effect.andThen(ErrorReporter.report(cause))),
+            Effect.logError("Stopped responding on Slack", cause).pipe(
+              Effect.andThen(ErrorReporter.report(cause)),
+            ),
           ),
         ),
       });

@@ -40,7 +40,8 @@ const engagement = (reactionEmoji: Array.NonEmptyReadonlyArray<string>) =>
         instructions:
           "A team's Slack bot posts announcements and playful banter about their virtual office, a Discord voice channel where they work alongside each other. Someone wrote a new message in a thread under one of the bot's posts. Decide what the bot should do with the new message.",
         criteria: {
-          reply: "Someone asks the bot something, reacts to what it said, or invites it to respond.",
+          reply:
+            "Someone asks the bot something, reacts to what it said, or invites it to respond.",
           react: "An acknowledgement, a laugh or a joke that needs no words from the bot.",
           ignore: "People are talking to each other, not to the bot.",
         },
@@ -106,7 +107,10 @@ export class ReplyDecider extends Context.Service<
       const { cloudflare } = yield* AiConfig;
       const client = yield* HttpClient.HttpClient;
 
-      const credentials = Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken });
+      const credentials = Option.all({
+        accountId: cloudflare.accountId,
+        apiToken: cloudflare.apiToken,
+      });
 
       if (Option.isNone(credentials)) {
         yield* Effect.logInfo("Cloudflare isn't configured, so only mentions are answered");
@@ -121,9 +125,11 @@ export class ReplyDecider extends Context.Service<
         const stateJson = yield* encodeState(state);
         const request = clefRequest(stateJson, definition.decisions);
 
-        const model = yield* CloudflareDecisionModel.make({ accountId, apiToken, model: settings.clefModel }).pipe(
-          Effect.provideService(HttpClient.HttpClient, client),
-        );
+        const model = yield* CloudflareDecisionModel.make({
+          accountId,
+          apiToken,
+          model: settings.clefModel,
+        }).pipe(Effect.provideService(HttpClient.HttpClient, client));
 
         const [took, { answers }] = yield* DecisionModel.decide(definition, { input: state }).pipe(
           Effect.provideService(DecisionModel.DecisionModel, model),

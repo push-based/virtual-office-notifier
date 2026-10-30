@@ -13,7 +13,9 @@ describe("reminders", () => {
       // The test clock starts at 1970-01-01T00:00Z, a Thursday.
       const fiber = yield* reminders(office).pipe(
         Stream.take(3),
-        Stream.mapEffect((event) => Clock.currentTimeMillis.pipe(Effect.map((now) => [event, now] as const))),
+        Stream.mapEffect((event) =>
+          Clock.currentTimeMillis.pipe(Effect.map((now) => [event, now] as const)),
+        ),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -29,16 +31,22 @@ describe("reminders", () => {
         fired[0]?.[0],
         OfficeEvent.Reminder({ ...office, at: DateTime.makeUnsafe("1970-01-01T09:15:00Z") }),
       );
-    }));
+    }),
+  );
 
   it.effect("stays quiet before the first reminder is due", () =>
     Effect.gen(function* () {
-      const fiber = yield* reminders(office).pipe(Stream.take(1), Stream.runCollect, Effect.forkChild);
+      const fiber = yield* reminders(office).pipe(
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
 
       yield* TestClock.adjust("9 hours");
       assert.isUndefined(fiber.pollUnsafe());
 
       yield* TestClock.adjust("15 minutes");
       assert.strictEqual((yield* Fiber.join(fiber)).length, 1);
-    }));
+    }),
+  );
 });

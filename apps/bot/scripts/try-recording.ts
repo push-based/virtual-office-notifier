@@ -1,4 +1,9 @@
-import { EndBehaviorType, entersState, joinVoiceChannel, VoiceConnectionStatus } from "@discordjs/voice";
+import {
+  EndBehaviorType,
+  entersState,
+  joinVoiceChannel,
+  VoiceConnectionStatus,
+} from "@discordjs/voice";
 import { NodeHttpClient, NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Duration, Effect, FileSystem, Layer, Option, Path, Redacted, Schema } from "effect";
 import { Client, Events, GatewayIntentBits } from "discord.js";
@@ -36,15 +41,23 @@ const program = Effect.gen(function* () {
 
   yield* fs.makeDirectory(out, { recursive: true });
 
-  const transcriber = Option.map(Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }), ({ accountId, apiToken }) =>
-    Transcriber.layerOptions({ accountId, apiToken, model: whisperModel, language }).pipe(Layer.provide(NodeHttpClient.layerUndici)),
+  const transcriber = Option.map(
+    Option.all({ accountId: cloudflare.accountId, apiToken: cloudflare.apiToken }),
+    ({ accountId, apiToken }) =>
+      Transcriber.layerOptions({ accountId, apiToken, model: whisperModel, language }).pipe(
+        Layer.provide(NodeHttpClient.layerUndici),
+      ),
   );
 
-  const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
+  const client = new Client({
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  });
 
   const ready = yield* Effect.callback<Client<true>, CheckFailed>((resume) => {
     client.once(Events.ClientReady, (ready) => resume(Effect.succeed(ready)));
-    client.login(Redacted.value(botToken)).catch((cause: Error) => resume(Effect.fail(new CheckFailed({ message: cause.message }))));
+    client
+      .login(Redacted.value(botToken))
+      .catch((cause: Error) => resume(Effect.fail(new CheckFailed({ message: cause.message }))));
   });
 
   yield* Effect.addFinalizer(() => Effect.promise(() => client.destroy()));
@@ -52,10 +65,14 @@ const program = Effect.gen(function* () {
   const channel = ready.channels.cache.get(officeChannelId);
 
   if (channel === undefined || !channel.isVoiceBased()) {
-    return yield* new CheckFailed({ message: `Channel ${officeChannelId} isn't a voice channel the bot can see` });
+    return yield* new CheckFailed({
+      message: `Channel ${officeChannelId} isn't a voice channel the bot can see`,
+    });
   }
 
-  yield* Effect.log(`Joining #${channel.name} with audio on for ${seconds} seconds. Say something!`);
+  yield* Effect.log(
+    `Joining #${channel.name} with audio on for ${seconds} seconds. Say something!`,
+  );
 
   const connection = joinVoiceChannel({
     channelId: channel.id,
@@ -91,7 +108,10 @@ const program = Effect.gen(function* () {
   receiver.speaking.on("start", (userId) => {
     if (receiver.subscriptions.has(userId)) return;
 
-    const stream = receiver.subscribe(userId, { end: { behavior: EndBehaviorType.AfterSilence, duration: 1500 } });
+    const stream = receiver.subscribe(userId, {
+      end: { behavior: EndBehaviorType.AfterSilence, duration: 1500 },
+    });
+
     const packets: Array<Uint8Array> = [];
     const name = channel.guild.members.cache.get(userId)?.displayName ?? userId;
 
@@ -104,9 +124,13 @@ const program = Effect.gen(function* () {
       const file = path.join(out, `${name.replaceAll(/[^\w-]/g, "_")}-${Date.now()}.ogg`);
 
       clips += 1;
-      console.log(`[clip] ${name}: ${packets.length} packets, ${durationMs} ms, ${ogg.length} bytes -> ${file}`);
+      console.log(
+        `[clip] ${name}: ${packets.length} packets, ${durationMs} ms, ${ogg.length} bytes -> ${file}`,
+      );
 
-      Effect.runPromise(fs.writeFile(file, ogg)).catch((error: Error) => console.error("[clip] write failed", error.message));
+      Effect.runPromise(fs.writeFile(file, ogg)).catch((error: Error) =>
+        console.error("[clip] write failed", error.message),
+      );
 
       if (firstTranscribable === undefined && durationMs >= 1000) firstTranscribable = ogg;
     });
@@ -135,7 +159,9 @@ const program = Effect.gen(function* () {
         const whisper = yield* Transcriber;
         const audio = firstTranscribable ?? new Uint8Array();
 
-        yield* Effect.log(`Sending the first clip (${audio.length} bytes of Ogg/Opus) to ${whisperModel}`);
+        yield* Effect.log(
+          `Sending the first clip (${audio.length} bytes of Ogg/Opus) to ${whisperModel}`,
+        );
 
         const transcript = yield* whisper.transcribe(audio);
 

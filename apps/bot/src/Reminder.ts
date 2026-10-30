@@ -18,5 +18,7 @@ export const reminders = (office: OfficeLocation): Stream.Stream<OfficeEvent> =>
   Stream.fromSchedule(Schedule.cron(reminderCron)).pipe(
     // Only a cron string can fail to parse, and this one is already built.
     Stream.orDie,
-    Stream.mapEffect(() => Effect.map(DateTime.now, (at) => OfficeEvent.Reminder({ ...office, at }))),
+    Stream.mapEffect(() =>
+      Effect.map(DateTime.now, (at) => OfficeEvent.Reminder({ ...office, at })),
+    ),
   );

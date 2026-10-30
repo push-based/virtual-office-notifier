@@ -57,15 +57,12 @@ export interface Envelope {
 }
 
 export const decodeEnvelope = (text: string): Option.Option<Envelope> =>
-  Option.map(
-    decodeRawEnvelope(text),
-    (raw): Envelope => ({
-      type: raw.type,
-      envelopeId: Option.fromUndefinedOr(raw.envelope_id),
-      retryAttempt: raw.retry_attempt ?? 0,
-      event: Option.flatMap(Option.fromUndefinedOr(raw.payload?.event), decodeEvent),
-    }),
-  );
+  Option.map(decodeRawEnvelope(text), (raw): Envelope => ({
+    type: raw.type,
+    envelopeId: Option.fromUndefinedOr(raw.envelope_id),
+    retryAttempt: raw.retry_attempt ?? 0,
+    event: Option.flatMap(Option.fromUndefinedOr(raw.payload?.event), decodeEvent),
+  }));
 
 export type SlackActivity = Data.TaggedEnum<{
   Message: {
@@ -95,7 +92,10 @@ export interface ActivityContext {
 
 const mentions = (text: string, botUserId: string): boolean => text.includes(`<@${botUserId}>`);
 
-const mentionActivity = (event: typeof AppMention.Type, context: ActivityContext): Option.Option<SlackActivity> =>
+const mentionActivity = (
+  event: typeof AppMention.Type,
+  context: ActivityContext,
+): Option.Option<SlackActivity> =>
   event.channel === context.officeChannelId && event.user !== context.botUserId
     ? Option.some(
         SlackActivity.Message({
@@ -109,7 +109,10 @@ const mentionActivity = (event: typeof AppMention.Type, context: ActivityContext
       )
     : Option.none();
 
-const threadReplyActivity = (event: typeof Message.Type, context: ActivityContext): Option.Option<SlackActivity> => {
+const threadReplyActivity = (
+  event: typeof Message.Type,
+  context: ActivityContext,
+): Option.Option<SlackActivity> => {
   const { user, thread_ts: threadTs, text = "" } = event;
 
   const eligible =
@@ -125,12 +128,22 @@ const threadReplyActivity = (event: typeof Message.Type, context: ActivityContex
 
   return eligible
     ? Option.some(
-        SlackActivity.Message({ channel: event.channel, ts: event.ts, threadTs, userId: user, text, isMention: false }),
+        SlackActivity.Message({
+          channel: event.channel,
+          ts: event.ts,
+          threadTs,
+          userId: user,
+          text,
+          isMention: false,
+        }),
       )
     : Option.none();
 };
 
-const reactionActivity = (event: typeof Reaction.Type, context: ActivityContext): Option.Option<SlackActivity> => {
+const reactionActivity = (
+  event: typeof Reaction.Type,
+  context: ActivityContext,
+): Option.Option<SlackActivity> => {
   const { channel, ts } = event.item;
 
   const eligible =
@@ -154,7 +167,10 @@ const reactionActivity = (event: typeof Reaction.Type, context: ActivityContext)
     : Option.none();
 };
 
-export const eligibleActivity = (envelope: Envelope, context: ActivityContext): Option.Option<SlackActivity> =>
+export const eligibleActivity = (
+  envelope: Envelope,
+  context: ActivityContext,
+): Option.Option<SlackActivity> =>
   Option.flatMap(envelope.event, (event) =>
     Match.value(event).pipe(
       Match.discriminatorsExhaustive("type")({

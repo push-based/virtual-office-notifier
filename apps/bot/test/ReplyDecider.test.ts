@@ -4,7 +4,16 @@ import { TestClock } from "effect/testing";
 
 import { type ClefState, judge, ReplyDecider } from "../src/ReplyDecider.ts";
 import type { ClefVerdict } from "../src/SlackHistory.ts";
-import { DEFAULT_SETTINGS, hang, makeFakeSlackHttp, type Reply, requestJson, requestText, respond, withEnv } from "./fakes.ts";
+import {
+  DEFAULT_SETTINGS,
+  hang,
+  makeFakeSlackHttp,
+  type Reply,
+  requestJson,
+  requestText,
+  respond,
+  withEnv,
+} from "./fakes.ts";
 
 const CLOUDFLARE_ENV = { CLOUDFLARE_ACCOUNT_ID: "account-1", CLOUDFLARE_API_TOKEN: "cf-secret" };
 
@@ -51,7 +60,10 @@ const clefSays = respond(
   }),
 );
 
-const makeDecider = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>, env = CLOUDFLARE_ENV) {
+const makeDecider = Effect.fnUntraced(function* (
+  replies: ReadonlyArray<Reply>,
+  env = CLOUDFLARE_ENV,
+) {
   const http = yield* makeFakeSlackHttp(replies);
 
   const decider = yield* Effect.service(ReplyDecider).pipe(
@@ -64,11 +76,17 @@ const makeDecider = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>, 
 
 describe("judge", () => {
   it("acts on Clef's choice when it's confident enough", () => {
-    assert.deepStrictEqual(judge(verdict({ actionConfidence: 0.7 }), 0.7), { act: "react", reason: "clef" });
+    assert.deepStrictEqual(judge(verdict({ actionConfidence: 0.7 }), 0.7), {
+      act: "react",
+      reason: "clef",
+    });
   });
 
   it("ignores the message when Clef isn't confident enough", () => {
-    assert.deepStrictEqual(judge(verdict({ actionConfidence: 0.69 }), 0.7), { act: "ignore", reason: "low_confidence" });
+    assert.deepStrictEqual(judge(verdict({ actionConfidence: 0.69 }), 0.7), {
+      act: "ignore",
+      reason: "low_confidence",
+    });
   });
 
   it("ignores the message when Clef chose to, however confident", () => {
@@ -84,17 +102,25 @@ describe("ReplyDecider", () => {
     Effect.gen(function* () {
       const { decider, requests } = yield* makeDecider([clefSays]);
 
-      const decided = yield* decider.decide(state, { ...DEFAULT_SETTINGS, clefModel: "@cf/cloudflare/clef-flash" });
+      const decided = yield* decider.decide(state, {
+        ...DEFAULT_SETTINGS,
+        clefModel: "@cf/cloudflare/clef-flash",
+      });
 
       const [request] = yield* requests;
       assert.include(request?.url, "/ai/run/@cf/cloudflare/clef-flash");
 
       const body = requestJson(request!);
       assert.strictEqual(JSON.stringify(decided.verdict.request), requestText(request!));
-      assert.deepNestedInclude(body, { "state.message": { who: "Ada", text: "haha Sam is a machine" } });
-      assert.deepNestedInclude(body, { "questions.reaction.criteria": { joy: null, eyes: null, raised_hands: null } });
+      assert.deepNestedInclude(body, {
+        "state.message": { who: "Ada", text: "haha Sam is a machine" },
+      });
+      assert.deepNestedInclude(body, {
+        "questions.reaction.criteria": { joy: null, eyes: null, raised_hands: null },
+      });
       assert.deepNestedInclude(body, { "questions.action.type": "choice" });
-    }));
+    }),
+  );
 
   it.effect("keeps everything Clef said, and acts on the action's confidence", () =>
     Effect.gen(function* () {
@@ -111,7 +137,8 @@ describe("ReplyDecider", () => {
       const doubtful = yield* decider.decide(state, { ...DEFAULT_SETTINGS, minConfidence: 0.8 });
 
       assert.deepStrictEqual(doubtful.judgement, { act: "ignore", reason: "low_confidence" });
-    }));
+    }),
+  );
 
   it.effect("fails with the reason when Clef can't be asked", () =>
     Effect.gen(function* () {
@@ -120,18 +147,22 @@ describe("ReplyDecider", () => {
       const error = yield* decider.decide(state, DEFAULT_SETTINGS).pipe(Effect.flip);
 
       assert.strictEqual(error.reason, "InternalProviderError");
-    }));
+    }),
+  );
 
   it.effect("gives up on Clef after 15 seconds", () =>
     Effect.gen(function* () {
       const { decider } = yield* makeDecider([hang]);
 
-      const fiber = yield* decider.decide(state, DEFAULT_SETTINGS).pipe(Effect.flip, Effect.forkChild);
+      const fiber = yield* decider
+        .decide(state, DEFAULT_SETTINGS)
+        .pipe(Effect.flip, Effect.forkChild);
 
       yield* TestClock.adjust("15 seconds");
 
       assert.strictEqual((yield* Fiber.join(fiber)).reason, "Timeout");
-    }));
+    }),
+  );
 
   it.effect("can't decide anything without Cloudflare configured", () =>
     Effect.gen(function* () {
@@ -141,5 +172,6 @@ describe("ReplyDecider", () => {
 
       assert.strictEqual(error.reason, "NotConfigured");
       assert.deepStrictEqual(yield* requests, []);
-    }));
+    }),
+  );
 });

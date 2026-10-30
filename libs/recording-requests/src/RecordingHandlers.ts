@@ -17,7 +17,8 @@ export const RecordingHandlers = HttpApiBuilder.group(
     const requests = yield* RecordingRequests;
 
     return handlers.handleAll({
-      status: () => requests.status.pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
+      status: () =>
+        requests.status.pipe(Effect.catchTag("RecordingUnavailable", serviceUnavailable)),
       submit: ({ payload }) =>
         Effect.gen(function* () {
           const requester = yield* CurrentRequester;

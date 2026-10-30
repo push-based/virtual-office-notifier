@@ -16,7 +16,12 @@ describe("outcomeNotice", () => {
 
   it("passes on the bot's explanation for ignoring a request", () => {
     expect(
-      outcomeNotice({ id: 1, outcome: "ignored", reason: "already_recording", explanation: "Someone already started a recording." }),
+      outcomeNotice({
+        id: 1,
+        outcome: "ignored",
+        reason: "already_recording",
+        explanation: "Someone already started a recording.",
+      }),
     ).toEqual({
       kind: "error",
       text: "Someone already started a recording.",

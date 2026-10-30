@@ -52,23 +52,32 @@ describe("RecordingStore", () => {
       const sql = yield* SqlClient.SqlClient;
 
       const active = yield* store.activeRecording;
-      assert.deepStrictEqual(active, Option.some({ id: RECORDING, startedAt: minute(0), startedBy: "u1" }));
+      assert.deepStrictEqual(
+        active,
+        Option.some({ id: RECORDING, startedAt: minute(0), startedBy: "u1" }),
+      );
 
       const [member] = yield* sql`SELECT user_id, display_name FROM office.members`;
       assert.deepStrictEqual(member, { userId: "u1", displayName: "Ada" });
 
-      const events = yield* sql`SELECT event, reason, user_id FROM office.recording_events ORDER BY id`;
+      const events =
+        yield* sql`SELECT event, reason, user_id FROM office.recording_events ORDER BY id`;
+
       assert.deepStrictEqual(events, [{ event: "started", reason: null, userId: "u1" }]);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("allows only one recording at a time", () =>
     Effect.gen(function* () {
       const store = yield* started;
 
-      const second = yield* store.startRecording(newRecording("8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10")).pipe(Effect.flip);
+      const second = yield* store
+        .startRecording(newRecording("8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10"))
+        .pipe(Effect.flip);
 
       assert.include(second.reason, "recordings_active");
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("stops a recording with its reason and who stopped it, once", () =>
     Effect.gen(function* () {
@@ -81,14 +90,19 @@ describe("RecordingStore", () => {
       assert.deepStrictEqual(yield* store.activeRecording, Option.none());
 
       const [row] = yield* sql`SELECT stopped_at, stop_reason, stopped_by FROM office.recordings`;
-      assert.deepStrictEqual(row, { stoppedAt: DateTime.toDate(minute(5)), stopReason: "requested", stoppedBy: "u2" });
+      assert.deepStrictEqual(row, {
+        stoppedAt: DateTime.toDate(minute(5)),
+        stopReason: "requested",
+        stoppedBy: "u2",
+      });
 
       const events = yield* sql`SELECT event, reason FROM office.recording_events ORDER BY id`;
       assert.deepStrictEqual(
         events.map((event) => event.event),
         ["started", "stopped", "stopped"],
       );
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("lists stopped recordings until they're finished", () =>
     Effect.gen(function* () {
@@ -108,7 +122,8 @@ describe("RecordingStore", () => {
         finishedAt: minute(6),
       });
       assert.deepStrictEqual(yield* store.unfinishedRecordings, []);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("records a resume as an event", () =>
     Effect.gen(function* () {
@@ -122,28 +137,42 @@ describe("RecordingStore", () => {
         { event: "started", at: DateTime.toDate(minute(0)) },
         { event: "resumed", at: DateTime.toDate(minute(3)) },
       ]);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("stores clips with their member and queues the pending ones in order", () =>
     Effect.gen(function* () {
       const store = yield* started;
 
       const first = yield* store.addClip(clip());
-      const skipped = yield* store.addClip(clip({ userId: "u1", displayName: "Ada", startedAt: minute(2), transcription: "skipped" }));
+
+      const skipped = yield* store.addClip(
+        clip({ userId: "u1", displayName: "Ada", startedAt: minute(2), transcription: "skipped" }),
+      );
+
       const second = yield* store.addClip(clip({ startedAt: minute(3), objectPath: null }));
 
       assert.notStrictEqual(first, skipped);
       assert.strictEqual(yield* store.outstandingClips(RECORDING), 2);
 
       const next = yield* store.nextPendingClip;
-      assert.deepStrictEqual(next, Option.some({ id: first, recordingId: RECORDING, objectPath: clip().objectPath, attempts: 0 }));
+      assert.deepStrictEqual(
+        next,
+        Option.some({
+          id: first,
+          recordingId: RECORDING,
+          objectPath: clip().objectPath,
+          attempts: 0,
+        }),
+      );
 
       yield* store.clipTranscribed(first, minute(4), "Hello there", "whisper");
 
       const afterFirst = yield* store.nextPendingClip;
       assert.strictEqual(Option.getOrThrow(afterFirst).id, second);
       assert.isNull(Option.getOrThrow(afterFirst).objectPath);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("writes a clip only once when the same one is added again", () =>
     Effect.gen(function* () {
@@ -154,33 +183,45 @@ describe("RecordingStore", () => {
 
       assert.strictEqual(again, first);
       assert.strictEqual(yield* store.outstandingClips(RECORDING), 1);
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
-  it.effect("keeps a failed clip pending until the attempts run out, or right away when told to", () =>
-    Effect.gen(function* () {
-      const store = yield* started;
-      const sql = yield* SqlClient.SqlClient;
+  it.effect(
+    "keeps a failed clip pending until the attempts run out, or right away when told to",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* started;
+        const sql = yield* SqlClient.SqlClient;
 
-      const retried = yield* store.addClip(clip());
-      const hopeless = yield* store.addClip(clip({ startedAt: minute(2) }));
+        const retried = yield* store.addClip(clip());
+        const hopeless = yield* store.addClip(clip({ startedAt: minute(2) }));
 
-      for (let attempt = 1; attempt < MAX_TRANSCRIPTION_ATTEMPTS; attempt += 1) {
-        yield* store.clipFailed(retried, `attempt ${attempt}`, false);
-      }
+        for (let attempt = 1; attempt < MAX_TRANSCRIPTION_ATTEMPTS; attempt += 1) {
+          yield* store.clipFailed(retried, `attempt ${attempt}`, false);
+        }
 
-      const [stillPending] = yield* sql`SELECT transcription, attempts, last_error FROM office.recording_clips WHERE id = ${retried}`;
-      assert.deepStrictEqual(stillPending, { transcription: "pending", attempts: MAX_TRANSCRIPTION_ATTEMPTS - 1, lastError: "attempt 9" });
+        const [stillPending] =
+          yield* sql`SELECT transcription, attempts, last_error FROM office.recording_clips WHERE id = ${retried}`;
 
-      yield* store.clipFailed(retried, "last straw", false);
-      yield* store.clipFailed(hopeless, "no audio", true);
+        assert.deepStrictEqual(stillPending, {
+          transcription: "pending",
+          attempts: MAX_TRANSCRIPTION_ATTEMPTS - 1,
+          lastError: "attempt 9",
+        });
 
-      const rows = yield* sql`SELECT transcription, attempts FROM office.recording_clips ORDER BY id`;
-      assert.deepStrictEqual(rows, [
-        { transcription: "failed", attempts: MAX_TRANSCRIPTION_ATTEMPTS },
-        { transcription: "failed", attempts: 1 },
-      ]);
-      assert.strictEqual(yield* store.outstandingClips(RECORDING), 0);
-    }).pipe(Effect.provide(TestLayer)));
+        yield* store.clipFailed(retried, "last straw", false);
+        yield* store.clipFailed(hopeless, "no audio", true);
+
+        const rows =
+          yield* sql`SELECT transcription, attempts FROM office.recording_clips ORDER BY id`;
+
+        assert.deepStrictEqual(rows, [
+          { transcription: "failed", attempts: MAX_TRANSCRIPTION_ATTEMPTS },
+          { transcription: "failed", attempts: 1 },
+        ]);
+        assert.strictEqual(yield* store.outstandingClips(RECORDING), 0);
+      }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("reads the clips of a recording in order with office names", () =>
     Effect.gen(function* () {
@@ -188,7 +229,10 @@ describe("RecordingStore", () => {
       const sql = yield* SqlClient.SqlClient;
 
       const later = yield* store.addClip(clip({ startedAt: minute(3) }));
-      const earlier = yield* store.addClip(clip({ userId: "u1", displayName: "Ada", startedAt: minute(1) }));
+
+      const earlier = yield* store.addClip(
+        clip({ userId: "u1", displayName: "Ada", startedAt: minute(1) }),
+      );
 
       yield* store.clipTranscribed(later, minute(4), "Second", "whisper");
       yield* store.clipTranscribed(earlier, minute(4), "First", "whisper");
@@ -202,7 +246,8 @@ describe("RecordingStore", () => {
           { who: "Grace Hopper", transcript: "Second", transcription: "done" },
         ],
       );
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("describes a stopped recording and stores how it was finished", () =>
     Effect.gen(function* () {
@@ -236,7 +281,9 @@ describe("RecordingStore", () => {
         finishedAt: minute(31),
       });
 
-      const [row] = yield* sql`SELECT transcript, summary, summary_model, slack_channel_id, slack_ts FROM office.recordings`;
+      const [row] =
+        yield* sql`SELECT transcript, summary, summary_model, slack_channel_id, slack_ts FROM office.recordings`;
+
       assert.deepStrictEqual(row, {
         transcript: "10:00 Ada: Hello",
         summary: "• Ada said hello",
@@ -244,7 +291,8 @@ describe("RecordingStore", () => {
         slackChannelId: "C1",
         slackTs: "1.2",
       });
-    }).pipe(Effect.provide(TestLayer)));
+    }).pipe(Effect.provide(TestLayer)),
+  );
 
   it.effect("records nothing and says so when there's no database", () =>
     Effect.gen(function* () {
@@ -252,5 +300,6 @@ describe("RecordingStore", () => {
 
       const error = yield* store.activeRecording.pipe(Effect.flip);
       assert.strictEqual(error.reason, "Nothing is recorded");
-    }).pipe(Effect.provide(RecordingStore.layerDisabled)));
+    }).pipe(Effect.provide(RecordingStore.layerDisabled)),
+  );
 });

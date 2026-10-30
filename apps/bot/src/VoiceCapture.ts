@@ -1,7 +1,24 @@
-import { EndBehaviorType, entersState, joinVoiceChannel, type VoiceConnection, VoiceConnectionStatus } from "@discordjs/voice";
+import {
+  EndBehaviorType,
+  entersState,
+  joinVoiceChannel,
+  type VoiceConnection,
+  VoiceConnectionStatus,
+} from "@discordjs/voice";
 import type { Buffer } from "node:buffer";
 
-import { Cause, Context, DateTime, Duration, Effect, Layer, Option, Queue, Schema, Stream } from "effect";
+import {
+  Cause,
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Queue,
+  Schema,
+  Stream,
+} from "effect";
 
 import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
@@ -46,7 +63,8 @@ export class VoiceCapture extends Context.Service<
         Stream.callback<Clip, CaptureError>(
           Effect.fnUntraced(function* (queue) {
             const adapterCreator = yield* Option.match(gateway.voiceAdapter, {
-              onNone: () => Effect.fail(new CaptureError({ reason: "The office voice channel wasn't found" })),
+              onNone: () =>
+                Effect.fail(new CaptureError({ reason: "The office voice channel wasn't found" })),
               onSome: Effect.succeed,
             });
 
@@ -78,7 +96,10 @@ export class VoiceCapture extends Context.Service<
 
             yield* Effect.tryPromise({
               try: () => entersState(connection, VoiceConnectionStatus.Ready, CONNECT_TIMEOUT),
-              catch: (cause) => new CaptureError({ reason: `Couldn't connect to the voice channel: ${String(cause)}` }),
+              catch: (cause) =>
+                new CaptureError({
+                  reason: `Couldn't connect to the voice channel: ${String(cause)}`,
+                }),
             });
 
             const receiver = connection.receiver;
@@ -87,7 +108,10 @@ export class VoiceCapture extends Context.Service<
               if (userId === gateway.selfUserId || receiver.subscriptions.has(userId)) return;
 
               const stream = receiver.subscribe(userId, {
-                end: { behavior: EndBehaviorType.AfterSilence, duration: Duration.toMillis(SILENCE_ENDS_CLIP) },
+                end: {
+                  behavior: EndBehaviorType.AfterSilence,
+                  duration: Duration.toMillis(SILENCE_ENDS_CLIP),
+                },
               });
 
               let startedAt = DateTime.nowUnsafe();
@@ -117,7 +141,9 @@ export class VoiceCapture extends Context.Service<
 
             receiver.speaking.on("start", onSpeakingStart);
 
-            yield* Effect.addFinalizer(() => Effect.sync(() => receiver.speaking.off("start", onSpeakingStart)));
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => receiver.speaking.off("start", onSpeakingStart)),
+            );
           }),
         );
 

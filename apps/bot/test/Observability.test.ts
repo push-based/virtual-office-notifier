@@ -11,7 +11,16 @@ import { OfficeHistory } from "../src/OfficeHistory.ts";
 import { program } from "../src/Program.ts";
 import { Recorder } from "../src/Recorder.ts";
 import { Responder } from "../src/Responder.ts";
-import { firstVariant, makeFakeSlack, ok, type Reply, respond, SLACK_ENV, slackError, withEnv } from "./fakes.ts";
+import {
+  firstVariant,
+  makeFakeSlack,
+  ok,
+  type Reply,
+  respond,
+  SLACK_ENV,
+  slackError,
+  withEnv,
+} from "./fakes.ts";
 
 const OFFICE = "office";
 
@@ -68,7 +77,16 @@ const runWithSentry = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>
     yield* Queue.end(queue);
 
     const fiber = yield* program.pipe(
-      Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, ActivityRecorder.layerDisabled, OfficeHistory.layerDisabled, Responder.layerNone, Recorder.layerNone)),
+      Effect.provide(
+        Layer.mergeAll(
+          DiscordGateway.layerTest({ updates: queue }),
+          slack.layer,
+          ActivityRecorder.layerDisabled,
+          OfficeHistory.layerDisabled,
+          Responder.layerNone,
+          Recorder.layerNone,
+        ),
+      ),
       Effect.forkChild,
     );
 
@@ -94,7 +112,8 @@ describe("Sentry", () => {
       );
       assert.isTrue(spans.every((span) => span.trace_id === announce?.trace_id));
       assert.notInclude(JSON.stringify(spans), SLACK_ENV.SLACK_BOT_TOKEN);
-    }));
+    }),
+  );
 
   it.effect("sends logs, linked to the announcement's trace", () =>
     Effect.gen(function* () {
@@ -104,7 +123,8 @@ describe("Sentry", () => {
       const announce = spans.find((span) => span.name === "Program.announce");
       assert.strictEqual(announced?.level, "info");
       assert.strictEqual(announced?.attributes?.["sentry.trace.parent_span_id"], announce?.span_id);
-    }));
+    }),
+  );
 
   it.effect("reports revoked Slack access as an error", () =>
     Effect.gen(function* () {
@@ -112,10 +132,14 @@ describe("Sentry", () => {
 
       assert.strictEqual(events.length, 1);
       assert.strictEqual(events[0]?.level, "error");
-      assert.strictEqual(events[0]?.exception?.values?.[0]?.value, "Slack rejected the post: AccessRevoked");
+      assert.strictEqual(
+        events[0]?.exception?.values?.[0]?.value,
+        "Slack rejected the post: AccessRevoked",
+      );
       assert.deepStrictEqual(events[0]?.extra, { reason: "AccessRevoked" });
       assert.notInclude(JSON.stringify(events), SLACK_ENV.SLACK_BOT_TOKEN);
-    }));
+    }),
+  );
 
   it.effect("reports giving up after retries as a warning", () =>
     Effect.gen(function* () {
@@ -123,6 +147,10 @@ describe("Sentry", () => {
 
       assert.strictEqual(events.length, 1);
       assert.strictEqual(events[0]?.level, "warning");
-      assert.strictEqual(events[0]?.exception?.values?.[0]?.value, "Gave up posting to Slack after retries: Unavailable");
-    }));
+      assert.strictEqual(
+        events[0]?.exception?.values?.[0]?.value,
+        "Gave up posting to Slack after retries: Unavailable",
+      );
+    }),
+  );
 });

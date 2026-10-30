@@ -7,7 +7,9 @@ import { RecorderSession } from "./session";
 export const sessionInterceptor: HttpInterceptorFn = (request, next) => {
   const token = inject(RecorderSession).token();
 
-  return next(token === null ? request : request.clone({ setHeaders: { authorization: `Bearer ${token}` } }));
+  return next(
+    token === null ? request : request.clone({ setHeaders: { authorization: `Bearer ${token}` } }),
+  );
 };
 
 export const apiErrorInterceptor: HttpInterceptorFn = (request, next) =>
@@ -15,7 +17,11 @@ export const apiErrorInterceptor: HttpInterceptorFn = (request, next) =>
     catchError((error) =>
       throwError(() =>
         error instanceof HttpErrorResponse
-          ? new Error(error.status > 0 ? `${request.url} answered ${error.status}` : `${request.url} didn't answer`)
+          ? new Error(
+              error.status > 0
+                ? `${request.url} answered ${error.status}`
+                : `${request.url} didn't answer`,
+            )
           : error,
       ),
     ),

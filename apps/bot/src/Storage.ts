@@ -31,7 +31,10 @@ export const StorageLayer = Layer.unwrap(
     const { url } = yield* DatabaseConfig;
 
     return Option.match(url, {
-      onNone: () => disabled.pipe(Layer.tap(() => Effect.logInfo("DATABASE_URL isn't set, so nothing is recorded"))),
+      onNone: () =>
+        disabled.pipe(
+          Layer.tap(() => Effect.logInfo("DATABASE_URL isn't set, so nothing is recorded")),
+        ),
       onSome: (url) =>
         Layer.mergeAll(
           ActivityRecorder.layerNoDeps,
@@ -46,7 +49,11 @@ export const StorageLayer = Layer.unwrap(
               Layer.tap(() =>
                 Effect.logError("Couldn't create the database client, so nothing is recorded").pipe(
                   Effect.annotateLogs({ reason: describeError(error) }),
-                  Effect.andThen(ErrorReporter.report(Cause.fail(new RecordingDisabled({ reason: describeError(error) })))),
+                  Effect.andThen(
+                    ErrorReporter.report(
+                      Cause.fail(new RecordingDisabled({ reason: describeError(error) })),
+                    ),
+                  ),
                 ),
               ),
             ),

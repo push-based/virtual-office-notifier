@@ -19,14 +19,18 @@ const fakeModel = (name: string, reply: Reply, calls: Ref.Ref<ReadonlyArray<stri
     Layer.effect(
       LanguageModel.LanguageModel,
       LanguageModel.make({
-        generateText: () => Ref.update(calls, (sent) => [...sent, name]).pipe(Effect.andThen(reply)),
+        generateText: () =>
+          Ref.update(calls, (sent) => [...sent, name]).pipe(Effect.andThen(reply)),
         streamText: () => Stream.empty,
       }),
     ),
   );
 
 // Tries the models in the order given.
-const inOrder = Effect.provideService(Random.Random, { nextIntUnsafe: () => 0, nextDoubleUnsafe: () => 0.99 });
+const inOrder = Effect.provideService(Random.Random, {
+  nextIntUnsafe: () => 0,
+  nextDoubleUnsafe: () => 0.99,
+});
 
 // Each provider is a list of named models and their replies.
 const makeProviders = Effect.fnUntraced(function* (
@@ -37,17 +41,25 @@ const makeProviders = Effect.fnUntraced(function* (
   const writer = yield* Effect.service(HeadlineWriter).pipe(
     Effect.provide(
       HeadlineWriter.layerProviders(
-        Array.map(providers, (models) => Array.map(models, ([name, reply]) => fakeModel(name, reply, calls))),
+        Array.map(providers, (models) =>
+          Array.map(models, ([name, reply]) => fakeModel(name, reply, calls)),
+        ),
       ),
     ),
   );
 
-  return { writer, write: (event: OfficeEvent) => writer.write(event).pipe(inOrder), calls: Ref.get(calls) };
+  return {
+    writer,
+    write: (event: OfficeEvent) => writer.write(event).pipe(inOrder),
+    calls: Ref.get(calls),
+  };
 });
 
 // One provider whose models are named model-1, model-2 and so on.
 const makeWriter = (first: Reply, ...rest: ReadonlyArray<Reply>) =>
-  makeProviders([Array.map(Array.prepend(rest, first), (reply, index) => [`model-${index + 1}`, reply] as const)]);
+  makeProviders([
+    Array.map(Array.prepend(rest, first), (reply, index) => [`model-${index + 1}`, reply] as const),
+  ]);
 
 const modelDown: Reply = Effect.fail(
   AiError.make({
@@ -83,7 +95,12 @@ const cloudflareAllocationSpent: Reply = Effect.fail(
       http: {
         body: JSON.stringify({
           success: false,
-          errors: [{ code: 4006, message: "you have used up your daily free allocation of 10,000 neurons" }],
+          errors: [
+            {
+              code: 4006,
+              message: "you have used up your daily free allocation of 10,000 neurons",
+            },
+          ],
         }),
       },
     }),
@@ -104,18 +121,28 @@ describe("OpenedReply", () => {
 
   it("rejects a reply without a button label, or with extra lines", () => {
     assert.isTrue(Option.isNone(decode("🛋️ {name} saved you a seat!")));
-    assert.isTrue(Option.isNone(decode("🛋️ {name} saved you a seat!\n🪑 Grab a seat\nHope you like it!")));
+    assert.isTrue(
+      Option.isNone(decode("🛋️ {name} saved you a seat!\n🪑 Grab a seat\nHope you like it!")),
+    );
   });
 
   it("rejects a headline without the placeholder, or with it twice", () => {
-    assert.isTrue(Option.isNone(decode("🎉 Someone opened the office, come along!\n🪑 Grab a seat")));
-    assert.isTrue(Option.isNone(decode("🎉 {name} opened the office. Say hi to {name}!\n🪑 Grab a seat")));
+    assert.isTrue(
+      Option.isNone(decode("🎉 Someone opened the office, come along!\n🪑 Grab a seat")),
+    );
+    assert.isTrue(
+      Option.isNone(decode("🎉 {name} opened the office. Say hi to {name}!\n🪑 Grab a seat")),
+    );
   });
 
   it("rejects Slack link syntax and overlong lines", () => {
     assert.isTrue(Option.isNone(decode("🎉 {name} opened the office <!channel>\n🪑 Grab a seat")));
     assert.isTrue(Option.isNone(decode(`🎉 {name} ${"very ".repeat(40)}open\n🪑 Grab a seat`)));
-    assert.isTrue(Option.isNone(decode("🎉 {name} opened the office\n🪑 Grab a seat in the virtual office right now")));
+    assert.isTrue(
+      Option.isNone(
+        decode("🎉 {name} opened the office\n🪑 Grab a seat in the virtual office right now"),
+      ),
+    );
   });
 });
 
@@ -140,7 +167,9 @@ describe("BanterReply", () => {
 
   it("accepts a message that names people", () => {
     assert.deepStrictEqual(
-      decode("🎙️ Linus has toggled mute 16 times since 10:10. That switch is getting a workout.\n🎚️ Join the rhythm"),
+      decode(
+        "🎙️ Linus has toggled mute 16 times since 10:10. That switch is getting a workout.\n🎚️ Join the rhythm",
+      ),
       Option.some([
         "🎙️ Linus has toggled mute 16 times since 10:10. That switch is getting a workout.",
         "🎚️ Join the rhythm",
@@ -171,23 +200,33 @@ const reminder = OfficeEvent.Reminder({ guildId: "g1", channelId: "c1", at: open
 describe("HeadlineWriter", () => {
   it.effect("writes headlines for an emptied office and the reminder", () =>
     Effect.gen(function* () {
-      const { write } = yield* makeWriter(says("🌙 The virtual office is quiet. Come back!\n🔦 Light it up"));
+      const { write } = yield* makeWriter(
+        says("🌙 The virtual office is quiet. Come back!\n🔦 Light it up"),
+      );
 
       assert.deepStrictEqual(
         yield* write(emptied),
-        Option.some({ template: "🌙 The virtual office is quiet. Come back!", button: "🔦 Light it up", model: "model-1" }),
+        Option.some({
+          template: "🌙 The virtual office is quiet. Come back!",
+          button: "🔦 Light it up",
+          model: "model-1",
+        }),
       );
       assert.isTrue(Option.isSome(yield* write(reminder)));
-    }));
+    }),
+  );
 
   it.effect("only lets an opened office's headline name someone", () =>
     Effect.gen(function* () {
-      const { write } = yield* makeWriter(says("🌙 {name} left the virtual office. Come back!\n🔦 Light it up"));
+      const { write } = yield* makeWriter(
+        says("🌙 {name} left the virtual office. Come back!\n🔦 Light it up"),
+      );
 
       assert.isTrue(Option.isSome(yield* write(opened)));
       assert.isTrue(Option.isNone(yield* write(emptied)));
       assert.isTrue(Option.isNone(yield* write(reminder)));
-    }));
+    }),
+  );
 
   it.effect("returns the first model's headline without asking the others", () =>
     Effect.gen(function* () {
@@ -195,10 +234,15 @@ describe("HeadlineWriter", () => {
 
       assert.deepStrictEqual(
         yield* write(opened),
-        Option.some({ template: "🛋️ {name} saved you a seat in the virtual office!", button: "🪑 Grab a seat", model: "model-1" }),
+        Option.some({
+          template: "🛋️ {name} saved you a seat in the virtual office!",
+          button: "🪑 Grab a seat",
+          model: "model-1",
+        }),
       );
       assert.deepStrictEqual(yield* calls, ["model-1"]);
-    }));
+    }),
+  );
 
   it.effect("credits the model a router picked, not the router", () =>
     Effect.gen(function* () {
@@ -213,7 +257,8 @@ describe("HeadlineWriter", () => {
         Option.map(yield* write(opened), ({ model }) => model),
         Option.some("vendor/picked-model:free"),
       );
-    }));
+    }),
+  );
 
   it.effect("moves on to the next model when one fails", () =>
     Effect.gen(function* () {
@@ -221,7 +266,8 @@ describe("HeadlineWriter", () => {
 
       assert.isTrue(Option.isSome(yield* write(opened)));
       assert.deepStrictEqual(yield* calls, ["model-1", "model-2", "model-3"]);
-    }));
+    }),
+  );
 
   it.effect("stops trying models once the daily free limit is hit", () =>
     Effect.gen(function* () {
@@ -229,7 +275,8 @@ describe("HeadlineWriter", () => {
 
       assert.isTrue(Option.isNone(yield* write(opened)));
       assert.deepStrictEqual(yield* calls, ["model-1"]);
-    }));
+    }),
+  );
 
   it.effect("stops trying Cloudflare's models once its daily free allocation is spent", () =>
     Effect.gen(function* () {
@@ -237,7 +284,8 @@ describe("HeadlineWriter", () => {
 
       assert.isTrue(Option.isNone(yield* write(opened)));
       assert.deepStrictEqual(yield* calls, ["model-1"]);
-    }));
+    }),
+  );
 
   it.effect("stops at the daily limit even after other failures", () =>
     Effect.gen(function* () {
@@ -245,7 +293,8 @@ describe("HeadlineWriter", () => {
 
       assert.isTrue(Option.isNone(yield* write(opened)));
       assert.deepStrictEqual(yield* calls, ["model-1", "model-2"]);
-    }));
+    }),
+  );
 
   it.effect("moves on to the next model when a headline is unusable", () =>
     Effect.gen(function* () {
@@ -256,7 +305,8 @@ describe("HeadlineWriter", () => {
 
       assert.isTrue(Option.isSome(yield* write(opened)));
       assert.deepStrictEqual(yield* calls, ["model-1", "model-2"]);
-    }));
+    }),
+  );
 
   it.effect("moves on to the next model after a minute", () =>
     Effect.gen(function* () {
@@ -271,14 +321,24 @@ describe("HeadlineWriter", () => {
 
       assert.isTrue(Option.isSome(yield* Fiber.join(fiber)));
       assert.deepStrictEqual(yield* calls, ["model-1", "model-2"]);
-    }));
+    }),
+  );
 
   it.effect("tries every model once, preferring the first", () =>
     Effect.gen(function* () {
-      const { writer, calls } = yield* makeWriter(modelDown, modelDown, modelDown, modelDown, modelDown);
+      const { writer, calls } = yield* makeWriter(
+        modelDown,
+        modelDown,
+        modelDown,
+        modelDown,
+        modelDown,
+      );
+
       const runs = 200;
 
-      yield* Effect.replicateEffect(writer.write(opened), runs, { discard: true }).pipe(Random.withSeed("order"));
+      yield* Effect.replicateEffect(writer.write(opened), runs, { discard: true }).pipe(
+        Random.withSeed("order"),
+      );
 
       const perRun = Array.chunksOf(yield* calls, 5);
       const firsts = perRun.map(Array.headNonEmpty);
@@ -287,7 +347,8 @@ describe("HeadlineWriter", () => {
       assert.isTrue(perRun.every((tried) => new Set(tried).size === 5));
       assert.isAbove(firsts.filter((model) => model === "model-1").length, runs / 2);
       assert.includeMembers(firsts, ["model-2", "model-3", "model-4", "model-5"]);
-    }));
+    }),
+  );
 
   it.effect("falls back to the next provider once the first one's models fail", () =>
     Effect.gen(function* () {
@@ -304,17 +365,27 @@ describe("HeadlineWriter", () => {
         Option.some("cloudflare-1"),
       );
       assert.deepStrictEqual(yield* calls, ["openrouter-1", "openrouter-2", "cloudflare-1"]);
-    }));
+    }),
+  );
 
   it.effect("may try the providers in either order", () =>
     Effect.gen(function* () {
-      const { writer, calls } = yield* makeProviders([[["openrouter-1", good]], [["cloudflare-1", good]]]);
+      const { writer, calls } = yield* makeProviders([
+        [["openrouter-1", good]],
+        [["cloudflare-1", good]],
+      ]);
 
       yield* writer.write(opened).pipe(inOrder);
-      yield* writer.write(opened).pipe(Effect.provideService(Random.Random, { nextIntUnsafe: () => 0, nextDoubleUnsafe: () => 0 }));
+      yield* writer.write(opened).pipe(
+        Effect.provideService(Random.Random, {
+          nextIntUnsafe: () => 0,
+          nextDoubleUnsafe: () => 0,
+        }),
+      );
 
       assert.deepStrictEqual(yield* calls, ["openrouter-1", "cloudflare-1"]);
-    }));
+    }),
+  );
 
   it.effect("skips only the rest of a provider's models at its daily limit", () =>
     Effect.gen(function* () {
@@ -331,7 +402,8 @@ describe("HeadlineWriter", () => {
         Option.some("cloudflare-1"),
       );
       assert.deepStrictEqual(yield* calls, ["openrouter-1", "cloudflare-1"]);
-    }));
+    }),
+  );
 
   it.effect("falls back to the fixed headlines when every model fails", () =>
     Effect.gen(function* () {
@@ -339,7 +411,8 @@ describe("HeadlineWriter", () => {
 
       assert.isTrue(Option.isNone(yield* write(opened)));
       assert.deepStrictEqual(yield* calls, ["model-1", "model-2"]);
-    }));
+    }),
+  );
 
   it.effect("reports a warning when every model fails, but not when one succeeds", () =>
     Effect.gen(function* () {
@@ -358,7 +431,8 @@ describe("HeadlineWriter", () => {
           severity: "Warn",
         },
       ]);
-    }));
+    }),
+  );
 
   it.effect("starts from the first model again on the next headline", () =>
     Effect.gen(function* () {
@@ -368,7 +442,8 @@ describe("HeadlineWriter", () => {
       yield* write(opened);
 
       assert.deepStrictEqual(yield* calls, ["model-1", "model-2", "model-1", "model-2"]);
-    }));
+    }),
+  );
 
   it.effect("writes banter with its own models, which see the log and the names in it", () =>
     Effect.gen(function* () {
@@ -392,23 +467,36 @@ describe("HeadlineWriter", () => {
       );
 
       const writer = yield* Effect.service(HeadlineWriter).pipe(
-        Effect.provide(HeadlineWriter.layerProviders([[fakeModel("headline-model", good, calls)]], [[banterModel]])),
+        Effect.provide(
+          HeadlineWriter.layerProviders(
+            [[fakeModel("headline-model", good, calls)]],
+            [[banterModel]],
+          ),
+        ),
       );
 
       assert.deepStrictEqual(
         yield* writer.write(banter).pipe(inOrder),
-        Option.some({ template: "🐦 Ada was first in again today.", button: "⏰ Beat Ada tomorrow", model: "banter-model" }),
+        Option.some({
+          template: "🐦 Ada was first in again today.",
+          button: "⏰ Beat Ada tomorrow",
+          model: "banter-model",
+        }),
       );
       yield* writer.write(opened).pipe(inOrder);
 
       assert.deepStrictEqual(yield* Ref.get(calls), ["banter-model", "headline-model"]);
       assert.include(yield* Ref.get(prompt), "Ada Joined");
-    }));
+    }),
+  );
 
   it.effect("uses the headline models for banter when it has none of its own", () =>
     Effect.gen(function* () {
-      const { write } = yield* makeWriter(says("🐦 Ada was first in again today.\n⏰ Beat Ada tomorrow"));
+      const { write } = yield* makeWriter(
+        says("🐦 Ada was first in again today.\n⏰ Beat Ada tomorrow"),
+      );
 
       assert.isTrue(Option.isSome(yield* write(banter)));
-    }));
+    }),
+  );
 });

@@ -14,7 +14,12 @@ import {
   SchemaTransformation,
 } from "effect";
 
-import { configuredProviders, failureReason, type Providers, writeWithProviders } from "./AiWriting.ts";
+import {
+  configuredProviders,
+  failureReason,
+  type Providers,
+  writeWithProviders,
+} from "./AiWriting.ts";
 import { officeClock } from "./Banter.ts";
 import type { ClipLine, RecordingDetails } from "./RecordingStore.ts";
 import { formatDuration } from "./SlackMessage.ts";
@@ -23,9 +28,17 @@ export const MAX_SUMMARY_LENGTH = 1500;
 
 export const SummaryText = Schema.String.pipe(
   Schema.decodeTo(
-    Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_SUMMARY_LENGTH), Schema.isPattern(/^[^<>]+$/s)),
+    Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(MAX_SUMMARY_LENGTH),
+      Schema.isPattern(/^[^<>]+$/s),
+    ),
     SchemaTransformation.transform({
-      decode: (text) => text.trim().replace(/^["'“]+|["'”]+$/g, "").trim(),
+      decode: (text) =>
+        text
+          .trim()
+          .replace(/^["'“]+|["'”]+$/g, "")
+          .trim(),
       encode: identity,
     }),
   ),
@@ -70,7 +83,9 @@ export const transcriptLines = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<s
       return text === "" ? [] : [`${clock(startedAt)} ${who}: ${text}`];
     }
 
-    return transcription === "failed" ? [`${clock(startedAt)} ${who}: [couldn't be transcribed]`] : [];
+    return transcription === "failed"
+      ? [`${clock(startedAt)} ${who}: [couldn't be transcribed]`]
+      : [];
   });
 
 export const transcriptText = (details: RecordingDetails, lines: ReadonlyArray<ClipLine>): string =>
@@ -83,7 +98,8 @@ export const transcriptText = (details: RecordingDetails, lines: ReadonlyArray<C
 export const speakersOf = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<string> =>
   Array.dedupe(lines.flatMap((line) => (line.transcription === "done" ? [line.who] : [])));
 
-export const hasSpeech = (lines: ReadonlyArray<ClipLine>): boolean => transcriptLines(lines).length > 0;
+export const hasSpeech = (lines: ReadonlyArray<ClipLine>): boolean =>
+  transcriptLines(lines).length > 0;
 
 export class SummaryWriter extends Context.Service<
   SummaryWriter,
@@ -106,7 +122,9 @@ export class SummaryWriter extends Context.Service<
           },
           Effect.tapError((error) =>
             Effect.logWarning("No AI model could summarize the recording").pipe(
-              Effect.andThen(ErrorReporter.report(Cause.fail(new NoAiSummary({ reason: failureReason(error) })))),
+              Effect.andThen(
+                ErrorReporter.report(Cause.fail(new NoAiSummary({ reason: failureReason(error) }))),
+              ),
             ),
           ),
           Effect.option,
@@ -114,7 +132,10 @@ export class SummaryWriter extends Context.Service<
       }),
     );
 
-  static readonly layerNone = Layer.succeed(SummaryWriter, SummaryWriter.of({ write: () => Effect.succeedNone }));
+  static readonly layerNone = Layer.succeed(
+    SummaryWriter,
+    SummaryWriter.of({ write: () => Effect.succeedNone }),
+  );
 
   static readonly layer = Layer.unwrap(
     Effect.gen(function* () {
@@ -122,9 +143,9 @@ export class SummaryWriter extends Context.Service<
 
       return Array.match(providers, {
         onEmpty: () =>
-          Layer.effectDiscard(Effect.logInfo("No AI provider configured, so recordings get no summary")).pipe(
-            Layer.provideMerge(SummaryWriter.layerNone),
-          ),
+          Layer.effectDiscard(
+            Effect.logInfo("No AI provider configured, so recordings get no summary"),
+          ).pipe(Layer.provideMerge(SummaryWriter.layerNone)),
         onNonEmpty: SummaryWriter.layerProviders,
       });
     }),

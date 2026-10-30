@@ -42,7 +42,10 @@ export type OfficeEvent = Data.TaggedEnum<{
   Opened: OfficeMember & { readonly at: DateTime.Utc };
   // No recap when the session was already under way at startup, since we
   // missed how it started.
-  Emptied: OfficeMember & { readonly at: DateTime.Utc; readonly recap: Option.Option<SessionRecap> };
+  Emptied: OfficeMember & {
+    readonly at: DateTime.Utc;
+    readonly recap: Option.Option<SessionRecap>;
+  };
   Reminder: OfficeLocation & { readonly at: DateTime.Utc };
   Banter: OfficeLocation & BanterContext;
 }>;
@@ -126,7 +129,9 @@ export const sessionOf = (occupants: Occupants): OfficeSession => ({
   openedAt: Option.none(),
 });
 
-const unchanged = (session: OfficeSession): readonly [OfficeSession, ReadonlyArray<OfficeEvent>] => [session, []];
+const unchanged = (
+  session: OfficeSession,
+): readonly [OfficeSession, ReadonlyArray<OfficeEvent>] => [session, []];
 
 // Steps the office session by one voice state update. A join or leave we have
 // already accounted for (e.g. a duplicate event) changes nothing.
@@ -158,7 +163,10 @@ export const trackOccupancy =
         ];
       }
 
-      return [{ ...session, occupants: next, visitors: new Set(session.visitors).add(update.userId) }, []];
+      return [
+        { ...session, occupants: next, visitors: new Set(session.visitors).add(update.userId) },
+        [],
+      ];
     }
 
     if (isOfficeLeave(officeChannelId, update)) {

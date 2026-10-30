@@ -9,7 +9,10 @@ const OFFICE = "C-OFFICE";
 
 const context = { botUserId: BOT, officeChannelId: OFFICE };
 
-const envelope = (event: Record<string, string | Record<string, string>>, overrides: Record<string, number> = {}) =>
+const envelope = (
+  event: Record<string, string | Record<string, string>>,
+  overrides: Record<string, number> = {},
+) =>
   JSON.stringify({
     envelope_id: "env-1",
     type: "events_api",
@@ -45,11 +48,17 @@ describe("decodeEnvelope", () => {
 
   it("reads hello and disconnect messages, which have no envelope ID", () => {
     assert.deepStrictEqual(
-      Option.map(decodeEnvelope(JSON.stringify({ type: "hello", num_connections: 1 })), ({ type }) => type),
+      Option.map(
+        decodeEnvelope(JSON.stringify({ type: "hello", num_connections: 1 })),
+        ({ type }) => type,
+      ),
       Option.some("hello"),
     );
     assert.deepStrictEqual(
-      Option.map(decodeEnvelope(JSON.stringify({ type: "disconnect", reason: "refresh_requested" })), ({ type }) => type),
+      Option.map(
+        decodeEnvelope(JSON.stringify({ type: "disconnect", reason: "refresh_requested" })),
+        ({ type }) => type,
+      ),
       Option.some("disconnect"),
     );
   });
@@ -57,8 +66,13 @@ describe("decodeEnvelope", () => {
   it("still reads the envelope of an event it doesn't know, so it can be acked", () => {
     const decoded = decodeEnvelope(envelope({ type: "channel_rename", channel: OFFICE }));
 
-    assert.deepStrictEqual(Option.flatMap(decoded, ({ envelopeId }) => envelopeId), Option.some("env-1"));
-    assert.isTrue(Option.isNone(Option.flatMap(decoded, (event) => eligibleActivity(event, context))));
+    assert.deepStrictEqual(
+      Option.flatMap(decoded, ({ envelopeId }) => envelopeId),
+      Option.some("env-1"),
+    );
+    assert.isTrue(
+      Option.isNone(Option.flatMap(decoded, (event) => eligibleActivity(event, context))),
+    );
   });
 
   it("rejects something that isn't JSON", () => {
@@ -85,7 +99,13 @@ describe("eligibleActivity", () => {
 
   it("answers a mention, in a new thread under it when it isn't in one", () => {
     assert.deepStrictEqual(
-      activityOf({ type: "app_mention", channel: OFFICE, user: "U1", text: `<@${BOT}> who's in?`, ts: "5.0" }),
+      activityOf({
+        type: "app_mention",
+        channel: OFFICE,
+        user: "U1",
+        text: `<@${BOT}> who's in?`,
+        ts: "5.0",
+      }),
       Option.some(
         SlackActivity.Message({
           channel: OFFICE,
@@ -116,7 +136,9 @@ describe("eligibleActivity", () => {
   });
 
   it("leaves a mention in a thread under its post to the mention event", () => {
-    assert.isTrue(Option.isNone(activityOf({ ...threadReply, text: `<@${BOT}> what do you think?` })));
+    assert.isTrue(
+      Option.isNone(activityOf({ ...threadReply, text: `<@${BOT}> what do you think?` })),
+    );
   });
 
   it("ignores threads under other people's posts, and top-level messages", () => {
@@ -131,7 +153,15 @@ describe("eligibleActivity", () => {
     assert.isTrue(Option.isNone(activityOf({ ...threadReply, channel: "C-ELSEWHERE" })));
     assert.isTrue(Option.isNone(activityOf({ ...threadReply, channel: "D1", channel_type: "im" })));
     assert.isTrue(
-      Option.isNone(activityOf({ type: "app_mention", channel: "C-ELSEWHERE", user: "U1", text: `<@${BOT}>`, ts: "5.0" })),
+      Option.isNone(
+        activityOf({
+          type: "app_mention",
+          channel: "C-ELSEWHERE",
+          user: "U1",
+          text: `<@${BOT}>`,
+          ts: "5.0",
+        }),
+      ),
     );
   });
 
@@ -157,7 +187,14 @@ describe("eligibleActivity", () => {
     assert.deepStrictEqual(
       activityOf(reaction),
       Option.some(
-        SlackActivity.Reaction({ channel: OFFICE, itemTs: "1.0", userId: "U1", emoji: "joy", added: true, eventTs: "7.0" }),
+        SlackActivity.Reaction({
+          channel: OFFICE,
+          itemTs: "1.0",
+          userId: "U1",
+          emoji: "joy",
+          added: true,
+          eventTs: "7.0",
+        }),
       ),
     );
     assert.deepStrictEqual(
@@ -179,7 +216,11 @@ describe("eligibleActivity", () => {
     };
 
     assert.isTrue(Option.isNone(activityOf({ ...reaction, item_user: "U2" })));
-    assert.isTrue(Option.isNone(activityOf({ ...reaction, item: { type: "message", channel: "C2", ts: "1.0" } })));
+    assert.isTrue(
+      Option.isNone(
+        activityOf({ ...reaction, item: { type: "message", channel: "C2", ts: "1.0" } }),
+      ),
+    );
     assert.isTrue(Option.isNone(activityOf({ ...reaction, user: BOT })));
   });
 });

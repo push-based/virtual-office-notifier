@@ -17,7 +17,8 @@ export interface VoiceObservation extends TimedVoiceStateUpdate {
 export const observe = (officeChannelId: string) =>
   Filter.make(
     (update: TimedVoiceStateUpdate): Result.Result<VoiceObservation, TimedVoiceStateUpdate> =>
-      !update.isBot && (update.oldChannelId === officeChannelId || update.newChannelId === officeChannelId)
+      !update.isBot &&
+      (update.oldChannelId === officeChannelId || update.newChannelId === officeChannelId)
         ? Result.succeed({ ...update, source: "update", officeChannelId })
         : Result.fail(update),
   );

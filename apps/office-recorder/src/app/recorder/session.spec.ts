@@ -8,7 +8,9 @@ import { DISCORD_CLIENT, type DiscordClient, RecorderSession } from "./session";
 const fakeDiscord = () => ({
   ready: vi.fn<DiscordClient["ready"]>().mockResolvedValue(undefined),
   commands: {
-    authorize: vi.fn<DiscordClient["commands"]["authorize"]>().mockResolvedValue({ code: "discord-code" }),
+    authorize: vi
+      .fn<DiscordClient["commands"]["authorize"]>()
+      .mockResolvedValue({ code: "discord-code" }),
     authenticate: vi.fn<DiscordClient["commands"]["authenticate"]>(),
   },
 });
@@ -18,7 +20,11 @@ describe("RecorderSession", () => {
     const discord = fakeDiscord();
     const createDiscordClient = vi.fn(() => discord);
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: DISCORD_CLIENT, useValue: createDiscordClient }],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: DISCORD_CLIENT, useValue: createDiscordClient },
+      ],
     });
     const session = TestBed.inject(RecorderSession);
     const backend = TestBed.inject(HttpTestingController);
@@ -36,11 +42,15 @@ describe("RecorderSession", () => {
   });
 
   it("stays signed out when the Worker can't be reached", async () => {
-    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
     const session = TestBed.inject(RecorderSession);
     const signingIn = session.signIn();
 
-    TestBed.inject(HttpTestingController).expectOne("/api/config").flush(null, { status: 502, statusText: "Bad Gateway" });
+    TestBed.inject(HttpTestingController)
+      .expectOne("/api/config")
+      .flush(null, { status: 502, statusText: "Bad Gateway" });
 
     await expect(signingIn).rejects.toBeDefined();
     expect(session.token()).toBeNull();

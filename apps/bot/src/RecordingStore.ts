@@ -68,7 +68,13 @@ export interface FinishedRecording {
 }
 
 const decodeActive = Schema.decodeUnknownEffect(
-  Schema.Array(Schema.Struct({ id: Schema.String, startedAt: Schema.DateTimeUtcFromDate, startedBy: Schema.String })),
+  Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      startedAt: Schema.DateTimeUtcFromDate,
+      startedBy: Schema.String,
+    }),
+  ),
 );
 
 const decodePending = Schema.decodeUnknownEffect(
@@ -111,7 +117,9 @@ const decodeDetails = Schema.decodeUnknownEffect(
 
 const decodeIds = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: Schema.String })));
 
-const decodeCount = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ total: Schema.Number })));
+const decodeCount = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ total: Schema.Number })),
+);
 
 const notRecording = () => Effect.fail(new StoreUnavailable({ reason: "Nothing is recorded" }));
 
@@ -122,10 +130,20 @@ export class RecordingStore extends Context.Service<
     readonly unfinishedRecordings: Effect.Effect<ReadonlyArray<string>, StoreUnavailable>;
     startRecording(recording: NewRecording): Effect.Effect<void, StoreUnavailable>;
     resumeRecording(id: string, at: DateTime.Utc): Effect.Effect<void, StoreUnavailable>;
-    stopRecording(id: string, at: DateTime.Utc, reason: StopReason, by: string | null): Effect.Effect<void, StoreUnavailable>;
+    stopRecording(
+      id: string,
+      at: DateTime.Utc,
+      reason: StopReason,
+      by: string | null,
+    ): Effect.Effect<void, StoreUnavailable>;
     addClip(clip: NewClip): Effect.Effect<number, StoreUnavailable>;
     readonly nextPendingClip: Effect.Effect<Option.Option<PendingClip>, StoreUnavailable>;
-    clipTranscribed(id: number, at: DateTime.Utc, transcript: string, model: string): Effect.Effect<void, StoreUnavailable>;
+    clipTranscribed(
+      id: number,
+      at: DateTime.Utc,
+      transcript: string,
+      model: string,
+    ): Effect.Effect<void, StoreUnavailable>;
     clipFailed(id: number, error: string, final: boolean): Effect.Effect<void, StoreUnavailable>;
     outstandingClips(recordingId: string): Effect.Effect<number, StoreUnavailable>;
     clipsOf(recordingId: string): Effect.Effect<ReadonlyArray<ClipLine>, StoreUnavailable>;
@@ -146,7 +164,8 @@ export class RecordingStore extends Context.Service<
           Effect.mapError((error) => new StoreUnavailable({ reason: describeError(error) })),
           Effect.timeoutOrElse({
             duration: QUERY_TIMEOUT,
-            orElse: () => Effect.fail(new StoreUnavailable({ reason: "Timed out after 10 seconds" })),
+            orElse: () =>
+              Effect.fail(new StoreUnavailable({ reason: "Timed out after 10 seconds" })),
           }),
         );
 
@@ -165,7 +184,13 @@ export class RecordingStore extends Context.Service<
         Effect.withSpan("RecordingStore.unfinishedRecordings"),
       );
 
-      const event = (recordingId: string, at: DateTime.Utc, event: string, reason: string | null, userId: string | null) =>
+      const event = (
+        recordingId: string,
+        at: DateTime.Utc,
+        event: string,
+        reason: string | null,
+        userId: string | null,
+      ) =>
         sql`
           INSERT INTO office.recording_events ${sql.insert({ recordingId, at: DateTime.toDate(at), event, reason, userId })}
         `;
@@ -279,7 +304,9 @@ export class RecordingStore extends Context.Service<
         Effect.asVoid,
       );
 
-      const outstandingClips = Effect.fn("RecordingStore.outstandingClips")(function* (recordingId: string) {
+      const outstandingClips = Effect.fn("RecordingStore.outstandingClips")(function* (
+        recordingId: string,
+      ) {
         const rows = yield* onceReady(
           sql`
             SELECT count(*)::int AS total FROM office.recording_clips

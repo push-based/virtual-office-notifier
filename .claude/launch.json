@@ -4,14 +4,7 @@
     {
       "name": "office-recorder",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--filter",
-        "office-recorder",
-        "dev",
-        "--port",
-        "5173",
-        "--strictPort"
-      ],
+      "runtimeArgs": ["--filter", "office-recorder", "dev", "--port", "5173", "--strictPort"],
       "port": 5173,
       "env": {
         "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE": "postgres://postgres:postgres@localhost:5432/postgres"

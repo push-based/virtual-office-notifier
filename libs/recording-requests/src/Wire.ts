@@ -1,6 +1,11 @@
 export type RequestAction = "start" | "stop";
 
-export type IgnoreReason = "expired" | "not_in_office" | "already_recording" | "not_recording" | "office_empty";
+export type IgnoreReason =
+  | "expired"
+  | "not_in_office"
+  | "already_recording"
+  | "not_recording"
+  | "office_empty";
 
 export interface Occupant {
   readonly userId: string;

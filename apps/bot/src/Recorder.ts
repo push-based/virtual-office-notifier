@@ -17,7 +17,11 @@ import {
   Semaphore,
   Stream,
 } from "effect";
-import { type ActiveRecording, CHECK_INTERVAL, isOverLimit } from "recording-requests/RecordingRequest";
+import {
+  type ActiveRecording,
+  CHECK_INTERVAL,
+  isOverLimit,
+} from "recording-requests/RecordingRequest";
 import {
   type RecordingUnavailable,
   type RequestHandler,
@@ -72,21 +76,30 @@ const found = (bytes: Uint8Array): Audio => Audio.Found({ bytes });
 
 const report = (error: Error) => ErrorReporter.report(Cause.fail(error));
 
-const uploadRetry = Schedule.exponential("1 second").pipe(Schedule.upTo({ times: UPLOAD_ATTEMPTS - 1 }));
+const uploadRetry = Schedule.exponential("1 second").pipe(
+  Schedule.upTo({ times: UPLOAD_ATTEMPTS - 1 }),
+);
 
 const captureRetry = Schedule.spaced("5 seconds").pipe(
   Schedule.setInputType<CaptureError>(),
   Schedule.tap(({ input, attempt }) =>
-    Effect.logWarning("Lost the voice connection, rejoining").pipe(Effect.annotateLogs({ reason: input.reason, attempt })),
+    Effect.logWarning("Lost the voice connection, rejoining").pipe(
+      Effect.annotateLogs({ reason: input.reason, attempt }),
+    ),
   ),
 );
 
 const finishRetry = Schedule.spaced(FINISH_RETRY).pipe(
   Schedule.upTo({ times: FINISH_ATTEMPTS - 1 }),
-  Schedule.tap(({ attempt }) => Effect.logWarning("Couldn't finish the recording, trying again later").pipe(Effect.annotateLogs({ attempt }))),
+  Schedule.tap(({ attempt }) =>
+    Effect.logWarning("Couldn't finish the recording, trying again later").pipe(
+      Effect.annotateLogs({ attempt }),
+    ),
+  ),
 );
 
-const fileDate = (at: DateTime.Utc): string => DateTime.formatIso(at).slice(0, 16).replace("T", "-").replaceAll(":", "");
+const fileDate = (at: DateTime.Utc): string =>
+  DateTime.formatIso(at).slice(0, 16).replace("T", "-").replaceAll(":", "");
 
 const untilTomorrow = Effect.gen(function* () {
   const now = yield* DateTime.now;
@@ -133,7 +146,9 @@ export class Recorder extends Context.Service<
             Ref.getAndSet(storeHealthy, false).pipe(
               Effect.flatMap((wasHealthy) =>
                 wasHealthy
-                  ? Effect.logWarning(`${what}, the database isn't available`).pipe(Effect.annotateLogs({ reason: error.reason }))
+                  ? Effect.logWarning(`${what}, the database isn't available`).pipe(
+                      Effect.annotateLogs({ reason: error.reason }),
+                    )
                   : Effect.void,
               ),
             );
@@ -155,10 +170,15 @@ export class Recorder extends Context.Service<
 
             if (key === (yield* Ref.get(lastStatus))) return;
 
-            yield* requests.publishStatus(status).pipe(
-              Effect.andThen(Ref.set(lastStatus, key)),
-              Effect.catchTag("RecordingUnavailable", storeIssue("Couldn't update the recording status")),
-            );
+            yield* requests
+              .publishStatus(status)
+              .pipe(
+                Effect.andThen(Ref.set(lastStatus, key)),
+                Effect.catchTag(
+                  "RecordingUnavailable",
+                  storeIssue("Couldn't update the recording status"),
+                ),
+              );
           });
 
           const archiveClip = (recordingId: string, clip: Clip, ogg: Uint8Array) =>
@@ -171,7 +191,9 @@ export class Recorder extends Context.Service<
                   Effect.retry(uploadRetry),
                   Effect.as(Option.some(path)),
                   Effect.catchTag("ArchiveError", (error) =>
-                    Effect.logError("Couldn't archive a clip, keeping it in memory for transcription").pipe(
+                    Effect.logError(
+                      "Couldn't archive a clip, keeping it in memory for transcription",
+                    ).pipe(
                       Effect.annotateLogs({ reason: error.reason }),
                       Effect.andThen(report(error)),
                       Effect.as(Option.none<string>()),
@@ -186,9 +208,15 @@ export class Recorder extends Context.Service<
               const durationMs = opusPacketsDuration(clip.packets);
               const ogg = oggOpusFile(clip.packets);
               const occupants = yield* gateway.occupants;
-              const displayName = occupants.find((occupant) => occupant.userId === clip.userId)?.displayName ?? clip.userId;
+
+              const displayName =
+                occupants.find((occupant) => occupant.userId === clip.userId)?.displayName ??
+                clip.userId;
+
               const objectPath = yield* archiveClip(recordingId, clip, ogg);
-              const transcription = durationMs < Duration.toMillis(MIN_CLIP_DURATION) ? "skipped" : "pending";
+
+              const transcription =
+                durationMs < Duration.toMillis(MIN_CLIP_DURATION) ? "skipped" : "pending";
 
               const clipId = yield* store.addClip({
                 recordingId,
@@ -202,17 +230,24 @@ export class Recorder extends Context.Service<
               });
 
               if (transcription === "pending") {
-                if (Option.isNone(objectPath)) yield* Ref.update(audio, (all) => new Map(all).set(clipId, ogg));
+                if (Option.isNone(objectPath))
+                  yield* Ref.update(audio, (all) => new Map(all).set(clipId, ogg));
 
                 yield* Queue.offer(wake, undefined);
               }
 
               yield* Effect.logInfo("Recorded a clip").pipe(
-                Effect.annotateLogs({ durationMs, transcription, archived: Option.isSome(objectPath) }),
+                Effect.annotateLogs({
+                  durationMs,
+                  transcription,
+                  archived: Option.isSome(objectPath),
+                }),
               );
             },
             Effect.catchTag("StoreUnavailable", (error) =>
-              Effect.logError("Couldn't record a clip").pipe(Effect.annotateLogs({ reason: error.reason })),
+              Effect.logError("Couldn't record a clip").pipe(
+                Effect.annotateLogs({ reason: error.reason }),
+              ),
             ),
           );
 
@@ -221,7 +256,9 @@ export class Recorder extends Context.Service<
               Stream.runForEach((clip) => handleClip(recordingId, clip)),
               Effect.retry(captureRetry),
               Effect.catchTag("CaptureError", (error) =>
-                Effect.logError("Gave up on the voice connection").pipe(Effect.annotateLogs({ reason: error.reason })),
+                Effect.logError("Gave up on the voice connection").pipe(
+                  Effect.annotateLogs({ reason: error.reason }),
+                ),
               ),
               Effect.annotateLogs({ recordingId }),
             );
@@ -265,7 +302,9 @@ export class Recorder extends Context.Service<
                   slackTs: null,
                   finishedAt: at,
                 });
-                yield* Effect.logInfo("Nothing was said during the recording, so nothing is posted");
+                yield* Effect.logInfo(
+                  "Nothing was said during the recording, so nothing is posted",
+                );
 
                 return;
               }
@@ -275,7 +314,14 @@ export class Recorder extends Context.Service<
 
               const posted = yield* slack.postMessage({
                 channel: slackChannel,
-                ...summaryMessage({ office, startedAt, stoppedAt, startedByName, speakers: speakersOf(lines), summary }),
+                ...summaryMessage({
+                  office,
+                  startedAt,
+                  stoppedAt,
+                  startedByName,
+                  speakers: speakersOf(lines),
+                  summary,
+                }),
               });
 
               yield* slack
@@ -306,7 +352,9 @@ export class Recorder extends Context.Service<
                 })
                 .pipe(
                   Effect.catchTag("HistoryUnavailable", (error) =>
-                    Effect.logWarning("Couldn't record the Slack post").pipe(Effect.annotateLogs({ reason: error.reason })),
+                    Effect.logWarning("Couldn't record the Slack post").pipe(
+                      Effect.annotateLogs({ reason: error.reason }),
+                    ),
                   ),
                 );
 
@@ -320,7 +368,10 @@ export class Recorder extends Context.Service<
               });
 
               yield* Effect.logInfo("Posted the recording summary").pipe(
-                Effect.annotateLogs({ speakers: speakersOf(lines).length, summarized: Option.isSome(summary) }),
+                Effect.annotateLogs({
+                  speakers: speakersOf(lines).length,
+                  summarized: Option.isSome(summary),
+                }),
               );
             },
             Effect.retry(finishRetry),
@@ -363,7 +414,10 @@ export class Recorder extends Context.Service<
 
           const requestHandler: RequestHandler<StoreUnavailable, Scope.Scope> = {
             situation: Effect.gen(function* () {
-              const occupants = new Set((yield* gateway.occupants).map((occupant) => occupant.userId));
+              const occupants = new Set(
+                (yield* gateway.occupants).map((occupant) => occupant.userId),
+              );
+
               const active = Option.map(yield* Ref.get(session), ({ recording }) => recording);
 
               return { occupants, active };
@@ -371,7 +425,12 @@ export class Recorder extends Context.Service<
             start: (request) =>
               Effect.gen(function* () {
                 const startedAt = yield* DateTime.now;
-                const recording: ActiveRecording = { id: crypto.randomUUID(), startedAt, startedBy: request.requestedBy };
+
+                const recording: ActiveRecording = {
+                  id: crypto.randomUUID(),
+                  startedAt,
+                  startedBy: request.requestedBy,
+                };
 
                 yield* store.startRecording({
                   ...recording,
@@ -383,15 +442,27 @@ export class Recorder extends Context.Service<
                 return {
                   recordingId: recording.id,
                   afterCommit: beginCapture(recording).pipe(
-                    Effect.andThen(Effect.logInfo("Started recording").pipe(Effect.annotateLogs({ recordingId: recording.id }))),
+                    Effect.andThen(
+                      Effect.logInfo("Started recording").pipe(
+                        Effect.annotateLogs({ recordingId: recording.id }),
+                      ),
+                    ),
                   ),
                 };
               }),
             stop: (request, recording) =>
               Effect.gen(function* () {
-                yield* store.stopRecording(recording.id, yield* DateTime.now, "requested", request.requestedBy);
+                yield* store.stopRecording(
+                  recording.id,
+                  yield* DateTime.now,
+                  "requested",
+                  request.requestedBy,
+                );
 
-                return { recordingId: recording.id, afterCommit: endCapture.pipe(Effect.andThen(stopped(recording.id, "requested"))) };
+                return {
+                  recordingId: recording.id,
+                  afterCommit: endCapture.pipe(Effect.andThen(stopped(recording.id, "requested"))),
+                };
               }),
           };
 
@@ -400,12 +471,18 @@ export class Recorder extends Context.Service<
               const current = yield* Ref.get(session);
               const now = yield* DateTime.now;
 
-              if (Option.isSome(current) && isOverLimit(current.value.recording, now)) yield* stopRecording("time_limit", null);
+              if (Option.isSome(current) && isOverLimit(current.value.recording, now))
+                yield* stopRecording("time_limit", null);
 
               yield* requests.handlePending(requestHandler);
               yield* storeOk;
               yield* writeStatus;
-            }).pipe(Effect.catchTag(["StoreUnavailable", "RecordingUnavailable"], storeIssue("Couldn't handle recording requests"))),
+            }).pipe(
+              Effect.catchTag(
+                ["StoreUnavailable", "RecordingUnavailable"],
+                storeIssue("Couldn't handle recording requests"),
+              ),
+            ),
           );
 
           const reconcileStartup = (current: BotPresence) =>
@@ -435,7 +512,12 @@ export class Recorder extends Context.Service<
                 Effect.annotateLogs({ recordingId: active.value.id }),
               );
               yield* finish(active.value.id).pipe(Effect.forkScoped);
-            }).pipe(Effect.catchTag("StoreUnavailable", storeIssue("Couldn't check for a recording in progress")));
+            }).pipe(
+              Effect.catchTag(
+                "StoreUnavailable",
+                storeIssue("Couldn't check for a recording in progress"),
+              ),
+            );
 
           const onPresence = (next: BotPresence) =>
             mutex.withPermits(1)(
@@ -448,7 +530,10 @@ export class Recorder extends Context.Service<
                   yield* reconcileStartup(next);
                 } else if (next === "Away") {
                   yield* stopRecording("office_emptied", null).pipe(
-                    Effect.catchTag("StoreUnavailable", storeIssue("Couldn't record the end of the recording")),
+                    Effect.catchTag(
+                      "StoreUnavailable",
+                      storeIssue("Couldn't record the end of the recording"),
+                    ),
                   );
                 }
 
@@ -490,15 +575,19 @@ export class Recorder extends Context.Service<
                     }),
                   ),
                   Effect.andThen(Ref.set(unavailableAttempts, 0)),
-                  Effect.andThen(Effect.logInfo("Transcribed a clip").pipe(Effect.annotateLogs({ model, characters: text.length }))),
+                  Effect.andThen(
+                    Effect.logInfo("Transcribed a clip").pipe(
+                      Effect.annotateLogs({ model, characters: text.length }),
+                    ),
+                  ),
                 ),
               ),
               Effect.catchTag("TranscriptionError", (error) =>
                 Match.value(error.failure).pipe(
                   Match.when("DailyLimit", () =>
-                    Effect.logWarning("Workers AI's daily allocation is used up, transcription waits for the reset").pipe(
-                      Effect.andThen(untilTomorrow),
-                    ),
+                    Effect.logWarning(
+                      "Workers AI's daily allocation is used up, transcription waits for the reset",
+                    ).pipe(Effect.andThen(untilTomorrow)),
                   ),
                   Match.when("Unavailable", () =>
                     Ref.updateAndGet(unavailableAttempts, (attempts) => attempts + 1).pipe(
@@ -514,7 +603,10 @@ export class Recorder extends Context.Service<
                     store.clipFailed(clip.id, error.detail, false).pipe(
                       Effect.andThen(
                         Effect.logWarning("The transcriber rejected a clip").pipe(
-                          Effect.annotateLogs({ reason: error.detail, attempt: clip.attempts + 1 }),
+                          Effect.annotateLogs({
+                            reason: error.detail,
+                            attempt: clip.attempts + 1,
+                          }),
                         ),
                       ),
                       Effect.andThen(Effect.sleep(REJECTED_CLIP_PAUSE)),
@@ -548,7 +640,9 @@ export class Recorder extends Context.Service<
           }).pipe(
             Effect.annotateLogs({ worker: "transcription" }),
             Effect.catchTag("StoreUnavailable", (error) =>
-              storeIssue("Couldn't read the clips to transcribe")(error).pipe(Effect.andThen(Effect.sleep(TRANSCRIPTION_IDLE))),
+              storeIssue("Couldn't read the clips to transcribe")(error).pipe(
+                Effect.andThen(Effect.sleep(TRANSCRIPTION_IDLE)),
+              ),
             ),
           );
 

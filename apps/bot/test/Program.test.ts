@@ -1,5 +1,15 @@
 import { assert, describe, it } from "@effect/vitest";
-import { type Cause, Deferred, Effect, Fiber, Layer, Logger, type LogLevel, Queue, References } from "effect";
+import {
+  type Cause,
+  Deferred,
+  Effect,
+  Fiber,
+  Layer,
+  Logger,
+  type LogLevel,
+  Queue,
+  References,
+} from "effect";
 import { TestClock } from "effect/testing";
 
 import type { BotPresence } from "../src/BotPresence.ts";
@@ -10,7 +20,17 @@ import { Recorder } from "../src/Recorder.ts";
 import { Responder } from "../src/Responder.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import type { VoiceEffect } from "../src/VoiceEffect.ts";
-import { firstVariant, hang, makeFakeRecorder, makeFakeSlack, ok, type Reply, SLACK_ENV, slackError, withEnv } from "./fakes.ts";
+import {
+  firstVariant,
+  hang,
+  makeFakeRecorder,
+  makeFakeSlack,
+  ok,
+  type Reply,
+  SLACK_ENV,
+  slackError,
+  withEnv,
+} from "./fakes.ts";
 
 const OFFICE = "office";
 
@@ -85,10 +105,9 @@ const runProgram = Effect.fnUntraced(function* (
       level: options.logLevel,
       message: String(Array.isArray(options.message) ? options.message[0] : options.message),
       annotations: Object.fromEntries(
-        Object.entries(options.fiber.getRef(References.CurrentLogAnnotations)).map(([key, value]) => [
-          key,
-          String(value),
-        ]),
+        Object.entries(options.fiber.getRef(References.CurrentLogAnnotations)).map(
+          ([key, value]) => [key, String(value)],
+        ),
       ),
     });
   });
@@ -140,38 +159,52 @@ describe("program", () => {
       const { posted } = yield* runProgram([update({ oldChannelId: null })]);
 
       assert.deepStrictEqual(posted, [OPENED]);
-    }));
+    }),
+  );
 
   it.effect("posts a card with a join button and a recap when the office empties", () =>
     Effect.gen(function* () {
-      const { bodies } = yield* runProgram([update(), update({ userId: "u2" }), leave({ userId: "u2" }), leave()]);
+      const { bodies } = yield* runProgram([
+        update(),
+        update({ userId: "u2" }),
+        leave({ userId: "u2" }),
+        leave(),
+      ]);
 
       const cards = JSON.stringify(bodies);
       assert.include(cards, `"url":"https://discord.com/channels/${GUILD}/${OFFICE}"`);
       assert.include(cards, `"image_url":"https://cdn.discordapp.com/avatars/u1/a.png"`);
       assert.include(cards, "*Stopped by*\\n2 people");
-    }));
+    }),
+  );
 
   it.effect("2. announces the office opening on a move in from another voice channel", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([update({ oldChannelId: "lobby" })]);
 
       assert.deepStrictEqual(posted, [OPENED]);
-    }));
+    }),
+  );
 
   it.effect("3. ignores mute, deafen and video changes inside the office", () =>
     Effect.gen(function* () {
-      const { posted } = yield* runProgram([update({ oldChannelId: OFFICE, newChannelId: OFFICE })], [ok], [update()]);
+      const { posted } = yield* runProgram(
+        [update({ oldChannelId: OFFICE, newChannelId: OFFICE })],
+        [ok],
+        [update()],
+      );
 
       assert.deepStrictEqual(posted, []);
-    }));
+    }),
+  );
 
   it.effect("4. ignores bots joining and leaving the office", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([update({ isBot: true }), leave({ isBot: true })]);
 
       assert.deepStrictEqual(posted, []);
-    }));
+    }),
+  );
 
   it.effect("5. ignores other voice channels", () =>
     Effect.gen(function* () {
@@ -181,7 +214,8 @@ describe("program", () => {
       ]);
 
       assert.deepStrictEqual(posted, []);
-    }));
+    }),
+  );
 
   it.effect("6. shows a display name with <, > and & literally without pinging", () =>
     Effect.gen(function* () {
@@ -189,7 +223,8 @@ describe("program", () => {
 
       assert.include(posted[0], "*&lt;!channel&gt; &amp; &lt;@U1&gt;*");
       assert.notInclude(posted[0], "<!channel>");
-    }));
+    }),
+  );
 
   it.effect("7. only announces the office opening and emptying, not everyone in between", () =>
     Effect.gen(function* () {
@@ -203,39 +238,58 @@ describe("program", () => {
       ]);
 
       assert.deepStrictEqual(posted, [OPENED, EMPTIED]);
-    }));
+    }),
+  );
 
   it.effect("8. logs revoked Slack access as an error and keeps handling events", () =>
     Effect.gen(function* () {
-      const { posted, logs } = yield* runProgram([update(), leave()], [slackError("invalid_auth"), ok]);
+      const { posted, logs } = yield* runProgram(
+        [update(), leave()],
+        [slackError("invalid_auth"), ok],
+      );
 
       assert.strictEqual(posted.length, 2);
 
       const failure = logs.find((entry) => entry.level === "Error");
       assert.strictEqual(failure?.message, "Slack rejected the post");
-      assert.deepInclude(failure?.annotations, { reason: "AccessRevoked", event: "Opened", userId: "<redacted>" });
+      assert.deepInclude(failure?.annotations, {
+        reason: "AccessRevoked",
+        event: "Opened",
+        userId: "<redacted>",
+      });
 
       const success = logs.find((entry) => entry.message === "Announced office event");
-      assert.deepInclude(success?.annotations, { event: "Emptied", outcome: "posted", userId: "<redacted>" });
-    }));
+      assert.deepInclude(success?.annotations, {
+        event: "Emptied",
+        outcome: "posted",
+        userId: "<redacted>",
+      });
+    }),
+  );
 
   it.effect("reopens the office after it emptied", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([update(), leave(), update()]);
 
       assert.deepStrictEqual(posted, [OPENED, EMPTIED, OPENED]);
-    }));
+    }),
+  );
 
   it.effect("doesn't announce opening when people were already in the office at startup", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram(
-        [update({ userId: "u2", displayName: "Grace" }), leave({ userId: "u2" }), leave({ userId: "u1" })],
+        [
+          update({ userId: "u2", displayName: "Grace" }),
+          leave({ userId: "u2" }),
+          leave({ userId: "u1" }),
+        ],
         [ok],
         [update()],
       );
 
       assert.deepStrictEqual(posted, [EMPTIED]);
-    }));
+    }),
+  );
 });
 
 describe("recording", () => {
@@ -267,25 +321,44 @@ describe("recording", () => {
           { source: "update", userId: "u2", oldChannelId: OFFICE, newChannelId: "lobby" },
         ],
       );
-    }));
+    }),
+  );
 
-  it.effect("records soundboard sounds and emoji reactions in the office, leaving out bots and other channels", () =>
-    Effect.gen(function* () {
-      const { recordedEffects } = yield* runProgram([], [ok], [], [
-        effect(),
-        effect({ userId: "u2", soundId: null, soundName: null, soundVolume: null, emojiName: "🎉" }),
-        effect({ channelId: "lobby" }),
-        effect({ userId: "bot", isBot: true }),
-      ]);
+  it.effect(
+    "records soundboard sounds and emoji reactions in the office, leaving out bots and other channels",
+    () =>
+      Effect.gen(function* () {
+        const { recordedEffects } = yield* runProgram(
+          [],
+          [ok],
+          [],
+          [
+            effect(),
+            effect({
+              userId: "u2",
+              soundId: null,
+              soundName: null,
+              soundVolume: null,
+              emojiName: "🎉",
+            }),
+            effect({ channelId: "lobby" }),
+            effect({ userId: "bot", isBot: true }),
+          ],
+        );
 
-      assert.deepStrictEqual(
-        recordedEffects.map(({ userId, soundName, emojiName }) => ({ userId, soundName, emojiName })),
-        [
-          { userId: "u1", soundName: "quack", emojiName: "🦆" },
-          { userId: "u2", soundName: null, emojiName: "🎉" },
-        ],
-      );
-    }));
+        assert.deepStrictEqual(
+          recordedEffects.map(({ userId, soundName, emojiName }) => ({
+            userId,
+            soundName,
+            emojiName,
+          })),
+          [
+            { userId: "u1", soundName: "quack", emojiName: "🦆" },
+            { userId: "u2", soundName: null, emojiName: "🎉" },
+          ],
+        );
+      }),
+  );
 
   it.effect("keeps recording while a Slack post is being retried", () =>
     Effect.gen(function* () {
@@ -294,7 +367,16 @@ describe("recording", () => {
       const recorder = yield* makeFakeRecorder();
 
       const fiber = yield* program.pipe(
-        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone, Recorder.layerNone)),
+        Effect.provide(
+          Layer.mergeAll(
+            DiscordGateway.layerTest({ updates: queue }),
+            slack.layer,
+            recorder.layer,
+            OfficeHistory.layerDisabled,
+            Responder.layerNone,
+            Recorder.layerNone,
+          ),
+        ),
         withEnv(env),
         firstVariant,
         Effect.forkChild,
@@ -308,25 +390,31 @@ describe("recording", () => {
       }
 
       yield* Fiber.interrupt(fiber);
-    }));
+    }),
+  );
 });
 
 describe("bot presence", () => {
-  it.effect("never announces or records the bot itself, even when Discord leaves out that it's a bot", () =>
-    Effect.gen(function* () {
-      const { posted, recorded, recordedEffects, moves } = yield* runProgram(
-        [update({ userId: SELF, displayName: "Notifier" }), leave({ userId: SELF, displayName: "Notifier" })],
-        [ok],
-        [],
-        [effect({ userId: SELF, displayName: "Notifier" })],
-      );
+  it.effect(
+    "never announces or records the bot itself, even when Discord leaves out that it's a bot",
+    () =>
+      Effect.gen(function* () {
+        const { posted, recorded, recordedEffects, moves } = yield* runProgram(
+          [
+            update({ userId: SELF, displayName: "Notifier" }),
+            leave({ userId: SELF, displayName: "Notifier" }),
+          ],
+          [ok],
+          [],
+          [effect({ userId: SELF, displayName: "Notifier" })],
+        );
 
-      assert.deepStrictEqual(posted, []);
-      assert.deepStrictEqual(recorded, []);
-      assert.deepStrictEqual(recordedEffects, []);
-      assert.deepStrictEqual(moves, ["Away"]);
-    }));
-
+        assert.deepStrictEqual(posted, []);
+        assert.deepStrictEqual(recorded, []);
+        assert.deepStrictEqual(recordedEffects, []);
+        assert.deepStrictEqual(moves, ["Away"]);
+      }),
+  );
 
   it.effect("stays out of an empty office, joins when it opens and leaves when it empties", () =>
     Effect.gen(function* () {
@@ -340,14 +428,16 @@ describe("bot presence", () => {
       ]);
 
       assert.deepStrictEqual(moves, ["Away", "InOffice", "Away", "InOffice"]);
-    }));
+    }),
+  );
 
   it.effect("joins straight away when people are already in the office at startup", () =>
     Effect.gen(function* () {
       const { moves } = yield* runProgram([leave()], [ok], [update()]);
 
       assert.deepStrictEqual(moves, ["InOffice", "Away"]);
-    }));
+    }),
+  );
 });
 
 describe("daily reminder", () => {
@@ -358,7 +448,16 @@ describe("daily reminder", () => {
       const recorder = yield* makeFakeRecorder();
 
       const fiber = yield* program.pipe(
-        Effect.provide(Layer.mergeAll(DiscordGateway.layerTest({ updates: queue }), slack.layer, recorder.layer, OfficeHistory.layerDisabled, Responder.layerNone, Recorder.layerNone)),
+        Effect.provide(
+          Layer.mergeAll(
+            DiscordGateway.layerTest({ updates: queue }),
+            slack.layer,
+            recorder.layer,
+            OfficeHistory.layerDisabled,
+            Responder.layerNone,
+            Recorder.layerNone,
+          ),
+        ),
         withEnv(env),
         firstVariant,
         Effect.forkChild,
@@ -377,7 +476,8 @@ describe("daily reminder", () => {
       assert.deepStrictEqual(yield* slack.postedTexts, [
         "🪴 The office plant is lonely. It's been talking to itself again. Come keep it company!",
       ]);
-    }));
+    }),
+  );
 });
 
 describe("program and the Slack responder", () => {
@@ -387,14 +487,17 @@ describe("program and the Slack responder", () => {
 
       const responder = Layer.succeed(
         Responder,
-        Responder.of({ run: Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)) }),
+        Responder.of({
+          run: Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
+        }),
       );
 
       const { posted } = yield* runProgram([update()], [ok], [], [], responder);
 
       assert.strictEqual(posted.length, 1);
       assert.isTrue(yield* Deferred.isDone(started));
-    }));
+    }),
+  );
 });
 
 describe("MainLayer", () => {
@@ -409,5 +512,6 @@ describe("MainLayer", () => {
       const error = yield* Layer.build(MainLayer).pipe(Effect.scoped, withEnv(env), Effect.flip);
 
       assert.include(String(error), missing);
-    }));
+    }),
+  );
 });

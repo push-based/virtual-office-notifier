@@ -40,6 +40,9 @@ describe("observe", () => {
   it("marks it as an update for this office", () => {
     const result = observe(OFFICE)(update());
 
-    expect(Result.isSuccess(result) && result.success).toMatchObject({ source: "update", officeChannelId: OFFICE });
+    expect(Result.isSuccess(result) && result.success).toMatchObject({
+      source: "update",
+      officeChannelId: OFFICE,
+    });
   });
 });

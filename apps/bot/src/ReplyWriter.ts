@@ -13,7 +13,12 @@ import {
   SchemaTransformation,
 } from "effect";
 
-import { configuredProviders, failureReason, type Providers, writeWithProviders } from "./AiWriting.ts";
+import {
+  configuredProviders,
+  failureReason,
+  type Providers,
+  writeWithProviders,
+} from "./AiWriting.ts";
 import { banterLog } from "./Banter.ts";
 import type { BanterContext } from "./OfficeEvent.ts";
 
@@ -27,7 +32,11 @@ export const ReplyText = Schema.String.pipe(
       Schema.isPattern(/^[^<>]+$/),
     ),
     SchemaTransformation.transform({
-      decode: (text) => text.trim().replace(/^["'“]+|["'”]+$/g, "").trim(),
+      decode: (text) =>
+        text
+          .trim()
+          .replace(/^["'“]+|["'”]+$/g, "")
+          .trim(),
       encode: identity,
     }),
   ),
@@ -89,7 +98,9 @@ export const replyRequest = (context: ReplyContext): string =>
       ? ["The message isn't in a thread."]
       : [
           "The thread so far, oldest first, with your own messages as You:",
-          ...(context.earlierLeftOut === 0 ? [] : [`(${context.earlierLeftOut} earlier messages are left out.)`]),
+          ...(context.earlierLeftOut === 0
+            ? []
+            : [`(${context.earlierLeftOut} earlier messages are left out.)`]),
           ...context.thread.map(line),
         ]),
     "",
@@ -118,7 +129,9 @@ export class ReplyWriter extends Context.Service<
           },
           Effect.tapError((error) =>
             Effect.logWarning("No AI model could write a Slack reply").pipe(
-              Effect.andThen(ErrorReporter.report(Cause.fail(new NoAiReply({ reason: failureReason(error) })))),
+              Effect.andThen(
+                ErrorReporter.report(Cause.fail(new NoAiReply({ reason: failureReason(error) }))),
+              ),
             ),
           ),
           Effect.option,
@@ -126,7 +139,10 @@ export class ReplyWriter extends Context.Service<
       }),
     );
 
-  static readonly layerNone = Layer.succeed(ReplyWriter, ReplyWriter.of({ write: () => Effect.succeedNone }));
+  static readonly layerNone = Layer.succeed(
+    ReplyWriter,
+    ReplyWriter.of({ write: () => Effect.succeedNone }),
+  );
 
   static readonly layer = Layer.unwrap(
     Effect.gen(function* () {
@@ -134,9 +150,9 @@ export class ReplyWriter extends Context.Service<
 
       return Array.match(providers, {
         onEmpty: () =>
-          Layer.effectDiscard(Effect.logInfo("No AI provider configured, so Slack messages get no replies")).pipe(
-            Layer.provideMerge(ReplyWriter.layerNone),
-          ),
+          Layer.effectDiscard(
+            Effect.logInfo("No AI provider configured, so Slack messages get no replies"),
+          ).pipe(Layer.provideMerge(ReplyWriter.layerNone)),
         onNonEmpty: ReplyWriter.layerProviders,
       });
     }),

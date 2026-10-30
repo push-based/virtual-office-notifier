@@ -56,7 +56,9 @@ export const program = Effect.gen(function* () {
       Effect.withErrorReporting,
       Effect.flatMap((posted) =>
         posted
-          ? Effect.logInfo("Announced office event").pipe(Effect.annotateLogs({ outcome: "posted" }))
+          ? Effect.logInfo("Announced office event").pipe(
+              Effect.annotateLogs({ outcome: "posted" }),
+            )
           : Effect.logInfo("Nothing to announce, no AI model wrote the banter").pipe(
               Effect.annotateLogs({ outcome: "skipped" }),
             ),
@@ -77,7 +79,10 @@ export const program = Effect.gen(function* () {
   yield* responder.run.pipe(Effect.forkChild);
   yield* voiceRecorder.run.pipe(Effect.forkChild);
 
-  yield* Effect.all([announce, record, recordEffects, followOccupancy], { concurrency: "unbounded", discard: true });
+  yield* Effect.all([announce, record, recordEffects, followOccupancy], {
+    concurrency: "unbounded",
+    discard: true,
+  });
 });
 
 const RecorderLayer = Recorder.layer.pipe(

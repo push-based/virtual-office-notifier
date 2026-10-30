@@ -1,6 +1,21 @@
-import { type Array, DateTime, Duration, Effect, Filter, identity, Option, Random, Stream } from "effect";
+import {
+  type Array,
+  DateTime,
+  Duration,
+  Effect,
+  Filter,
+  identity,
+  Option,
+  Random,
+  Stream,
+} from "effect";
 
-import { type BanterContext, type BanterPeriod, OfficeEvent, type OfficeLocation } from "./OfficeEvent.ts";
+import {
+  type BanterContext,
+  type BanterPeriod,
+  OfficeEvent,
+  type OfficeLocation,
+} from "./OfficeEvent.ts";
 import { OfficeHistory } from "./OfficeHistory.ts";
 import { OFFICE_TIME_ZONE } from "./Reminder.ts";
 
@@ -26,7 +41,9 @@ const FRIDAY = 5;
 export const isBanterTime = (at: DateTime.Utc): boolean => {
   const { weekDay, hour } = DateTime.toParts(inOfficeTime(at));
 
-  return weekDay >= MONDAY && weekDay <= FRIDAY && hour >= BANTER_HOURS.from && hour < BANTER_HOURS.until;
+  return (
+    weekDay >= MONDAY && weekDay <= FRIDAY && hour >= BANTER_HOURS.from && hour < BANTER_HOURS.until
+  );
 };
 
 export const startOfOfficeDay = (at: DateTime.Utc): DateTime.Utc =>
@@ -64,7 +81,20 @@ export const periodRange = (period: BanterPeriod, at: DateTime.Utc): PeriodRange
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 const twoDigits = (value: number): string => String(value).padStart(2, "0");
 
@@ -75,7 +105,9 @@ export const officeClock = (at: DateTime.Utc): string => {
 };
 
 const whoIsPresent = (present: ReadonlyArray<string>): string =>
-  present.length === 0 ? "Nobody's in the office right now." : `In the office right now: ${present.join(", ")}.`;
+  present.length === 0
+    ? "Nobody's in the office right now."
+    : `In the office right now: ${present.join(", ")}.`;
 
 const activityHeading = (context: BanterContext, description: string): string =>
   context.olderEntriesLeftOut === 0
@@ -92,14 +124,17 @@ export const banterLog = (context: BanterContext): string => {
       ? [`Nothing happened in the office ${description}.`]
       : [
           activityHeading(context, description),
-          ...context.activityOldestFirst.map(({ at, who, event }) => `${officeClock(at)} ${who} ${event}`),
+          ...context.activityOldestFirst.map(
+            ({ at, who, event }) => `${officeClock(at)} ${who} ${event}`,
+          ),
         ]),
   ].join("\n");
 };
 
-const waitForNextChance = Random.nextIntBetween(MINUTES_BETWEEN_CHANCES.min, MINUTES_BETWEEN_CHANCES.max).pipe(
-  Effect.flatMap((minutes) => Effect.sleep(Duration.minutes(minutes))),
-);
+const waitForNextChance = Random.nextIntBetween(
+  MINUTES_BETWEEN_CHANCES.min,
+  MINUTES_BETWEEN_CHANCES.max,
+).pipe(Effect.flatMap((minutes) => Effect.sleep(Duration.minutes(minutes))));
 
 const nextBanter = Effect.fn("Banter.next")(
   function* (office: OfficeLocation) {
@@ -111,20 +146,34 @@ const nextBanter = Effect.fn("Banter.next")(
     const postedToday = yield* history.banterPostsSince(startOfOfficeDay(at));
 
     if (postedToday >= MAX_BANTER_PER_DAY) {
-      yield* Effect.logInfo("Skipped banter, there's been enough today").pipe(Effect.annotateLogs({ postedToday }));
+      yield* Effect.logInfo("Skipped banter, there's been enough today").pipe(
+        Effect.annotateLogs({ postedToday }),
+      );
 
       return Option.none<OfficeEvent>();
     }
 
     const period = yield* Random.choice(BANTER_PERIODS);
     const { from, until } = periodRange(period, at);
-    const { entriesOldestFirst, olderEntriesLeftOut } = yield* history.latestActivityBetween(from, until);
+
+    const { entriesOldestFirst, olderEntriesLeftOut } = yield* history.latestActivityBetween(
+      from,
+      until,
+    );
+
     const present = yield* history.presentSinceBotStarted;
 
     yield* history.recordBanterPost(at, period);
 
     return Option.some(
-      OfficeEvent.Banter({ ...office, at, period, activityOldestFirst: entriesOldestFirst, olderEntriesLeftOut, present }),
+      OfficeEvent.Banter({
+        ...office,
+        at,
+        period,
+        activityOldestFirst: entriesOldestFirst,
+        olderEntriesLeftOut,
+        present,
+      }),
     );
   },
   Effect.catchTag("HistoryUnavailable", (error) =>

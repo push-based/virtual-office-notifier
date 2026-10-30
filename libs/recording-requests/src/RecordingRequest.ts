@@ -14,7 +14,10 @@ export const RowId = Schema.Union([
   Schema.BigInt.pipe(
     Schema.decodeTo(
       Schema.Finite,
-      SchemaTransformation.transform({ decode: (id) => Number(id), encode: (id) => globalThis.BigInt(id) }),
+      SchemaTransformation.transform({
+        decode: (id) => Number(id),
+        encode: (id) => globalThis.BigInt(id),
+      }),
     ),
   ),
 ]);
@@ -27,7 +30,13 @@ export const RequestOutcome = Schema.Literals(["started", "stopped", "ignored"])
 
 export type RequestOutcome = typeof RequestOutcome.Type;
 
-export const IgnoreReason = Schema.Literals(["expired", "not_in_office", "already_recording", "not_recording", "office_empty"]);
+export const IgnoreReason = Schema.Literals([
+  "expired",
+  "not_in_office",
+  "already_recording",
+  "not_recording",
+  "office_empty",
+]);
 
 export type IgnoreReason = typeof IgnoreReason.Type;
 
@@ -45,7 +54,8 @@ export interface ActiveRecording {
   readonly startedBy: string;
 }
 
-export const endsAt = (recording: ActiveRecording): DateTime.Utc => DateTime.addDuration(recording.startedAt, RECORDING_LIMIT);
+export const endsAt = (recording: ActiveRecording): DateTime.Utc =>
+  DateTime.addDuration(recording.startedAt, RECORDING_LIMIT);
 
 export const isOverLimit = (recording: ActiveRecording, now: DateTime.Utc): boolean =>
   DateTime.isGreaterThanOrEqualTo(now, endsAt(recording));
@@ -70,10 +80,13 @@ export const decideRequest = (
 
   if (occupants.size === 0) return RequestDecision.Ignore({ reason: "office_empty" });
 
-  if (!occupants.has(request.requestedBy)) return RequestDecision.Ignore({ reason: "not_in_office" });
+  if (!occupants.has(request.requestedBy))
+    return RequestDecision.Ignore({ reason: "not_in_office" });
 
   if (request.action === "start") {
-    return Option.isSome(active) ? RequestDecision.Ignore({ reason: "already_recording" }) : RequestDecision.Start();
+    return Option.isSome(active)
+      ? RequestDecision.Ignore({ reason: "already_recording" })
+      : RequestDecision.Start();
   }
 
   return Option.match(active, {
@@ -123,9 +136,15 @@ export type RecordingStatus = typeof RecordingStatus.Type;
 
 export const PendingRequest = Schema.Struct({ id: Schema.Finite, outcome: Schema.Null });
 
-export const StartedRequest = Schema.Struct({ id: Schema.Finite, outcome: Schema.Literal("started") });
+export const StartedRequest = Schema.Struct({
+  id: Schema.Finite,
+  outcome: Schema.Literal("started"),
+});
 
-export const StoppedRequest = Schema.Struct({ id: Schema.Finite, outcome: Schema.Literal("stopped") });
+export const StoppedRequest = Schema.Struct({
+  id: Schema.Finite,
+  outcome: Schema.Literal("stopped"),
+});
 
 export const IgnoredRequest = Schema.Struct({
   id: Schema.Finite,
@@ -134,6 +153,11 @@ export const IgnoredRequest = Schema.Struct({
   explanation: Schema.String,
 });
 
-export const SubmittedRequest = Schema.Union([PendingRequest, StartedRequest, StoppedRequest, IgnoredRequest]);
+export const SubmittedRequest = Schema.Union([
+  PendingRequest,
+  StartedRequest,
+  StoppedRequest,
+  IgnoredRequest,
+]);
 
 export type SubmittedRequest = typeof SubmittedRequest.Type;
