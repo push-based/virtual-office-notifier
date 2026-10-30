@@ -278,7 +278,7 @@ describe("SlackClient", () => {
       const error = yield* Fiber.join(fiber);
 
       assert.instanceOf(error.reason, Transport);
-      assert.notInclude(`${error} ${JSON.stringify(error)}`, "secret");
+      assert.notInclude(`${String(error)} ${JSON.stringify(error)}`, "secret");
     }),
   );
 });

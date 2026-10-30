@@ -10,14 +10,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
           node-version-file: .nvmrc
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+          cache: true
 
       - name: Restore the task cache
         id: task-cache
@@ -28,15 +24,15 @@ jobs:
           restore-keys: |
             vite-task-${{ runner.os }}-${{ runner.arch }}-
 
-      - run: pnpm exec vp run -r typecheck
+      - run: vp run -r typecheck
 
-      - run: pnpm exec vp run check
+      - run: vp run check
 
-      - run: pnpm exec vp run -r test
+      - run: vp run -r test
 
-      - run: pnpm exec vp run -r build
+      - run: vp run -r build
 
-      - run: pnpm exec vp run office-recorder#check
+      - run: vp run office-recorder#check
 
       - name: Save the task cache
         uses: actions/cache/save@v6
@@ -67,16 +63,12 @@ jobs:
 
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: voidzero-dev/setup-vp@v1.22.0
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+          cache: true
 
-      - run: pnpm install --frozen-lockfile
-
-      - run: pnpm exec vp run office-recorder#build
+      - run: vp run office-recorder#build
 
       - uses: google-github-actions/auth@v3
         with:
@@ -85,7 +77,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - run: pnpm exec vp run bot#deploy
+      - run: vp run bot#deploy
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_OFFICE_CHANNEL_ID: ${{ secrets.DISCORD_OFFICE_CHANNEL_ID }}
@@ -99,7 +91,7 @@ jobs:
           RECORDINGS_BUCKET: ${{ secrets.RECORDINGS_BUCKET }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
-      - run: pnpm exec vp run office-recorder#deploy
+      - run: vp run office-recorder#deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_DEPLOY_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

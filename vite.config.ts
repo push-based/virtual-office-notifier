@@ -25,8 +25,12 @@ export default defineConfig({
       { name: "anti-slop", specifier: plugin("./tools/oxlint/anti-slop/index.ts") },
       { name: "anti-slop-effect", specifier: plugin("./tools/oxlint/anti-slop/effect/index.ts") },
     ],
+    options: {
+      typeAware: true,
+    },
     rules: {
       "vite-plus/prefer-vite-plus-imports": "error",
+      "typescript/unbound-method": "off",
       "oxc/no-accumulating-spread": "error",
       "anti-slop/no-array-filter-map": "error",
       "anti-slop/no-reduce-accumulator-copy": "error",
@@ -61,6 +65,9 @@ export default defineConfig({
       "**/dist/**",
       "**/.wrangler/**",
     ],
+  },
+  staged: {
+    "*": "vp check --fix",
   },
   run: {
     tasks: {

@@ -9,6 +9,7 @@ import {
   Fiber,
   Layer,
   Logger,
+  Predicate,
   Queue,
   Ref,
   References,
@@ -112,9 +113,11 @@ const captureLogs = () => {
   const logger = Logger.make<unknown, void>((options) => {
     const annotations = options.fiber.getRef(References.CurrentLogAnnotations);
 
+    const entry = annotations["entry"];
+
     messages.push({
       message: String(Array.isArray(options.message) ? options.message[0] : options.message),
-      entry: String(annotations["entry"] ?? ""),
+      entry: Predicate.isString(entry) ? entry : "",
     });
   });
 

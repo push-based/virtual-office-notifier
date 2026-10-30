@@ -24,6 +24,7 @@ describe("Config", () => {
 
       assert.strictEqual(config.officeChannelId, "123");
       assert.strictEqual(Redacted.value(config.botToken), "secret-token");
+      // oxlint-disable-next-line typescript/no-base-to-string -- the redacted string form is what this checks
       assert.notInclude(String(config.botToken), "secret-token");
     }),
   );
