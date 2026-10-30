@@ -3,7 +3,8 @@ import { CHECK_INTERVAL_MS, REQUEST_EXPIRY_MS } from "recording-requests/wire";
 import { type Observable, of, throwError } from "rxjs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import type { RecordingStatus, RequestAction, SubmittedRequest } from "./models";
+import { describePresence, type Presence } from "./describe-presence";
+import type { RecordingStatus, RequestAction, RunningRecording, SubmittedRequest } from "./models";
 import { OfficeStore } from "./office-store";
 import { RecorderApi } from "./recorder-api";
 import { RecorderSession } from "./session";
@@ -16,26 +17,19 @@ const idle: RecordingStatus = {
   updatedAt: "2026-10-27T12:00:00Z",
 };
 
-const recording: RecordingStatus = {
-  ...idle,
-  recording: {
-    id: "1",
-    startedAt: "2026-10-27T12:00:00Z",
-    startedByName: "Chris",
-    endsAt: "2026-10-27T16:00:00Z",
-    pause: null,
-  },
+const chris: RunningRecording = {
+  id: "1",
+  startedAt: "2026-10-27T12:00:00Z",
+  startedByName: "Chris",
+  endsAt: "2026-10-27T16:00:00Z",
+  pause: null,
 };
+
+const recording: RecordingStatus = { ...idle, recording: chris };
 
 const paused: RecordingStatus = {
   ...idle,
-  recording: {
-    id: "1",
-    startedAt: "2026-10-27T12:00:00Z",
-    startedByName: "Chris",
-    endsAt: "2026-10-27T16:00:00Z",
-    pause: { since: "2026-10-27T12:20:00Z", byName: "Ben" },
-  },
+  recording: { ...chris, pause: { since: "2026-10-27T12:20:00Z", byName: "Ben" } },
 };
 
 const pending: SubmittedRequest = { id: 7, outcome: null };
@@ -48,7 +42,10 @@ const fakeApi = () => ({
 
 type FakeApi = ReturnType<typeof fakeApi>;
 
-const fakeSession = () => ({ signIn: vi.fn<() => Promise<void>>().mockResolvedValue(undefined) });
+const fakeSession = () => ({
+  signIn: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+  showPresence: vi.fn<(presence: Presence) => Promise<void>>().mockResolvedValue(undefined),
+});
 
 const setup = (api: FakeApi, session = fakeSession()) => {
   TestBed.configureTestingModule({
@@ -62,8 +59,8 @@ const setup = (api: FakeApi, session = fakeSession()) => {
   return { store: TestBed.inject(OfficeStore), timing: TestBed.inject(RECORDER_TIMING) };
 };
 
-const started = async (api: FakeApi) => {
-  const context = setup(api);
+const started = async (api: FakeApi, session = fakeSession()) => {
+  const context = setup(api, session);
 
   await context.store.start();
   await vi.advanceTimersByTimeAsync(0);
@@ -109,6 +106,42 @@ describe("OfficeStore", () => {
 
     expect(store.phase()).toEqual({ kind: "recording", recording: recording.recording });
     expect(store.recording()).toBe(true);
+  });
+
+  it("shows the office in the Rich Presence once per phase", async () => {
+    const api = fakeApi();
+    const session = fakeSession();
+    const { timing } = await started(api, session);
+
+    await vi.advanceTimersByTimeAsync(timing.statePollMs * 3);
+
+    expect(session.showPresence.mock.calls).toEqual([[describePresence(idle)]]);
+
+    api.status.mockReturnValue(of(recording));
+    await vi.advanceTimersByTimeAsync(timing.statePollMs * 3);
+
+    expect(session.showPresence.mock.calls).toEqual([
+      [describePresence(idle)],
+      [describePresence(recording)],
+    ]);
+  });
+
+  it("updates the Rich Presence when someone else starts the next recording", async () => {
+    const api = fakeApi();
+    api.status.mockReturnValue(of(recording));
+    const session = fakeSession();
+    const { timing } = await started(api, session);
+
+    const next: RecordingStatus = {
+      ...recording,
+      recording: { ...chris, id: "2", startedByName: "Ben" },
+    };
+
+    api.status.mockReturnValue(of(next));
+    await vi.advanceTimersByTimeAsync(timing.statePollMs);
+
+    expect(session.showPresence).toHaveBeenLastCalledWith(describePresence(next));
+    expect(session.showPresence).toHaveBeenCalledTimes(2);
   });
 
   it("reports when the bot is away", async () => {
