@@ -332,7 +332,7 @@ describe("recording", () => {
   );
 
   it.effect(
-    "records soundboard sounds and emoji reactions in the office, leaving out bots and other channels",
+    "records soundboard sounds and emoji in the office, leaving out bots and other channels",
     () =>
       Effect.gen(function* () {
         const { recordedEffects } = yield* runProgram(

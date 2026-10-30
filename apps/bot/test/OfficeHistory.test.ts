@@ -149,7 +149,7 @@ describe("OfficeHistory", () => {
       }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("reads soundboard sounds and emoji reactions alongside the voice activity", () =>
+  it.effect("reads soundboard sounds and emoji alongside the voice activity", () =>
     Effect.gen(function* () {
       yield* startSessions;
       yield* record(SESSION, joins(101, "u1", "Ada"));

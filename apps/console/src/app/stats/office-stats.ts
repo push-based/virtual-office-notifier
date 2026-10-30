@@ -92,7 +92,7 @@ import { StatsApi } from "./stats-api";
               empty="No sounds played"
             />
           </div>
-          <pb-bar-list label="Top reactions" [items]="view.reactions" empty="No reactions" />
+          <pb-bar-list label="Top emoji" [items]="view.reactions" empty="No emoji" />
         } @else {
           <p pbDescription>Counting…</p>
         }
