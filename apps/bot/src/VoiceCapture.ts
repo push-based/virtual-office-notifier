@@ -9,26 +9,24 @@ import type { Buffer } from "node:buffer";
 
 import {
   Cause,
+  Clock,
   Context,
   Data,
   DateTime,
   Duration,
   Effect,
+  FiberSet,
   Layer,
+  Option,
   Queue,
   Schema,
   Stream,
 } from "effect";
 
+import { addPacket, type Clip, type Cut, flush, startClip } from "./ClipCutter.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
 import { OPUS_SAMPLE_RATE, opusPacketSamples } from "./OggOpus.ts";
-
-export interface Clip {
-  readonly userId: string;
-  readonly startedAt: DateTime.Utc;
-  readonly packets: ReadonlyArray<Uint8Array>;
-}
 
 export type Heard = Data.TaggedEnum<{
   Spoke: { readonly clip: Clip };
@@ -47,11 +45,9 @@ export class CaptureError extends Schema.TaggedError<
 
 export const SILENCE_ENDS_CLIP = Duration.millis(1500);
 
-export const MAX_CLIP = Duration.minutes(5);
-
 const CONNECT_TIMEOUT = 20_000;
 
-const RECONNECT_TIMEOUT = 5_000;
+const RECONNECT_TIMEOUT = Duration.seconds(5);
 
 const destroy = (connection: VoiceConnection) =>
   Effect.sync(() => {
@@ -68,7 +64,6 @@ export class VoiceCapture extends Context.Service<
     VoiceCapture,
     Effect.gen(function* () {
       const gateway = yield* DiscordGateway;
-      const maxClipMs = Duration.toMillis(MAX_CLIP);
 
       const capture = (office: OfficeLocation) =>
         Stream.callback<Heard, CaptureError>(
@@ -90,18 +85,30 @@ export class VoiceCapture extends Context.Service<
               destroy,
             );
 
+            const clock = yield* Clock.Clock;
+            const now = () => DateTime.makeUnsafe(clock.currentTimeMillisUnsafe());
+
+            const reconnects = yield* FiberSet.make();
+            const runFork = yield* FiberSet.runtime(reconnects)();
+
             const fail = (reason: string) => {
               Queue.failCauseUnsafe(queue, Cause.fail(CaptureError.make({ reason })));
             };
 
+            const reaches = (status: VoiceConnectionStatus) =>
+              Effect.tryPromise((signal) => entersState(connection, status, signal));
+
+            const reconnect = Effect.raceFirst(
+              reaches(VoiceConnectionStatus.Signalling),
+              reaches(VoiceConnectionStatus.Connecting),
+            ).pipe(
+              Effect.timeout(RECONNECT_TIMEOUT),
+              Effect.catch(() => Effect.sync(() => fail("Disconnected from the voice channel"))),
+            );
+
             connection.on("error", (error) => fail(`Voice connection error: ${error.message}`));
 
-            connection.on(VoiceConnectionStatus.Disconnected, () => {
-              Promise.race([
-                entersState(connection, VoiceConnectionStatus.Signalling, RECONNECT_TIMEOUT),
-                entersState(connection, VoiceConnectionStatus.Connecting, RECONNECT_TIMEOUT),
-              ]).catch(() => fail("Disconnected from the voice channel"));
-            });
+            connection.on(VoiceConnectionStatus.Disconnected, () => runFork(reconnect));
 
             yield* Effect.tryPromise({
               try: () => entersState(connection, VoiceConnectionStatus.Ready, CONNECT_TIMEOUT),
@@ -127,30 +134,30 @@ export class VoiceCapture extends Context.Service<
                 },
               });
 
-              let startedAt = DateTime.nowUnsafe();
-              let packets: Array<Uint8Array> = [];
-              let durationMs = 0;
+              let partial = startClip(userId, now());
 
-              const emit = () => {
-                if (packets.length > 0)
-                  Queue.offerUnsafe(queue, Heard.Spoke({ clip: { userId, startedAt, packets } }));
+              const take = (cut: Cut) => {
+                partial = cut.partial;
 
-                packets = [];
-                durationMs = 0;
+                if (Option.isSome(cut.finished))
+                  Queue.offerUnsafe(queue, Heard.Spoke({ clip: cut.finished.value }));
               };
 
-              stream.on("data", (packet: Buffer) => {
-                packets.push(new Uint8Array(packet));
-                durationMs += (opusPacketSamples(packet) * 1000) / OPUS_SAMPLE_RATE;
+              const flushPartial = () => take(flush(partial));
 
-                if (durationMs >= maxClipMs) {
-                  emit();
-                  startedAt = DateTime.nowUnsafe();
-                }
-              });
+              stream.on("data", (packet: Buffer) =>
+                take(
+                  addPacket(
+                    partial,
+                    new Uint8Array(packet),
+                    Duration.millis((opusPacketSamples(packet) * 1000) / OPUS_SAMPLE_RATE),
+                    now(),
+                  ),
+                ),
+              );
 
-              stream.on("end", emit);
-              stream.on("error", emit);
+              stream.on("end", flushPartial);
+              stream.on("error", flushPartial);
             };
 
             const onSpeakingEnd = (userId: string) => {

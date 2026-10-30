@@ -41,6 +41,7 @@ import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 import { ActionItemList, ActionItemWriter, actionItemsRequest, ownedBy } from "./ActionItems.ts";
 import type { BotPresence } from "./BotPresence.ts";
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
+import type { Clip } from "./ClipCutter.ts";
 import { SlackConfig } from "./Config.ts";
 import { reconnectDelay } from "./Database.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
@@ -65,7 +66,7 @@ import {
   transcriptText,
 } from "./SummaryWriter.ts";
 import { Transcriber } from "./Transcriber.ts";
-import { type CaptureError, type Clip, Heard, VoiceCapture } from "./VoiceCapture.ts";
+import { type CaptureError, Heard, VoiceCapture } from "./VoiceCapture.ts";
 
 export const POLL_INTERVAL = CHECK_INTERVAL;
 
