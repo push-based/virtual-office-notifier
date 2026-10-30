@@ -1,11 +1,13 @@
 import { fileURLToPath } from "node:url";
 
+import { strict as effectStrict } from "@effect/tsgo/oxlint-presets";
 import { defineConfig } from "vite-plus";
 
 const plugin = (path: string): string => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
   lint: {
+    plugins: ["unicorn", "typescript", "oxc", "effecttsgo"],
     ignorePatterns: [
       ".agent/**",
       ".agents/**",
@@ -56,6 +58,62 @@ export default defineConfig({
       "anti-slop-effect/no-service-constructor-imports": "error",
       "anti-slop-effect/prefer-effect-match": "error",
     },
+    overrides: [
+      {
+        files: ["apps/bot/**", "apps/office-recorder/worker/**", "libs/recording-requests/**"],
+        rules: {
+          ...effectStrict.rules,
+          "effecttsgo/any-unknown-in-error-context": "error",
+          "effecttsgo/async-function": "error",
+          "effecttsgo/crypto-random-uuid": "error",
+          "effecttsgo/crypto-random-uuid-in-effect": "error",
+          "effecttsgo/deterministic-keys": "error",
+          "effecttsgo/effect-do-notation": "error",
+          "effecttsgo/extends-native-error": "error",
+          "effecttsgo/global-console": "error",
+          "effecttsgo/global-console-in-effect": "error",
+          "effecttsgo/global-date": "error",
+          "effecttsgo/global-date-in-effect": "error",
+          "effecttsgo/global-fetch": "error",
+          "effecttsgo/global-fetch-in-effect": "error",
+          "effecttsgo/global-random": "error",
+          "effecttsgo/global-random-in-effect": "error",
+          "effecttsgo/global-timers": "error",
+          "effecttsgo/global-timers-in-effect": "error",
+          "effecttsgo/instance-of-schema": "error",
+          "effecttsgo/map-map-error-to-map-both": "error",
+          "effecttsgo/missed-pipeable-opportunity": "error",
+          "effecttsgo/missing-effect-service-dependency": "error",
+          "effecttsgo/nested-effect-gen-yield": "error",
+          "effecttsgo/new-promise": "error",
+          "effecttsgo/new-schema-class": "error",
+          "effecttsgo/node-builtin-import": "error",
+          "effecttsgo/prefer-barrel-import": "error",
+          "effecttsgo/prefer-effect-array": "error",
+          "effecttsgo/prefer-effect-record": "error",
+          "effecttsgo/prefer-effect-string": "error",
+          "effecttsgo/prefer-namespace-import": "error",
+          "effecttsgo/prefer-schema-over-json": "error",
+          "effecttsgo/prefer-schema-tagged-error": "error",
+          "effecttsgo/prefer-schema-type-property": "error",
+          "effecttsgo/process-env": "error",
+          "effecttsgo/process-env-in-effect": "error",
+          "effecttsgo/schema-sync": "error",
+          "effecttsgo/schema-union-of-literals": "error",
+          "effecttsgo/service-not-as-class": "error",
+          "effecttsgo/strict-boolean-expressions": "error",
+          "effecttsgo/strict-effect-provide": "error",
+          "effecttsgo/unnecessary-arrow-block": "error",
+          "effecttsgo/unsafe-effect-type-assertion": "error",
+          "effecttsgo/api-stability-leak": "off",
+          "effecttsgo/missing-pipeable-signature": "off",
+        },
+      },
+      {
+        files: ["**/test/**", "**/scripts/**", "apps/bot/src/main.ts"],
+        rules: { "effecttsgo/strict-effect-provide": "off" },
+      },
+    ],
   },
   fmt: {
     ignorePatterns: [

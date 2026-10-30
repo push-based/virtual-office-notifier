@@ -6,7 +6,7 @@
   "author": "Christopher Holder",
   "type": "module",
   "scripts": {
-    "prepare": "vp config && effect-tsgo patch --typescript"
+    "prepare": "vp config && effect-tsgo patch --oxlint && effect-tsgo unpatch --typescript"
   },
   "devDependencies": {
     "@effect/tsgo": "0.63.0",
