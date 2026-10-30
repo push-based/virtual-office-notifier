@@ -8,9 +8,15 @@ import {
   Option,
   Schema,
 } from "effect";
-import { SqlClient, SqlError, SqlSchema } from "effect/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 
-import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
+import {
+  type Connected,
+  connectedPerCall,
+  connectedTo,
+  guardQuery,
+  guardTransaction,
+} from "./Query.ts";
 import { NO_PLAN, type RecordingPlan, SummaryStyle } from "./Recording.ts";
 import { DEFAULT_SUMMARY_STYLE } from "./Wire.ts";
 import type { Requester } from "./RecordingApi.ts";
@@ -226,11 +232,9 @@ export class RecordingRequests extends Context.Service<
     ready: Effect.Effect<void>,
     connected: Connected<RecordingUnavailable>,
   ) => {
-    const onceReady = guardQuery({
-      ready,
-      unavailable: recordingUnavailable,
-      unreadable: recordingUnreadable,
-    });
+    const guard = { ready, unavailable: recordingUnavailable, unreadable: recordingUnreadable };
+    const onceReady = guardQuery(guard);
+    const committing = guardTransaction(guard);
 
     const submit = Effect.fn("RecordingRequests.submit")(
       (requester: Requester, action: RequestAction, plan: RecordingPlan = NO_PLAN) =>
@@ -313,28 +317,12 @@ export class RecordingRequests extends Context.Service<
         WHERE id = ${request.id} AND handled_at IS NULL
       `;
 
-    const act = Effect.fnUntraced(function* <E, R>(
+    const act = <E, R>(
       sql: SqlClient.SqlClient,
       request: RecordingRequest,
       outcome: Exclude<RequestOutcome, "ignored">,
       change: Effect.Effect<Change<E, R>, E, R>,
-    ) {
-      yield* ready;
-
-      const committed = yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const made = yield* change;
-
-            yield* resolve(sql, request, outcome, null, made.recordingId);
-
-            return made;
-          }),
-        )
-        .pipe(Effect.catchIf(SqlError.isSqlError, (error) => unavailable(error.message)));
-
-      yield* committed.afterCommit;
-    });
+    ) => committing(sql, change, (made) => resolve(sql, request, outcome, null, made.recordingId));
 
     const handlePending = <E, R>(handler: RequestHandler<E, R>) =>
       connected(

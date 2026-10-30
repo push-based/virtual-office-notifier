@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Match, Option, Schema } from "effect";
-import { SqlClient, SqlError, SqlSchema, type Statement } from "effect/sql";
+import { SqlClient, SqlSchema, type Statement } from "effect/sql";
 
 import type { Requester } from "./RecordingApi.ts";
 import {
@@ -11,7 +11,13 @@ import {
   type SubmittedEdit,
 } from "./RecordingEdit.ts";
 import { RowId } from "./RecordingRequest.ts";
-import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
+import {
+  type Connected,
+  connectedPerCall,
+  connectedTo,
+  guardQuery,
+  guardTransaction,
+} from "./Query.ts";
 import {
   recordingUnavailable,
   RecordingUnavailable,
@@ -148,11 +154,9 @@ export class RecordingEdits extends Context.Service<
     ready: Effect.Effect<void>,
     connected: Connected<RecordingUnavailable>,
   ) => {
-    const onceReady = guardQuery({
-      ready,
-      unavailable: recordingUnavailable,
-      unreadable: recordingUnreadable,
-    });
+    const guard = { ready, unavailable: recordingUnavailable, unreadable: recordingUnreadable };
+    const onceReady = guardQuery(guard);
+    const committing = guardTransaction(guard);
 
     const submit = Effect.fn("RecordingEdits.submit")(
       (editor: Requester, recordingId: string, change: RecordingChange) =>
@@ -198,28 +202,17 @@ export class RecordingEdits extends Context.Service<
         ),
       );
 
-    const apply = Effect.fnUntraced(function* <E, R>(
+    const apply = <E, R>(
       sql: SqlClient.SqlClient,
       edit: RecordingEdit,
       handler: EditHandler<E, R>,
-    ) {
-      yield* ready;
-
-      const applied = yield* sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const made = yield* handler.apply(edit);
-
-            yield* resolve(sql, edit.id, "applied", null);
-
-            return made;
-          }),
-        )
-        .pipe(Effect.catchIf(SqlError.isSqlError, (error) => unavailable(error.message)));
-
-      yield* Effect.logInfo("Applied a recording edit");
-      yield* applied.afterCommit;
-    });
+    ) =>
+      committing(
+        sql,
+        handler.apply(edit),
+        () => resolve(sql, edit.id, "applied", null),
+        Effect.logInfo("Applied a recording edit"),
+      );
 
     const handlePending = <E, R>(handler: EditHandler<E, R>) =>
       connected(
