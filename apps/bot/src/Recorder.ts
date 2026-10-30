@@ -3,6 +3,7 @@ import {
   Cause,
   Data,
   DateTime,
+  Deferred,
   Duration,
   Effect,
   Equal,
@@ -79,6 +80,8 @@ export const TRANSCRIPTION_IDLE = Duration.seconds(30);
 
 export const REJECTED_CLIP_PAUSE = Duration.seconds(5);
 
+const SAVING_LIMIT = Duration.seconds(30);
+
 const FINISH_RETRY = Duration.minutes(10);
 
 const FINISH_ATTEMPTS = 6;
@@ -89,9 +92,14 @@ const REWRITE_RETRY = Duration.minutes(1);
 
 const REWRITE_ATTEMPTS = 5;
 
+interface Capture {
+  readonly fiber: Fiber.Fiber<void>;
+  readonly stop: Deferred.Deferred<void>;
+}
+
 interface Session {
   readonly recording: ActiveRecording;
-  readonly capture: Option.Option<Fiber.Fiber<void>>;
+  readonly capture: Option.Option<Capture>;
 }
 
 type Audio = Data.TaggedEnum<{
@@ -318,7 +326,7 @@ export const startRecorder = Effect.gen(function* () {
       Ref.update(voices, change).pipe(Effect.andThen(statusChange));
 
     const runCapture = Effect.fn("Recorder.runCapture")(
-      function* (recordingId: string) {
+      function* (recordingId: string, stop: Deferred.Deferred<void>) {
         const clips = yield* Queue.unbounded<Clip, Cause.Done>();
 
         const saving = yield* Stream.fromQueue(clips).pipe(
@@ -326,7 +334,7 @@ export const startRecorder = Effect.gen(function* () {
           Effect.forkScoped,
         );
 
-        yield* voice.capture(office).pipe(
+        yield* voice.capture(office, Deferred.await(stop)).pipe(
           Stream.runForEach((heard) =>
             Heard.$match(heard, {
               Spoke: ({ clip }) => Queue.offer(clips, clip),
@@ -341,7 +349,10 @@ export const startRecorder = Effect.gen(function* () {
             }),
           ),
           Effect.ensuring(updateVoices(() => noVoices)),
-          Effect.retry(captureRetry),
+          Effect.retry({
+            schedule: captureRetry,
+            while: () => Effect.map(Deferred.isDone(stop), (stopping) => !stopping),
+          }),
           Effect.catchTag("CaptureError", (error) =>
             Effect.logError("Gave up on the voice connection").pipe(
               Effect.annotateLogs({ reason: error.reason }),
@@ -356,21 +367,37 @@ export const startRecorder = Effect.gen(function* () {
       (effect, recordingId) => Effect.annotateLogs(effect, { recordingId }),
     );
 
-    const interruptCapture = (current: Option.Option<Session>) =>
+    const finishCapture = ({ fiber, stop }: Capture) =>
+      Deferred.succeed(stop, undefined).pipe(
+        Effect.andThen(Fiber.await(fiber)),
+        Effect.timeoutOption(SAVING_LIMIT),
+        Effect.flatMap(
+          Option.match({
+            onSome: () => Effect.void,
+            onNone: () =>
+              Effect.logWarning("Gave up waiting for the last clips to be saved").pipe(
+                Effect.andThen(Fiber.interrupt(fiber)),
+              ),
+          }),
+        ),
+      );
+
+    const endSessionCapture = (current: Option.Option<Session>) =>
       Option.match(
         Option.flatMap(current, ({ capture }) => capture),
         {
           onNone: () => Effect.void,
-          onSome: (capture) => Fiber.interrupt(capture),
+          onSome: finishCapture,
         },
       );
 
     const beginCapture = Effect.fn("Recorder.beginCapture")(function* (recording: ActiveRecording) {
       yield* gateway.setRecording("Capturing");
 
-      const capture = yield* runCapture(recording.id).pipe(Effect.forkScoped);
+      const stop = yield* Deferred.make<void>();
+      const fiber = yield* runCapture(recording.id, stop).pipe(Effect.forkScoped);
 
-      yield* Ref.set(session, Option.some({ recording, capture: Option.some(capture) }));
+      yield* Ref.set(session, Option.some({ recording, capture: Option.some({ fiber, stop }) }));
     });
 
     const holdPaused = Effect.fn("Recorder.holdPaused")(function* (recording: ActiveRecording) {
@@ -379,7 +406,7 @@ export const startRecorder = Effect.gen(function* () {
         Option.some({ recording, capture: Option.none() }),
       );
 
-      yield* interruptCapture(current);
+      yield* endSessionCapture(current);
       yield* gateway.setRecording("Paused");
     });
 
@@ -756,7 +783,7 @@ export const startRecorder = Effect.gen(function* () {
 
       if (Option.isNone(current)) return;
 
-      yield* interruptCapture(current);
+      yield* endSessionCapture(current);
       yield* gateway.setRecording("Off");
     });
 
