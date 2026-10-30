@@ -5,8 +5,13 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./styles.css": "./src/styles.css",
     "./tokens.css": "./src/tokens.css",
     "./components.css": "./src/components.css"
+  },
+  "dependencies": {
+    "@fontsource/geist": "5.3.0",
+    "@fontsource/geist-mono": "5.3.0"
   },
   "devDependencies": {
     "@angular/common": "catalog:angular",

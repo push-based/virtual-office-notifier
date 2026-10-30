@@ -8,15 +8,15 @@ describe("TimeLeftPipe", () => {
   const before = (ms: number) => Date.parse(until) - ms;
 
   it("rounds a partial minute up", () => {
-    expect(pipe.transform(until, before(30_000))).toBe("1m left");
+    expect(pipe.transform(until, before(30_000))).toBe("1m");
   });
 
   it("switches to hours from sixty minutes", () => {
-    expect(pipe.transform(until, before(59 * 60_000))).toBe("59m left");
-    expect(pipe.transform(until, before(61 * 60_000))).toBe("1h 1m left");
+    expect(pipe.transform(until, before(59 * 60_000))).toBe("59m");
+    expect(pipe.transform(until, before(61 * 60_000))).toBe("1h 1m");
   });
 
   it("never goes below zero once the limit has passed", () => {
-    expect(pipe.transform(until, before(-60_000))).toBe("0m left");
+    expect(pipe.transform(until, before(-60_000))).toBe("0m");
   });
 });

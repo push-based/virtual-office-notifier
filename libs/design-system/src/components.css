@@ -1,7 +1,21 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
 body {
   font-family: var(--font-sans);
   color: var(--color-text);
   background: var(--color-surface);
+}
+
+.text-tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 .pb-row {

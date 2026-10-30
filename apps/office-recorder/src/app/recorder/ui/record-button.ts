@@ -10,9 +10,10 @@ import { PbButton } from "design-system";
       type="button"
       variant="primary"
       size="lg"
-      [attr.aria-disabled]="disabled()"
+      fullWidth
+      [disabled]="disabled()"
       [attr.aria-busy]="busy()"
-      (click)="press()"
+      (click)="pressed.emit()"
     >
       <span class="icon" aria-hidden="true"></span>
       {{ recording() ? "Stop recording" : "Start recording" }}
@@ -24,8 +25,6 @@ import { PbButton } from "design-system";
     }
 
     button {
-      width: 100%;
-      justify-content: center;
       gap: var(--space-2);
     }
 
@@ -50,8 +49,4 @@ export class RecordButton {
   readonly disabled = input.required<boolean>();
 
   readonly pressed = output();
-
-  protected press(): void {
-    if (!this.disabled()) this.pressed.emit();
-  }
 }

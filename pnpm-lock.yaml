@@ -155,12 +155,6 @@ importers:
       '@effect/sql-pg':
         specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)
-      '@fontsource/geist':
-        specifier: 5.3.0
-        version: 5.3.0
-      '@fontsource/geist-mono':
-        specifier: 5.3.0
-        version: 5.3.0
       design-system:
         specifier: workspace:*
         version: link:../../libs/design-system
@@ -209,6 +203,13 @@ importers:
         version: 4.154.0(@cloudflare/workers-types@5.20261024.1)(@types/node@26.6.5)
 
   libs/design-system:
+    dependencies:
+      '@fontsource/geist':
+        specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource/geist-mono':
+        specifier: 5.3.0
+        version: 5.3.0
     devDependencies:
       '@angular/common':
         specifier: catalog:angular

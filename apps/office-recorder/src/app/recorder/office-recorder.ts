@@ -1,5 +1,5 @@
 import { Component, type OnInit, inject } from "@angular/core";
-import { PbCard, PbEyebrow, PbNotice } from "design-system";
+import { PbCard, PbDivider, PbEyebrow, PbNotice, PbNoticeRegion } from "design-system";
 
 import { OfficeStore } from "./office-store";
 import { OccupantList } from "./ui/occupant-list";
@@ -8,10 +8,19 @@ import { StatusHeading } from "./ui/status-heading";
 
 @Component({
   selector: "app-office-recorder",
-  imports: [PbCard, PbEyebrow, PbNotice, StatusHeading, RecordButton, OccupantList],
+  imports: [
+    PbCard,
+    PbDivider,
+    PbEyebrow,
+    PbNotice,
+    PbNoticeRegion,
+    StatusHeading,
+    RecordButton,
+    OccupantList,
+  ],
   providers: [OfficeStore],
   template: `
-    <pb-card>
+    <pb-card size="lg">
       <p pbEyebrow>Office recorder</p>
       <app-status-heading [phase]="store.phase()" [now]="store.now()" />
       <app-record-button
@@ -20,12 +29,13 @@ import { StatusHeading } from "./ui/status-heading";
         [disabled]="!store.canPress()"
         (pressed)="store.press()"
       />
-      <div class="announcer" role="status">
+      <pb-notice-region>
         @if (store.notice(); as notice) {
           <pb-notice [kind]="notice.kind">{{ notice.text }}</pb-notice>
         }
-      </div>
+      </pb-notice-region>
       @if (store.occupants().length > 0) {
+        <hr pbDivider />
         <app-occupant-list [occupants]="store.occupants()" />
       }
     </pb-card>
@@ -35,15 +45,6 @@ import { StatusHeading } from "./ui/status-heading";
       display: block;
       width: 100%;
       max-width: var(--space-96);
-    }
-
-    pb-card {
-      max-width: none;
-      gap: var(--space-4);
-    }
-
-    .announcer {
-      display: contents;
     }
   `,
 })

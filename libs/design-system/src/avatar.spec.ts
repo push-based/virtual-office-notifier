@@ -8,9 +8,9 @@ import { PbAvatarGroup } from "./avatar-group";
 @Component({
   imports: [PbAvatar, PbAvatarGroup],
   template: `
-    <ul pbAvatarGroup>
+    <pb-avatar-group>
       <li><pb-avatar [name]="name()" [src]="src()" /></li>
-    </ul>
+    </pb-avatar-group>
   `,
 })
 class Host {
@@ -18,6 +18,19 @@ class Host {
 
   readonly src = signal<string | null>(null);
 }
+
+@Component({
+  imports: [PbAvatar, PbAvatarGroup],
+  template: `
+    <pb-avatar-group label="In the office · 1">
+      <li><pb-avatar name="Ada Lovelace" /></li>
+    </pb-avatar-group>
+    <pb-avatar-group label="Spoke">
+      <li><pb-avatar name="Linus" /></li>
+    </pb-avatar-group>
+  `,
+})
+class LabelledHost {}
 
 const render = async (src: string | null) => {
   const fixture = TestBed.createComponent(Host);
@@ -46,10 +59,26 @@ describe("PbAvatar", () => {
     expect(image?.getAttribute("alt")).toBe("Ada Lovelace");
     expect(element.querySelector('[role="img"]')).toBeNull();
   });
+});
 
-  it("sits in a list", async () => {
+describe("PbAvatarGroup", () => {
+  it("puts the avatars in a list", async () => {
     const element = await render(null);
 
-    expect(element.querySelector("ul > li > pb-avatar")).not.toBeNull();
+    expect(element.querySelector("pb-avatar-group ul > li > pb-avatar")).not.toBeNull();
+    expect(element.querySelector("p")).toBeNull();
+    expect(element.querySelector("ul")?.hasAttribute("aria-labelledby")).toBe(false);
+  });
+
+  it("names each list by its own label", async () => {
+    const fixture = TestBed.createComponent(LabelledHost);
+    await fixture.whenStable();
+    const element: HTMLElement = fixture.nativeElement;
+
+    const names = [...element.querySelectorAll("ul")].map(
+      (list) => element.querySelector(`#${list.getAttribute("aria-labelledby")}`)?.textContent,
+    );
+
+    expect(names).toEqual(["In the office · 1", "Spoke"]);
   });
 });
