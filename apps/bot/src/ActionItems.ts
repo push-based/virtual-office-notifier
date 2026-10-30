@@ -1,7 +1,5 @@
-import { NodeHttpClient } from "@effect/platform-node";
 import {
   Array,
-  Cause,
   Context,
   Data,
   Effect,
@@ -17,10 +15,10 @@ import {
 } from "effect";
 
 import {
-  configuredProviders,
-  failureReason,
+  orReportedNone,
   type Providers,
   type Written,
+  writerLayer,
   writeWithProviders,
 } from "./AiWriting.ts";
 
@@ -194,16 +192,9 @@ export class ActionItemWriter extends Context.Service<
 
             return { value: items, model };
           },
-          Effect.tapError((error) =>
-            Effect.logWarning("No AI model could pull out the recording's action items").pipe(
-              Effect.andThen(
-                ErrorReporter.report(
-                  Cause.fail(NoAiActionItems.make({ reason: failureReason(error) })),
-                ),
-              ),
-            ),
+          orReportedNone("pull out the recording's action items", (reason) =>
+            NoAiActionItems.make({ reason }),
           ),
-          Effect.option,
         ),
       }),
     );
@@ -213,17 +204,9 @@ export class ActionItemWriter extends Context.Service<
     ActionItemWriter.of({ pull: () => Effect.succeedNone }),
   );
 
-  static readonly layer = Layer.unwrap(
-    Effect.gen(function* () {
-      const providers = yield* configuredProviders((config) => config.openRouter.banterModels);
-
-      return Array.match(providers, {
-        onEmpty: () =>
-          Layer.effectDiscard(
-            Effect.logInfo("No AI provider configured, so recordings get no action items"),
-          ).pipe(Layer.provideMerge(ActionItemWriter.layerNone)),
-        onNonEmpty: ActionItemWriter.layerProviders,
-      });
-    }),
-  ).pipe(Layer.provide(NodeHttpClient.layerUndici));
+  static readonly layer = writerLayer({
+    withProviders: ({ banter }) => ActionItemWriter.layerProviders(banter),
+    withoutProviders: ActionItemWriter.layerNone,
+    withoutProvidersNote: "No AI provider configured, so recordings get no action items",
+  });
 }

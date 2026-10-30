@@ -1,7 +1,5 @@
-import { NodeHttpClient } from "@effect/platform-node";
 import {
   Array,
-  Cause,
   Context,
   Effect,
   ErrorReporter,
@@ -15,12 +13,7 @@ import {
   String,
 } from "effect";
 
-import {
-  configuredProviders,
-  failureReason,
-  type Providers,
-  writeWithProviders,
-} from "./AiWriting.ts";
+import { orReportedNone, type Providers, writerLayer, writeWithProviders } from "./AiWriting.ts";
 import { banterLog } from "./Banter.ts";
 import type { BanterContext } from "./OfficeEvent.ts";
 
@@ -135,14 +128,7 @@ export class ReplyWriter extends Context.Service<
 
             return { text: value, model };
           },
-          Effect.tapError((error) =>
-            Effect.logWarning("No AI model could write a Slack reply").pipe(
-              Effect.andThen(
-                ErrorReporter.report(Cause.fail(NoAiReply.make({ reason: failureReason(error) }))),
-              ),
-            ),
-          ),
-          Effect.option,
+          orReportedNone("write a Slack reply", (reason) => NoAiReply.make({ reason })),
         ),
       }),
     );
@@ -152,17 +138,9 @@ export class ReplyWriter extends Context.Service<
     ReplyWriter.of({ write: () => Effect.succeedNone }),
   );
 
-  static readonly layer = Layer.unwrap(
-    Effect.gen(function* () {
-      const providers = yield* configuredProviders((config) => config.openRouter.banterModels);
-
-      return Array.match(providers, {
-        onEmpty: () =>
-          Layer.effectDiscard(
-            Effect.logInfo("No AI provider configured, so Slack messages get no replies"),
-          ).pipe(Layer.provideMerge(ReplyWriter.layerNone)),
-        onNonEmpty: ReplyWriter.layerProviders,
-      });
-    }),
-  ).pipe(Layer.provide(NodeHttpClient.layerUndici));
+  static readonly layer = writerLayer({
+    withProviders: ({ banter }) => ReplyWriter.layerProviders(banter),
+    withoutProviders: ReplyWriter.layerNone,
+    withoutProvidersNote: "No AI provider configured, so Slack messages get no replies",
+  });
 }

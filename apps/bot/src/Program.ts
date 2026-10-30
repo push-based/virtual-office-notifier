@@ -3,6 +3,7 @@ import { SecureRandom } from "effect/crypto";
 
 import { ActionItemWriter } from "./ActionItems.ts";
 import { ActivityRecorder } from "./ActivityRecorder.ts";
+import { AiProviders } from "./AiWriting.ts";
 import { banter } from "./Banter.ts";
 import { ClipArchive } from "./ClipArchive.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
@@ -103,6 +104,7 @@ const RecorderLayer = Recorder.layer.pipe(
 export const MainLayer = Layer.mergeAll(Responder.layer, RecorderLayer).pipe(
   Layer.provideMerge(DiscordGateway.layer),
   Layer.provideMerge(SlackNotifier.layer),
+  Layer.provide(AiProviders.layer),
   Layer.provideMerge(StorageLayer),
   Layer.provideMerge(SecureRandom.layerWebCrypto),
 );
