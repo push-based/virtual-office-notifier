@@ -28,6 +28,7 @@
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@angular/common": "catalog:angular",
     "@angular/core": "catalog:angular"
   }
 }
