@@ -470,7 +470,7 @@ Needs the [database](#database), the bot's Cloudflare account for Whisper, and a
 
    `SESSION_SECRET` is any long random string; it signs the sessions the page gets after Discord's login. The first deploy prints the `workers.dev` host for the URL mapping above.
 
-   The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the second `GRANT`, the [Stats](#office-stats) tab answers `503` and the rest of the Activity works as before.
+   The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the grant on `office.voice_activity` and `office.office_activity`, the [Stats](#office-stats) tab answers `503` and the rest of the Activity works as before.
 
 **Trying the two things it depends on**
 
@@ -482,7 +482,7 @@ node --env-file=.env apps/bot/scripts/try-recording.ts --seconds 60
 
 ### Office stats
 
-The Office Recorder has two tabs: **Now**, with the recording status and who's in the office, and **Stats**, with the office stats for this week, this month or all time. The Stats tab counts everything when it's opened or the range changes, and never polls. Each total is worked out in SQL from the `office.voice_activity` and `office.office_activity` views and `office.recordings`, so it needs the second `GRANT` in step 4 of [setup](#recording-the-office).
+The Office Recorder has two tabs: **Now**, with the recording status and who's in the office, and **Stats**, with the office stats for this week, this month or all time. The Stats tab counts everything when it's opened or the range changes, and never polls. Each total is worked out in SQL from the `office.voice_activity` and `office.office_activity` views and `office.recordings`, so it needs their `GRANT` in step 4 of [setup](#recording-the-office).
 
 - Weeks start on Monday and months on the 1st, both at midnight in office time, UTC+2.
 - **Time in the office** runs from `Joined` (or `AlreadyThere`, for anyone in when the bot started) to that person's next `Left`. Someone who's still in counts until now. When the bot stopped without seeing them leave, the stay ends at the last thing that run of the bot saw. Stays that cross the start of the range only count from the start.
