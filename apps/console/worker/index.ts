@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { DiscordOAuth } from "activity-sign-in/DiscordOAuth";
 import { Sessions } from "activity-sign-in/Sessions";
 import { SignInSettings } from "activity-sign-in/SignInSettings";
-import { Layer, Redacted } from "effect";
+import { ConfigProvider, Layer, Redacted } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { OfficeStatsReader } from "recording-requests/OfficeStats";
@@ -36,16 +36,6 @@ interface Env extends SentryEnv {
   readonly SESSION_SECRET: string;
 }
 
-const settingsFrom = (env: Env) =>
-  Layer.succeed(
-    SignInSettings,
-    SignInSettings.of({
-      clientId: env.DISCORD_CLIENT_ID,
-      clientSecret: Redacted.make(env.DISCORD_CLIENT_SECRET),
-      sessionSecret: Redacted.make(env.SESSION_SECRET),
-    }),
-  );
-
 const connectionTo = (env: Env) =>
   PgClient.layer({
     url: Redacted.make(env.DATABASE.connectionString),
@@ -66,7 +56,8 @@ const api = (env: Env) =>
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),
-    Layer.provide(settingsFrom(env)),
+    Layer.provide(SignInSettings.layerConfig),
+    Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   );
 
 const routes = (env: Env) =>
