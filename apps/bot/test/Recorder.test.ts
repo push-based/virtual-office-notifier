@@ -31,7 +31,7 @@ import type { Clip } from "../src/ClipCutter.ts";
 import { columnNaming, Database, reconnectDelay } from "../src/Database.ts";
 import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
-import { FINISH_POLL, POLL_INTERVAL, Recorder, STATUS_INTERVAL } from "../src/Recorder.ts";
+import { FINISH_POLL, POLL_INTERVAL, startRecorder, STATUS_INTERVAL } from "../src/Recorder.ts";
 import { RecordingStore, type StoreUnavailable } from "../src/RecordingStore.ts";
 import { InvalidPayload } from "../src/SlackClient.ts";
 import { SummaryWriter, type WrittenSummary } from "../src/SummaryWriter.ts";
@@ -152,17 +152,16 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     }),
   );
 
-  const layer = Recorder.layer.pipe(
-    Layer.provide([
-      VoiceCapture.layerTest(heard),
-      ClipArchive.layerDisabled,
-      transcriber,
-      summaries,
-      actionItemWriter,
-      slack.layer,
-      history.layer,
-      SecureRandom.layerWebCrypto,
-    ]),
+  const layer = Layer.mergeAll(
+    VoiceCapture.layerTest(heard),
+    ClipArchive.layerDisabled,
+    transcriber,
+    summaries,
+    actionItemWriter,
+    slack.layer,
+    history.layer,
+    SecureRandom.layerWebCrypto,
+  ).pipe(
     Layer.provideMerge(
       DiscordGateway.layerTest({
         updates,
@@ -199,14 +198,13 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const context = yield* Layer.build(layer).pipe(withEnv(env));
   const sql = yield* Effect.service(SqlClient.SqlClient).pipe(Effect.provideContext(context));
   const database = yield* Effect.service(Database).pipe(Effect.provideContext(context));
-  const recorder = yield* Effect.service(Recorder).pipe(Effect.provideContext(context));
   const requests = yield* Effect.service(RecordingRequests).pipe(Effect.provideContext(context));
   const edits = yield* Effect.service(RecordingEdits).pipe(Effect.provideContext(context));
 
   yield* database.ready;
   yield* (options.before ?? Effect.void).pipe(Effect.orDie, Effect.provideContext(context));
 
-  const fiber = yield* recorder.run.pipe(withEnv(env), Effect.forkScoped);
+  const fiber = yield* startRecorder.pipe(Effect.provideContext(context), withEnv(env));
 
   const request = (requestedBy: string, action: RequestAction, plan: RecordingPlan = NO_PLAN) =>
     requests
