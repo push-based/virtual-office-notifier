@@ -31,7 +31,6 @@ import {
   isOverLimit,
 } from "recording-requests/RecordingRequest";
 import {
-  type RecordingUnavailable,
   type RequestHandler,
   RecordingRequests,
   type StatusUpdate,
@@ -41,6 +40,7 @@ import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 import { ActionItemList, ActionItemWriter, actionItemsRequest, ownedBy } from "./ActionItems.ts";
 import type { BotPresence } from "./BotPresence.ts";
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
+import { ClipAudio } from "./ClipAudio.ts";
 import type { Clip } from "./ClipCutter.ts";
 import { SlackConfig } from "./Config.ts";
 import { reconnectDelay } from "./Database.ts";
@@ -58,6 +58,8 @@ import { SlackClient } from "./SlackClient.ts";
 import { SlackHistory } from "./SlackHistory.ts";
 import { rewriteNote, type SlackMessage, summaryMessage } from "./SlackMessage.ts";
 import { noVoices, speakingAt, startedSpeaking, stoppedSpeaking, type Voices } from "./Speaking.ts";
+import { StoreHealth } from "./StoreHealth.ts";
+import { SummaryRewriter } from "./SummaryRewriter.ts";
 import {
   hasSpeech,
   speakersOf,
@@ -179,7 +181,7 @@ export class Recorder extends Context.Service<
       const random = yield* SecureRandom.SecureRandom;
 
       const runFor = Effect.fn("Recorder.run")(function* (office: OfficeLocation) {
-        const audio = yield* Ref.make<ReadonlyMap<number, Uint8Array>>(new Map());
+        const audio = yield* ClipAudio.make;
         const wake = yield* Queue.dropping<void>(1);
         const session = yield* Ref.make(Option.none<Session>());
         const presence = yield* Ref.make<BotPresence>("Away");
@@ -187,24 +189,10 @@ export class Recorder extends Context.Service<
         const lastStatus = yield* Ref.make("");
         const voices = yield* Ref.make<Voices>(noVoices);
         const statusChanged = yield* Queue.dropping<void>(1);
-        const storeHealthy = yield* Ref.make(true);
+        const storeHealth = yield* StoreHealth.make;
         const unavailableAttempts = yield* Ref.make(0);
         const mutex = yield* Semaphore.make(1);
         const updatingPost = yield* Semaphore.make(1);
-        const rewrites = yield* Ref.make<ReadonlyMap<string, boolean>>(new Map());
-
-        const storeIssue = (what: string) => (error: StoreUnavailable | RecordingUnavailable) =>
-          Ref.getAndSet(storeHealthy, false).pipe(
-            Effect.flatMap((wasHealthy) =>
-              wasHealthy
-                ? Effect.logWarning(`${what}, the database isn't available`).pipe(
-                    Effect.annotateLogs({ reason: error.reason }),
-                  )
-                : Effect.void,
-            ),
-          );
-
-        const storeOk = Ref.set(storeHealthy, true);
 
         const statusChange = Queue.offer(statusChanged, undefined).pipe(Effect.asVoid);
 
@@ -233,7 +221,7 @@ export class Recorder extends Context.Service<
                 Effect.andThen(Ref.set(lastStatus, key)),
                 Effect.catchTag(
                   "RecordingUnavailable",
-                  storeIssue("Couldn't update the recording status"),
+                  storeHealth.issue("Couldn't update the recording status"),
                 ),
               );
 
@@ -303,8 +291,7 @@ export class Recorder extends Context.Service<
             });
 
             if (transcription === "pending") {
-              if (Option.isNone(objectPath))
-                yield* Ref.update(audio, (all) => new Map(all).set(clipId, ogg));
+              if (Option.isNone(objectPath)) yield* audio.put(clipId, ogg);
 
               yield* Queue.offer(wake, undefined);
             }
@@ -591,32 +578,7 @@ export class Recorder extends Context.Service<
           (effect, id) => Effect.annotateLogs(effect, { recordingId: id }),
         );
 
-        const rewriteAgain = (id: string) =>
-          Ref.modify(rewrites, (all): readonly [boolean, ReadonlyMap<string, boolean>] => {
-            const next = new Map(all);
-
-            if (all.get(id) === true) return [true, next.set(id, false)];
-
-            next.delete(id);
-
-            return [false, next];
-          });
-
-        const rewriteWhileAsked = Effect.fn("Recorder.rewriteWhileAsked")(function* (id: string) {
-          do {
-            yield* rewriteOnce(id);
-          } while (yield* rewriteAgain(id));
-        });
-
-        const rewrite = (id: string) =>
-          Ref.modify(rewrites, (all): readonly [boolean, ReadonlyMap<string, boolean>] => [
-            !all.has(id),
-            new Map(all).set(id, all.has(id)),
-          ]).pipe(
-            Effect.flatMap((fresh) =>
-              fresh ? rewriteWhileAsked(id).pipe(Effect.forkScoped, Effect.asVoid) : Effect.void,
-            ),
-          );
+        const { rewrite } = yield* SummaryRewriter.make(rewriteOnce);
 
         const finish = Effect.fn("Recorder.finish")(
           function* (id: string) {
@@ -935,7 +897,7 @@ export class Recorder extends Context.Service<
           .pipe(
             Effect.catchTag(
               ["StoreUnavailable", "RecordingUnavailable"],
-              storeIssue("Couldn't apply recording edits"),
+              storeHealth.issue("Couldn't apply recording edits"),
             ),
           );
 
@@ -948,12 +910,12 @@ export class Recorder extends Context.Service<
               yield* stopRecording("time_limit", null);
 
             yield* requests.handlePending(requestHandler);
-            yield* storeOk;
+            yield* storeHealth.ok;
             yield* statusChange;
           }).pipe(
             Effect.catchTag(
               ["StoreUnavailable", "RecordingUnavailable"],
-              storeIssue("Couldn't handle recording requests"),
+              storeHealth.issue("Couldn't handle recording requests"),
             ),
             Effect.andThen(applyEdits),
           ),
@@ -995,7 +957,7 @@ export class Recorder extends Context.Service<
           },
           Effect.catchTag(
             "StoreUnavailable",
-            storeIssue("Couldn't check for a recording in progress"),
+            storeHealth.issue("Couldn't check for a recording in progress"),
           ),
         );
 
@@ -1012,7 +974,7 @@ export class Recorder extends Context.Service<
                 yield* stopRecording("office_emptied", null).pipe(
                   Effect.catchTag(
                     "StoreUnavailable",
-                    storeIssue("Couldn't record the end of the recording"),
+                    storeHealth.issue("Couldn't record the end of the recording"),
                   ),
                 );
               }
@@ -1022,9 +984,9 @@ export class Recorder extends Context.Service<
           );
 
         const audioFor = Effect.fn("Recorder.audioFor")(function* (clip: PendingClip) {
-          const inMemory = (yield* Ref.get(audio)).get(clip.id);
+          const inMemory = yield* audio.get(clip.id);
 
-          if (inMemory !== undefined) return found(inMemory);
+          if (Option.isSome(inMemory)) return found(inMemory.value);
 
           if (clip.objectPath === null) return Audio.Missing();
 
@@ -1044,15 +1006,7 @@ export class Recorder extends Context.Service<
             Effect.flatMap(({ text, model }) =>
               DateTime.now.pipe(
                 Effect.flatMap((at) => store.clipTranscribed(clip.id, at, text, model)),
-                Effect.andThen(
-                  Ref.update(audio, (all) => {
-                    const next = new Map(all);
-
-                    next.delete(clip.id);
-
-                    return next;
-                  }),
-                ),
+                Effect.andThen(audio.remove(clip.id)),
                 Effect.andThen(Ref.set(unavailableAttempts, 0)),
                 Effect.andThen(
                   Effect.logInfo("Transcribed a clip").pipe(
@@ -1098,7 +1052,7 @@ export class Recorder extends Context.Service<
         const transcribeNext = Effect.gen(function* () {
           const next = yield* store.nextPendingClip;
 
-          yield* storeOk;
+          yield* storeHealth.ok;
 
           if (Option.isNone(next)) {
             yield* Queue.take(wake).pipe(Effect.timeoutOption(TRANSCRIPTION_IDLE));
@@ -1119,9 +1073,9 @@ export class Recorder extends Context.Service<
         }).pipe(
           Effect.annotateLogs({ worker: "transcription" }),
           Effect.catchTag("StoreUnavailable", (error) =>
-            storeIssue("Couldn't read the clips to transcribe")(error).pipe(
-              Effect.andThen(Effect.sleep(TRANSCRIPTION_IDLE)),
-            ),
+            storeHealth
+              .issue("Couldn't read the clips to transcribe")(error)
+              .pipe(Effect.andThen(Effect.sleep(TRANSCRIPTION_IDLE))),
           ),
         );
 
