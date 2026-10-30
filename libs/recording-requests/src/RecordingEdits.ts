@@ -165,29 +165,28 @@ export class RecordingEdits extends Context.Service<
         ),
       );
 
-    const apply = <E, R>(
+    const apply = Effect.fnUntraced(function* <E, R>(
       sql: SqlClient.SqlClient,
       edit: RecordingEdit,
       handler: EditHandler<E, R>,
-    ) =>
-      Effect.gen(function* () {
-        yield* ready;
+    ) {
+      yield* ready;
 
-        const applied = yield* sql
-          .withTransaction(
-            Effect.gen(function* () {
-              const made = yield* handler.apply(edit);
+      const applied = yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const made = yield* handler.apply(edit);
 
-              yield* resolve(sql, edit.id, "applied", null);
+            yield* resolve(sql, edit.id, "applied", null);
 
-              return made;
-            }),
-          )
-          .pipe(Effect.catchIf(SqlError.isSqlError, (error) => unavailable(error.message)));
+            return made;
+          }),
+        )
+        .pipe(Effect.catchIf(SqlError.isSqlError, (error) => unavailable(error.message)));
 
-        yield* Effect.logInfo("Applied a recording edit");
-        yield* applied.afterCommit;
-      });
+      yield* Effect.logInfo("Applied a recording edit");
+      yield* applied.afterCommit;
+    });
 
     const handlePending = Effect.fn("RecordingEdits.handlePending")(
       <E, R>(handler: EditHandler<E, R>) =>
@@ -242,12 +241,11 @@ export class RecordingEdits extends Context.Service<
     return RecordingEdits.of({ submit, find, handlePending });
   };
 
-  static readonly make = (ready: Effect.Effect<void>) =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
+  static readonly make = Effect.fnUntraced(function* (ready: Effect.Effect<void>) {
+    const sql = yield* SqlClient.SqlClient;
 
-      return RecordingEdits.makeWith(ready, (use) => use(sql));
-    });
+    return RecordingEdits.makeWith(ready, (use) => use(sql));
+  });
 
   static readonly layerPerCall = <E extends Error>(
     connection: Layer.Layer<SqlClient.SqlClient, E>,

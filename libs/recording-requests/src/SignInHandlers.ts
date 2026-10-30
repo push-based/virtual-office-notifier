@@ -22,13 +22,12 @@ export const SignInHandlers = HttpApiBuilder.group(
 
     return handlers.handleAll({
       config: () => Effect.succeed({ clientId }),
-      token: ({ payload }) =>
-        Effect.gen(function* () {
-          const { accessToken, user } = yield* discord.exchange(payload.code);
-          const session = yield* sessions.issue(user);
+      token: Effect.fnUntraced(function* ({ payload }) {
+        const { accessToken, user } = yield* discord.exchange(payload.code);
+        const session = yield* sessions.issue(user);
 
-          return { accessToken, session, user };
-        }),
+        return { accessToken, session, user };
+      }),
     });
   }),
 );

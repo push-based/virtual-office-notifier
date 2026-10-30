@@ -108,8 +108,8 @@ export class SlackSocket extends Context.Service<
         return false;
       });
 
-      const session = (queue: Queue.Queue<Envelope, Cause.Done>) =>
-        Effect.gen(function* () {
+      const session = Effect.fn("SlackSocket.session")(
+        function* (queue: Queue.Queue<Envelope, Cause.Done>) {
           const url = yield* slack.openConnection;
           const socket = yield* Socket.makeWebSocket(url);
           const pull = yield* Socket.readerString(socket).pipe(Effect.mapError(dropped));
@@ -124,7 +124,10 @@ export class SlackSocket extends Context.Service<
               if (yield* handle(frame, writer, queue)) return;
             }
           }
-        }).pipe(Effect.scoped, Effect.provideService(Socket.WebSocketConstructor, makeWebSocket));
+        },
+        Effect.scoped,
+        Effect.provideService(Socket.WebSocketConstructor, makeWebSocket),
+      );
 
       const envelopes = Stream.callback<Envelope>((queue) =>
         session(queue).pipe(Effect.retry(reconnectSchedule), Effect.forever, Effect.orDie),

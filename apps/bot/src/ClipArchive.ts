@@ -110,20 +110,22 @@ export class ClipArchive extends Context.Service<
             : yield* fetchToken;
         });
 
-        const send = (what: string, request: HttpClientRequest.HttpClientRequest) =>
-          Effect.gen(function* () {
-            const { token: bearer } = yield* token;
+        const send = Effect.fnUntraced(function* (
+          what: string,
+          request: HttpClientRequest.HttpClientRequest,
+        ) {
+          const { token: bearer } = yield* token;
 
-            const response = yield* client
-              .execute(HttpClientRequest.bearerToken(request, bearer))
-              .pipe(Effect.timeout(REQUEST_TIMEOUT), Effect.mapError(failed(what)));
+          const response = yield* client
+            .execute(HttpClientRequest.bearerToken(request, bearer))
+            .pipe(Effect.timeout(REQUEST_TIMEOUT), Effect.mapError(failed(what)));
 
-            if (response.status < 200 || response.status >= 300) {
-              return yield* archiveError(`${what} answered HTTP ${response.status}`);
-            }
+          if (response.status < 200 || response.status >= 300) {
+            return yield* archiveError(`${what} answered HTTP ${response.status}`);
+          }
 
-            return response;
-          });
+          return response;
+        });
 
         const upload = Effect.fn("ClipArchive.upload")(
           (path: string, audio: Uint8Array) =>

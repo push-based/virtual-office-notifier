@@ -159,24 +159,27 @@ export const respondToSlack = Effect.gen(function* () {
     };
   });
 
-  const recordDecision = (considered: Considered, settings: ResponderSettings, verdict: Verdict) =>
-    Effect.gen(function* () {
-      yield* history.recordDecision({
-        messageId: considered.messageId,
-        decidedAt: yield* DateTime.now,
-        clef: verdict.clef,
-        minConfidence: settings.minConfidence,
-        maxRepliesPerDay: settings.maxRepliesPerDay,
-        maxReactionsPerDay: settings.maxReactionsPerDay,
-        maxRepliesPerThread: settings.maxRepliesPerThread,
-        outcome: verdict.outcome,
-        reason: verdict.reason,
-      });
-
-      yield* Effect.logInfo("Considered a Slack message").pipe(
-        Effect.annotateLogs({ outcome: verdict.outcome, reason: verdict.reason }),
-      );
+  const recordDecision = Effect.fn("Responder.recordDecision")(function* (
+    considered: Considered,
+    settings: ResponderSettings,
+    verdict: Verdict,
+  ) {
+    yield* history.recordDecision({
+      messageId: considered.messageId,
+      decidedAt: yield* DateTime.now,
+      clef: verdict.clef,
+      minConfidence: settings.minConfidence,
+      maxRepliesPerDay: settings.maxRepliesPerDay,
+      maxReactionsPerDay: settings.maxReactionsPerDay,
+      maxRepliesPerThread: settings.maxRepliesPerThread,
+      outcome: verdict.outcome,
+      reason: verdict.reason,
     });
+
+    yield* Effect.logInfo("Considered a Slack message").pipe(
+      Effect.annotateLogs({ outcome: verdict.outcome, reason: verdict.reason }),
+    );
+  });
 
   const lineFor = Effect.fnUntraced(function* (
     { userId, text }: ThreadMessage,
@@ -396,8 +399,8 @@ export const respondToSlack = Effect.gen(function* () {
       Effect.annotateLogs(effect, { slackUserId: Redacted.make(pending.message.userId) }),
   );
 
-  const skipSuperseded = (pending: Pending) =>
-    Effect.gen(function* () {
+  const skipSuperseded = Effect.fn("Responder.skipSuperseded")(
+    function* (pending: Pending) {
       const settings = yield* enabledSettings;
 
       if (Option.isNone(settings)) return;
@@ -405,13 +408,13 @@ export const respondToSlack = Effect.gen(function* () {
       const considered = yield* consider(pending);
 
       yield* recordDecision(considered, settings.value, verdictOf("ignored", "superseded"));
-    }).pipe(
-      Effect.catchTag("HistoryUnavailable", (error) =>
-        Effect.logWarning("Couldn't record a superseded Slack message").pipe(
-          Effect.annotateLogs({ reason: error.reason }),
-        ),
+    },
+    Effect.catchTag("HistoryUnavailable", (error) =>
+      Effect.logWarning("Couldn't record a superseded Slack message").pipe(
+        Effect.annotateLogs({ reason: error.reason }),
       ),
-    );
+    ),
+  );
 
   const enqueue = Effect.fnUntraced(function* (message: IncomingMessage) {
     const pending: Pending = { message, receivedAt: yield* DateTime.now };

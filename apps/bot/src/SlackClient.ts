@@ -139,32 +139,32 @@ const decodeEnvelope = Schema.decodeUnknownEffect(
   ),
 );
 
-const checkResponse =
-  <S extends Schema.Decoder<unknown>>(schema: S) =>
-  (response: HttpClientResponse.HttpClientResponse): Effect.Effect<S["Type"], SlackError> =>
-    Effect.gen(function* () {
-      const { status, headers } = response;
+const checkResponse = <S extends Schema.Decoder<unknown>>(schema: S) =>
+  Effect.fnUntraced(function* (
+    response: HttpClientResponse.HttpClientResponse,
+  ): Effect.fn.Return<S["Type"], SlackError> {
+    const { status, headers } = response;
 
-      if (status === 429)
-        return yield* failWith(RateLimited.make({ retryAfter: retryAfter(headers) }));
+    if (status === 429)
+      return yield* failWith(RateLimited.make({ retryAfter: retryAfter(headers) }));
 
-      if (status >= 500) return yield* failWith(Unavailable.make({ status }));
+    if (status >= 500) return yield* failWith(Unavailable.make({ status }));
 
-      if (status < 200 || status >= 300)
-        return yield* failWith(InvalidPayload.make({ error: `http_${status}` }));
+    if (status < 200 || status >= 300)
+      return yield* failWith(InvalidPayload.make({ error: `http_${status}` }));
 
-      const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+    const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
 
-      const envelope = yield* decodeEnvelope(body).pipe(
-        Effect.catch(() => failWith(InvalidPayload.make({ error: "unexpected_response" }))),
-      );
+    const envelope = yield* decodeEnvelope(body).pipe(
+      Effect.catch(() => failWith(InvalidPayload.make({ error: "unexpected_response" }))),
+    );
 
-      if (!envelope.ok) return yield* failWith(reasonForError(envelope.error, headers));
+    if (!envelope.ok) return yield* failWith(reasonForError(envelope.error, headers));
 
-      return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(body).pipe(
-        Effect.catch(() => failWith(InvalidPayload.make({ error: "unexpected_response" }))),
-      );
-    });
+    return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(body).pipe(
+      Effect.catch(() => failWith(InvalidPayload.make({ error: "unexpected_response" }))),
+    );
+  });
 
 const describeHttpError = ({ reason }: HttpClientError.HttpClientError): string =>
   reason.description === undefined ? reason._tag : `${reason._tag}: ${reason.description}`;
