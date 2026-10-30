@@ -160,8 +160,8 @@ const fourStates = Effect.gen(function* () {
   yield* insertClip(sql, SILENT, "u1", at(1), "skipped", null);
 
   const occupants = yield* encodeOccupants([
-    { userId: "u1", displayName: "ada", avatarUrl: "https://cdn.example/ada.png" },
-    { userId: "u3", displayName: "linus", avatarUrl: null },
+    { userId: "u1", displayName: "ada", avatarUrl: "https://cdn.example/ada.png", speaking: true },
+    { userId: "u3", displayName: "linus", avatarUrl: null, speaking: false },
   ]);
 
   yield* sql`UPDATE office.recording_status SET occupants = ${occupants}::jsonb`;

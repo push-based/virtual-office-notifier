@@ -71,5 +71,5 @@ One change to a recording's title, agenda, summary style or action items, by one
 _Avoid_: update, rename
 
 **Recording status**:
-What the Office Recorder shows: whether the bot is in the office, who is there, and the recording that is running, if any.
+What the Office Recorder shows: whether the bot is in the office, who is there and which of them the bot hears speaking, and the recording that is running, if any.
 _Avoid_: state, office state

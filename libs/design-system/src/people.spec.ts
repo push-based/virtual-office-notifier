@@ -38,4 +38,20 @@ describe("PbPeople", () => {
 
     expect(fixture.nativeElement.querySelectorAll("pb-avatar").length).toBe(1);
   });
+
+  it("rings whoever is speaking", async () => {
+    const fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.people.set([
+      { id: "1", name: "Ada Lovelace", avatarUrl: null, speaking: true },
+      { id: "2", name: "Linus Torvalds", avatarUrl: null },
+    ]);
+    await fixture.whenStable();
+    const element: HTMLElement = fixture.nativeElement;
+
+    expect(
+      [...element.querySelectorAll("pb-avatar")].map((avatar) =>
+        avatar.classList.contains("speaking"),
+      ),
+    ).toEqual([true, false]);
+  });
 });

@@ -6,6 +6,7 @@ import {
   Subject,
   catchError,
   concatMap,
+  defer,
   distinctUntilChanged,
   finalize,
   first,
@@ -123,19 +124,14 @@ export class OfficeStore {
 
     if (this.destroyRef.destroyed) return;
 
-    const statuses = merge(timer(0, this.timing.statePollMs), this.refreshes).pipe(
-      mergeMap(() =>
-        this.api.status().pipe(
-          catchError((error) => {
-            this.notices.next(unreachableNotice(messageOf(error)));
-
-            return EMPTY;
-          }),
+    const statuses = merge(
+      timer(0).pipe(
+        switchMap(() =>
+          defer(() => this.fetchStatus()).pipe(repeat({ delay: () => timer(this.pollMs()) })),
         ),
       ),
-      takeUntilDestroyed(this.destroyRef),
-      share(),
-    );
+      this.refreshes.pipe(mergeMap(() => this.fetchStatus())),
+    ).pipe(takeUntilDestroyed(this.destroyRef), share());
 
     statuses.subscribe((status) => this.patch({ status, now: Date.now() }));
 
@@ -186,6 +182,20 @@ export class OfficeStore {
         takeUntilDestroyed(this.destroyRef),
       )
       .subscribe((notice) => this.notices.next(notice));
+  }
+
+  private pollMs(): number {
+    return this.recording() ? this.timing.recordingPollMs : this.timing.statePollMs;
+  }
+
+  private fetchStatus(): Observable<RecordingStatus> {
+    return this.api.status().pipe(
+      catchError((error) => {
+        this.notices.next(unreachableNotice(messageOf(error)));
+
+        return EMPTY;
+      }),
+    );
   }
 
   private awaitOutcome(id: number): Observable<HandledRequest | null> {

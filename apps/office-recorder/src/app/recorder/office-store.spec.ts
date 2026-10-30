@@ -108,6 +108,32 @@ describe("OfficeStore", () => {
     expect(store.recording()).toBe(true);
   });
 
+  it("polls every second while recording and slows down again afterwards", async () => {
+    const api = fakeApi();
+    const { timing } = await started(api);
+    const polls = () => api.status.mock.calls.length;
+
+    expect(timing.recordingPollMs).toBe(1000);
+    expect(timing.statePollMs).toBe(3000);
+
+    api.status.mockReturnValue(of(recording));
+    await vi.advanceTimersByTimeAsync(timing.statePollMs);
+    const whenRecording = polls();
+
+    await vi.advanceTimersByTimeAsync(3 * timing.recordingPollMs);
+    expect(polls()).toBe(whenRecording + 3);
+
+    api.status.mockReturnValue(of(idle));
+    await vi.advanceTimersByTimeAsync(timing.recordingPollMs);
+    const whenIdle = polls();
+
+    await vi.advanceTimersByTimeAsync(timing.statePollMs - 1);
+    expect(polls()).toBe(whenIdle);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(polls()).toBe(whenIdle + 1);
+  });
+
   it("shows the office in the Rich Presence once per phase", async () => {
     const api = fakeApi();
     const session = fakeSession();

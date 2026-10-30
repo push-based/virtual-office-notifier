@@ -7,7 +7,18 @@ import {
 } from "@discordjs/voice";
 import type { Buffer } from "node:buffer";
 
-import { Cause, Context, DateTime, Duration, Effect, Layer, Queue, Schema, Stream } from "effect";
+import {
+  Cause,
+  Context,
+  Data,
+  DateTime,
+  Duration,
+  Effect,
+  Layer,
+  Queue,
+  Schema,
+  Stream,
+} from "effect";
 
 import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
@@ -18,6 +29,14 @@ export interface Clip {
   readonly startedAt: DateTime.Utc;
   readonly packets: ReadonlyArray<Uint8Array>;
 }
+
+export type Heard = Data.TaggedEnum<{
+  Spoke: { readonly clip: Clip };
+  StartedSpeaking: { readonly userId: string };
+  StoppedSpeaking: { readonly userId: string };
+}>;
+
+export const Heard = Data.taggedEnum<Heard>();
 
 export class CaptureError extends Schema.TaggedError<
   CaptureError,
@@ -42,7 +61,7 @@ const destroy = (connection: VoiceConnection) =>
 export class VoiceCapture extends Context.Service<
   VoiceCapture,
   {
-    capture(office: OfficeLocation): Stream.Stream<Clip, CaptureError>;
+    capture(office: OfficeLocation): Stream.Stream<Heard, CaptureError>;
   }
 >()("bot/VoiceCapture") {
   static readonly layer = Layer.effect(
@@ -52,7 +71,7 @@ export class VoiceCapture extends Context.Service<
       const maxClipMs = Duration.toMillis(MAX_CLIP);
 
       const capture = (office: OfficeLocation) =>
-        Stream.callback<Clip, CaptureError>(
+        Stream.callback<Heard, CaptureError>(
           Effect.fnUntraced(function* (queue) {
             const adapterCreator = yield* Effect.fromOption(gateway.voiceAdapter, () =>
               CaptureError.make({ reason: "The office voice channel wasn't found" }),
@@ -95,7 +114,11 @@ export class VoiceCapture extends Context.Service<
             const receiver = connection.receiver;
 
             const onSpeakingStart = (userId: string) => {
-              if (userId === gateway.selfUserId || receiver.subscriptions.has(userId)) return;
+              if (userId === gateway.selfUserId) return;
+
+              Queue.offerUnsafe(queue, Heard.StartedSpeaking({ userId }));
+
+              if (receiver.subscriptions.has(userId)) return;
 
               const stream = receiver.subscribe(userId, {
                 end: {
@@ -109,7 +132,8 @@ export class VoiceCapture extends Context.Service<
               let durationMs = 0;
 
               const emit = () => {
-                if (packets.length > 0) Queue.offerUnsafe(queue, { userId, startedAt, packets });
+                if (packets.length > 0)
+                  Queue.offerUnsafe(queue, Heard.Spoke({ clip: { userId, startedAt, packets } }));
 
                 packets = [];
                 durationMs = 0;
@@ -129,10 +153,19 @@ export class VoiceCapture extends Context.Service<
               stream.on("error", emit);
             };
 
+            const onSpeakingEnd = (userId: string) => {
+              if (userId !== gateway.selfUserId)
+                Queue.offerUnsafe(queue, Heard.StoppedSpeaking({ userId }));
+            };
+
             receiver.speaking.on("start", onSpeakingStart);
+            receiver.speaking.on("end", onSpeakingEnd);
 
             yield* Effect.addFinalizer(() =>
-              Effect.sync(() => receiver.speaking.off("start", onSpeakingStart)),
+              Effect.sync(() => {
+                receiver.speaking.off("start", onSpeakingStart);
+                receiver.speaking.off("end", onSpeakingEnd);
+              }),
             );
           }),
         );
@@ -141,6 +174,6 @@ export class VoiceCapture extends Context.Service<
     }),
   );
 
-  static readonly layerTest = (clips: Queue.Dequeue<Clip, Cause.Done | CaptureError>) =>
-    Layer.succeed(VoiceCapture, VoiceCapture.of({ capture: () => Stream.fromQueue(clips) }));
+  static readonly layerTest = (heard: Queue.Dequeue<Heard, Cause.Done | CaptureError>) =>
+    Layer.succeed(VoiceCapture, VoiceCapture.of({ capture: () => Stream.fromQueue(heard) }));
 }
