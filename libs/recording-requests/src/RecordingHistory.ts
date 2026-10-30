@@ -1,5 +1,5 @@
 import { Array, Context, DateTime, Effect, Layer, Option, pipe, Schema } from "effect";
-import { SqlClient } from "effect/sql";
+import { SqlClient, SqlSchema } from "effect/sql";
 
 import {
   type ActionItem,
@@ -30,66 +30,141 @@ const RecordingRow = Schema.Struct({
 
 type RecordingRow = typeof RecordingRow.Type;
 
-const decodeRecordings = Schema.decodeUnknownEffect(Schema.Array(RecordingRow));
+const DetailsRow = Schema.Struct({
+  ...RecordingRow.fields,
+  agenda: Schema.NullOr(Schema.String),
+  stopReason: Schema.NullOr(StopReason),
+  stoppedBy: Schema.NullOr(Schema.String),
+  stoppedByName: Schema.NullOr(Schema.String),
+  summary: Schema.NullOr(Schema.String),
+  summaryModel: Schema.NullOr(Schema.String),
+  summaryStyle: SummaryStyle,
+  summaryWrittenStyle: Schema.NullOr(SummaryStyle),
+  rewriting: Schema.Boolean,
+  slackPermalink: Schema.NullOr(Schema.String),
+});
 
-const decodeDetails = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({
-      ...RecordingRow.fields,
-      agenda: Schema.NullOr(Schema.String),
-      stopReason: Schema.NullOr(StopReason),
-      stoppedBy: Schema.NullOr(Schema.String),
-      stoppedByName: Schema.NullOr(Schema.String),
-      summary: Schema.NullOr(Schema.String),
-      summaryModel: Schema.NullOr(Schema.String),
-      summaryStyle: SummaryStyle,
-      summaryWrittenStyle: Schema.NullOr(SummaryStyle),
-      rewriting: Schema.Boolean,
-      slackPermalink: Schema.NullOr(Schema.String),
-    }),
-  ),
-);
+const ActionItemRow = Schema.Struct({
+  id: RowId,
+  text: Schema.String,
+  owner: Schema.NullOr(Schema.String),
+  ownerName: Schema.NullOr(Schema.String),
+  done: Schema.Boolean,
+});
 
-const decodeActionItems = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({
-      id: RowId,
-      text: Schema.String,
-      owner: Schema.NullOr(Schema.String),
-      ownerName: Schema.NullOr(Schema.String),
-      done: Schema.Boolean,
-    }),
-  ),
-);
+const MemberRow = Schema.Struct({ userId: Schema.String, name: Schema.String });
 
-const decodePulled = Schema.decodeUnknownEffect(
-  Schema.Array(Schema.Struct({ pulled: Schema.Boolean })),
-);
+const SpeakerRow = Schema.Struct({
+  recordingId: Schema.String,
+  userId: Schema.String,
+  name: Schema.String,
+});
 
-const decodeMembers = Schema.decodeUnknownEffect(
-  Schema.Array(Schema.Struct({ userId: Schema.String, name: Schema.String })),
-);
+const ClipRow = Schema.Struct({
+  userId: Schema.String,
+  name: Schema.String,
+  startedAt: Schema.DateTimeUtcFromDate,
+  transcript: Schema.String,
+});
 
-const decodeSpeakers = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({ recordingId: Schema.String, userId: Schema.String, name: Schema.String }),
-  ),
-);
+const findOccupants = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Schema.Struct({ occupants: Schema.Array(PersonInOffice) }),
+    execute: () => sql`SELECT occupants FROM office.recording_status`,
+  });
 
-const decodeClips = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({
-      userId: Schema.String,
-      name: Schema.String,
-      startedAt: Schema.DateTimeUtcFromDate,
-      transcript: Schema.String,
-    }),
-  ),
-);
+const findSpeakers = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findAll({
+    Request: Schema.NonEmptyArray(Schema.String),
+    Result: SpeakerRow,
+    execute: (ids) => sql`
+      SELECT c.recording_id, c.user_id, coalesce(m.real_name, m.display_name) AS name
+      FROM office.recording_clips c
+      JOIN office.members m USING (user_id)
+      WHERE c.recording_id IN ${sql.in(ids)} AND c.transcription IN ('pending', 'done')
+      GROUP BY c.recording_id, c.user_id, m.real_name, m.display_name
+      ORDER BY min(c.started_at)
+    `,
+  });
 
-const decodeOccupants = Schema.decodeUnknownEffect(
-  Schema.Array(Schema.Struct({ occupants: Schema.Array(PersonInOffice) })),
-);
+const findPulled = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findOneOption({
+    Request: Schema.String,
+    Result: Schema.Struct({ pulled: Schema.Boolean }),
+    execute: (id) => sql`
+      SELECT action_items_model IS NOT NULL AS pulled FROM office.recordings WHERE id = ${id}
+    `,
+  });
+
+const findActionItems = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findAll({
+    Request: Schema.String,
+    Result: ActionItemRow,
+    execute: (id) => sql`
+      SELECT a.id, a.text, a.owner, coalesce(m.real_name, m.display_name) AS owner_name, a.done
+      FROM office.recording_action_items a
+      LEFT JOIN office.members m ON m.user_id = a.owner
+      WHERE a.recording_id = ${id} AND a.replaced_at IS NULL
+      ORDER BY a.position, a.id
+    `,
+  });
+
+const findRecordings = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findAll({
+    Request: Schema.OptionFromNullOr(Schema.DateTimeUtcFromDate),
+    Result: RecordingRow,
+    execute: (before) => sql`
+      SELECT r.id, r.started_at, r.stopped_at, r.finished_at, r.slack_ts, r.started_by,
+             coalesce(m.real_name, m.display_name) AS started_by_name, r.title
+      FROM office.recordings r
+      LEFT JOIN office.members m ON m.user_id = r.started_by
+      WHERE ${sql.and(before === null ? [] : [sql`r.started_at < ${before}`])}
+      ORDER BY r.started_at DESC
+      LIMIT ${PAGE_SIZE + 1}
+    `,
+  });
+
+const findDetails = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findOneOption({
+    Request: Schema.String,
+    Result: DetailsRow,
+    execute: (id) => sql`
+      SELECT r.id, r.started_at, r.stopped_at, r.finished_at, r.slack_ts, r.started_by,
+             coalesce(m.real_name, m.display_name) AS started_by_name, r.title, r.agenda,
+             r.stop_reason, r.stopped_by, coalesce(s.real_name, s.display_name) AS stopped_by_name,
+             r.summary, r.summary_model, r.summary_style, r.summary_written_style,
+             r.summary_rewrite_edit_id IS NOT NULL AS rewriting, r.slack_permalink
+      FROM office.recordings r
+      LEFT JOIN office.members m ON m.user_id = r.started_by
+      LEFT JOIN office.members s ON s.user_id = r.stopped_by
+      WHERE r.id = ${id}
+    `,
+  });
+
+const findClips = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findAll({
+    Request: Schema.String,
+    Result: ClipRow,
+    execute: (id) => sql`
+      SELECT c.user_id, coalesce(m.real_name, m.display_name) AS name, c.started_at, c.transcript
+      FROM office.recording_clips c
+      JOIN office.members m USING (user_id)
+      WHERE c.recording_id = ${id} AND c.transcription = 'done'
+        AND c.transcript IS NOT NULL AND btrim(c.transcript) <> ''
+      ORDER BY c.started_at, c.id
+    `,
+  });
+
+const findMembers = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: MemberRow,
+    execute: () => sql`
+      SELECT user_id, coalesce(real_name, display_name) AS name FROM office.members
+      ORDER BY lower(coalesce(real_name, display_name)), user_id
+    `,
+  });
 
 type Avatars = ReadonlyMap<string, string>;
 
@@ -130,8 +205,7 @@ export class RecordingHistory extends Context.Service<
     const timed = guardQuery({ ready: Effect.void, unavailable: recordingUnavailable });
 
     const avatarsFrom = (sql: SqlClient.SqlClient) =>
-      sql`SELECT occupants FROM office.recording_status`.pipe(
-        Effect.flatMap(decodeOccupants),
+      findOccupants(sql)().pipe(
         Effect.map(
           (rows): Avatars =>
             new Map(
@@ -146,15 +220,7 @@ export class RecordingHistory extends Context.Service<
 
     const speakersOf = (sql: SqlClient.SqlClient, ids: ReadonlyArray<string>, avatars: Avatars) =>
       Array.isReadonlyArrayNonEmpty(ids)
-        ? sql`
-            SELECT c.recording_id, c.user_id, coalesce(m.real_name, m.display_name) AS name
-            FROM office.recording_clips c
-            JOIN office.members m USING (user_id)
-            WHERE c.recording_id IN ${sql.in(ids)} AND c.transcription IN ('pending', 'done')
-            GROUP BY c.recording_id, c.user_id, m.real_name, m.display_name
-            ORDER BY min(c.started_at)
-          `.pipe(
-            Effect.flatMap(decodeSpeakers),
+        ? findSpeakers(sql)(ids).pipe(
             Effect.map((rows) => Array.groupBy(rows, (row) => row.recordingId)),
             Effect.map(
               (byRecording) =>
@@ -168,19 +234,11 @@ export class RecordingHistory extends Context.Service<
 
     const actionItemsOf = Effect.fnUntraced(
       function* (sql: SqlClient.SqlClient, id: string, avatars: Avatars) {
-        const [pulled] = yield* sql`
-          SELECT action_items_model IS NOT NULL AS pulled FROM office.recordings WHERE id = ${id}
-        `.pipe(Effect.flatMap(decodePulled));
+        const pulled = yield* findPulled(sql)(id);
 
-        if (pulled?.pulled !== true) return null;
+        if (Option.isNone(pulled) || !pulled.value.pulled) return null;
 
-        const items = yield* sql`
-          SELECT a.id, a.text, a.owner, coalesce(m.real_name, m.display_name) AS owner_name, a.done
-          FROM office.recording_action_items a
-          LEFT JOIN office.members m ON m.user_id = a.owner
-          WHERE a.recording_id = ${id} AND a.replaced_at IS NULL
-          ORDER BY a.position, a.id
-        `.pipe(Effect.flatMap(decodeActionItems));
+        const items = yield* findActionItems(sql)(id);
 
         return Array.map(items, (item): ActionItem => ({
           id: item.id,
@@ -201,20 +259,7 @@ export class RecordingHistory extends Context.Service<
       connected((sql) =>
         timed(
           Effect.gen(function* () {
-            const rows = yield* sql`
-              SELECT r.id, r.started_at, r.stopped_at, r.finished_at, r.slack_ts, r.started_by,
-                     coalesce(m.real_name, m.display_name) AS started_by_name, r.title
-              FROM office.recordings r
-              LEFT JOIN office.members m ON m.user_id = r.started_by
-              WHERE ${sql.and(
-                Option.match(before, {
-                  onNone: () => [],
-                  onSome: (at) => [sql`r.started_at < ${DateTime.toDate(at)}`],
-                }),
-              )}
-              ORDER BY r.started_at DESC
-              LIMIT ${PAGE_SIZE + 1}
-            `.pipe(Effect.flatMap(decodeRecordings));
+            const rows = yield* findRecordings(sql)(before);
 
             const shown = Array.take(rows, PAGE_SIZE);
             const avatars = yield* avatarsFrom(sql);
@@ -248,38 +293,18 @@ export class RecordingHistory extends Context.Service<
       connected((sql) =>
         timed(
           Effect.gen(function* () {
-            const rows = yield* sql`
-              SELECT r.id, r.started_at, r.stopped_at, r.finished_at, r.slack_ts, r.started_by,
-                     coalesce(m.real_name, m.display_name) AS started_by_name, r.title, r.agenda,
-                     r.stop_reason, r.stopped_by, coalesce(s.real_name, s.display_name) AS stopped_by_name,
-                     r.summary, r.summary_model, r.summary_style, r.summary_written_style,
-                     r.summary_rewrite_edit_id IS NOT NULL AS rewriting, r.slack_permalink
-              FROM office.recordings r
-              LEFT JOIN office.members m ON m.user_id = r.started_by
-              LEFT JOIN office.members s ON s.user_id = r.stopped_by
-              WHERE r.id = ${id}
-            `.pipe(Effect.flatMap(decodeDetails));
+            const found = yield* findDetails(sql)(id);
 
-            const [row] = rows;
+            if (Option.isNone(found)) return Option.none<RecordingDetail>();
 
-            if (row === undefined) return Option.none<RecordingDetail>();
+            const row = found.value;
 
             const avatars = yield* avatarsFrom(sql);
             const speakers = yield* speakersOf(sql, [row.id], avatars);
 
-            const clips = yield* sql`
-              SELECT c.user_id, coalesce(m.real_name, m.display_name) AS name, c.started_at, c.transcript
-              FROM office.recording_clips c
-              JOIN office.members m USING (user_id)
-              WHERE c.recording_id = ${id} AND c.transcription = 'done'
-                AND c.transcript IS NOT NULL AND btrim(c.transcript) <> ''
-              ORDER BY c.started_at, c.id
-            `.pipe(Effect.flatMap(decodeClips));
+            const clips = yield* findClips(sql)(id);
 
-            const members = yield* sql`
-              SELECT user_id, coalesce(real_name, display_name) AS name FROM office.members
-              ORDER BY lower(coalesce(real_name, display_name)), user_id
-            `.pipe(Effect.flatMap(decodeMembers));
+            const members = yield* findMembers(sql)();
 
             const actionItems = yield* actionItemsOf(sql, id, avatars);
 
