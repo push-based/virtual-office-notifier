@@ -9,6 +9,7 @@ import {
   formatDuration,
   formatMessage,
   reminderHeadlines,
+  rewriteNote,
   summaryMessage,
   weekdaysSinceEpoch,
 } from "../src/SlackMessage.ts";
@@ -345,7 +346,11 @@ describe("summaryMessage", () => {
     startedByName: "Ada <3",
     title: null,
     speakers: ["Ada <3", "Grace"],
-    summary: Option.some({ text: "• Ada & Grace agreed to ship", model: "nvidia/nemotron" }),
+    summary: Option.some({
+      text: "• Ada & Grace agreed to ship",
+      model: "nvidia/nemotron",
+      style: "brief" as const,
+    }),
     actionItems: ActionItemList.NotTried(),
   };
 
@@ -369,7 +374,7 @@ describe("summaryMessage", () => {
     expect(card).toContain("• Ada &amp; Grace agreed to ship");
     expect(card).toContain("*Started by*\\nAda &lt;3");
     expect(card).toContain("*Who spoke*\\nAda &lt;3, Grace");
-    expect(card).toContain("✨ Summary by nvidia/nemotron");
+    expect(card).toContain("✨ Brief summary by nvidia/nemotron");
     expect(card).toContain("📄 Full transcript in the thread");
     expect(card).toContain(AI_DISCLAIMER);
   });
@@ -392,7 +397,7 @@ describe("summaryMessage", () => {
 
     expect(card).toContain("No AI model could write a summary this time");
     expect(card).toContain("*Who spoke*\\nNobody");
-    expect(card).not.toContain("Summary by");
+    expect(card).not.toContain("summary by");
     expect(card).not.toContain(AI_DISCLAIMER);
   });
 
@@ -426,5 +431,36 @@ describe("summaryMessage", () => {
   it("has no action items block for a recording from before they were pulled out", () => {
     expect(actionItemsText(ActionItemList.NotTried())).toEqual([]);
     expect(summaryMessage(recording).blocks).toHaveLength(4);
+  });
+
+  it("names the style the summary was written in", () => {
+    const styled = (style: "detailed" | "decisions") =>
+      JSON.stringify(
+        summaryMessage({
+          ...recording,
+          summary: Option.some({ text: "• Shipped", model: "nvidia/nemotron", style }),
+        }).blocks,
+      );
+
+    expect(styled("detailed")).toContain("✨ Detailed summary by nvidia/nemotron");
+    expect(styled("decisions")).toContain("✨ Decisions &amp; actions summary by nvidia/nemotron");
+  });
+});
+
+describe("rewriteNote", () => {
+  it("says who rewrote the summary, and the new style when it changed", () => {
+    expect(rewriteNote(Option.some("detailed"), "Ben")).toEqual({
+      text: "✨ Summary rewritten as Detailed by Ben",
+      blocks: [
+        {
+          type: "context",
+          elements: [{ type: "mrkdwn", text: "✨ Summary rewritten as Detailed by Ben" }],
+        },
+      ],
+    });
+    expect(rewriteNote(Option.none(), "Ben <3").text).toBe("✨ Summary rewritten by Ben &lt;3");
+    expect(rewriteNote(Option.some("decisions"), "Ben").text).toBe(
+      "✨ Summary rewritten as Decisions &amp; actions by Ben",
+    );
   });
 });

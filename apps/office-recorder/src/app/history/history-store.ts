@@ -16,7 +16,7 @@ import {
 } from "rxjs";
 
 import { RecorderSession } from "../recorder/session";
-import { isLive } from "./describe-recording";
+import { isChanging } from "./describe-recording";
 import { HistoryApi } from "./history-api";
 import { EMPTY_HISTORY, type HistoryList, withNewest, withOlder } from "./history-list";
 import { HISTORY_TIMING } from "./history-timing";
@@ -146,7 +146,7 @@ export class HistoryStore {
     return timer(0, this.timing.recordingPollMs).pipe(
       switchMap(() => this.api.recording(id).pipe(catchError((error) => this.failed(error)))),
       tap((open) => this.patch({ open, failure: null })),
-      takeWhile((open) => isLive(open.state)),
+      takeWhile(isChanging),
     );
   }
 

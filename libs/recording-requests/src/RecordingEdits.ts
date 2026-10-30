@@ -79,6 +79,8 @@ const targetsOf = (
         itemOfRecording(sql, item),
         ...(owner === null ? [] : [knownMember(sql, owner)]),
       ],
+      summary_style: () => [],
+      rewrite_summary: () => [],
     }),
   );
 
@@ -222,7 +224,7 @@ export class RecordingEdits extends Context.Service<
                 change: change.value,
               };
 
-              yield* Match.valueTags(decideEdit(row), {
+              yield* Match.valueTags(decideEdit(row, edit.change), {
                 Apply: () => apply(sql, edit, handler),
                 Ignore: ({ reason }) => ignore(sql, edit.id, reason),
               }).pipe(

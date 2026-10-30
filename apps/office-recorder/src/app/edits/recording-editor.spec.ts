@@ -15,6 +15,7 @@ import { RecordingEditor } from "./recording-editor";
       recordingId="r1"
       [currentTitle]="title()"
       [currentAgenda]="agenda()"
+      currentSummaryStyle="brief"
       (saved)="saves.set(saves() + 1)"
     />
   `,
@@ -116,6 +117,23 @@ describe("RecordingEditor", () => {
     buttonNamed(element, "Save")?.click();
 
     expect(api.submit).toHaveBeenCalledWith("r1", { kind: "title", title: null });
+  });
+
+  it("changes the summary style as an edit of its own", async () => {
+    const { fixture, element, api } = await render();
+
+    buttonNamed(element, "Edit")?.click();
+    await fixture.whenStable();
+
+    const select = element.querySelector("select");
+    expect(select?.value).toBe("brief");
+
+    select!.value = "decisions";
+    select!.dispatchEvent(new Event("change"));
+    buttonNamed(element, "Save")?.click();
+
+    expect(api.submit).toHaveBeenCalledTimes(1);
+    expect(api.submit).toHaveBeenCalledWith("r1", { kind: "summary_style", style: "decisions" });
   });
 
   it("closes without sending anything on Cancel", async () => {

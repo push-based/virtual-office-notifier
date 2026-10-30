@@ -34,6 +34,8 @@ export { PbPeople, type Person } from "./people";
 
 export { PbRecordButton } from "./record-button";
 
+export { PbSelectField, type SelectOption } from "./select-field";
+
 export { PbStat } from "./stat";
 
 export { type HeadingLevel, PbStatusHeading } from "./status-heading";

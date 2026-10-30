@@ -1,5 +1,6 @@
 import { Array, Context, DateTime, Duration, Effect, Layer, Match, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { SummaryStyle } from "recording-requests/Recording";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { type ActiveRecording, RowId } from "recording-requests/RecordingRequest";
 
@@ -36,6 +37,7 @@ export interface NewRecording {
   readonly startedByName: string;
   readonly title: string | null;
   readonly agenda: string | null;
+  readonly summaryStyle: SummaryStyle;
 }
 
 export interface NewClip {
@@ -81,6 +83,7 @@ export interface RecordingDetails {
   readonly stopReason: StopReason;
   readonly title: string | null;
   readonly agenda: string | null;
+  readonly summaryStyle: SummaryStyle;
 }
 
 export interface SummaryPost {
@@ -88,10 +91,31 @@ export interface SummaryPost {
   readonly slackTs: string;
   readonly summary: string | null;
   readonly summaryModel: string | null;
+  readonly summaryStyle: SummaryStyle | null;
+}
+
+export interface WrittenWith {
+  readonly summaryStyle: SummaryStyle;
+  readonly agenda: string | null;
+}
+
+export interface PendingRewrite {
+  readonly editId: number;
+  readonly editedByName: string;
+  readonly previousStyle: SummaryStyle | null;
+}
+
+export interface RewrittenSummary {
+  readonly editId: number;
+  readonly style: SummaryStyle;
+  readonly text: string;
+  readonly model: string;
+  readonly writtenAt: DateTime.Utc;
 }
 
 export interface FinishedRecording {
   readonly transcript: string;
+  readonly writtenWith: WrittenWith;
   readonly summary: string | null;
   readonly summaryModel: string | null;
   readonly slackChannelId: string | null;
@@ -172,6 +196,7 @@ const decodeDetails = Schema.decodeUnknownEffect(
       stopReason: StopReason,
       title: Schema.NullOr(Schema.String),
       agenda: Schema.NullOr(Schema.String),
+      summaryStyle: SummaryStyle,
     }),
   ),
 );
@@ -183,8 +208,27 @@ const decodePosts = Schema.decodeUnknownEffect(
       slackTs: Schema.String,
       summary: Schema.NullOr(Schema.String),
       summaryModel: Schema.NullOr(Schema.String),
+      summaryStyle: Schema.NullOr(SummaryStyle),
     }),
   ),
+);
+
+const decodePendingRewrites = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      editId: RowId,
+      editedByName: Schema.String,
+      previousStyle: Schema.NullOr(SummaryStyle),
+    }),
+  ),
+);
+
+const decodeTouched = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ touched: Schema.Boolean })),
+);
+
+const decodeRewriting = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ rewriting: Schema.Boolean })),
 );
 
 const decodeUnlinked = Schema.decodeUnknownEffect(
@@ -267,7 +311,21 @@ export class RecordingStore extends Context.Service<
       pulled: Option.Option<PulledActionItems>,
       at: DateTime.Utc,
     ): Effect.Effect<void, StoreUnavailable>;
-    finishRecording(id: string, finished: FinishedRecording): Effect.Effect<void, StoreUnavailable>;
+    actionItemsTouched(id: string): Effect.Effect<boolean, StoreUnavailable>;
+    replaceActionItems(
+      id: string,
+      pulled: PulledActionItems,
+      at: DateTime.Utc,
+    ): Effect.Effect<boolean, StoreUnavailable>;
+    requestRewrite(id: string, editId: number): Effect.Effect<boolean, StoreUnavailable>;
+    readonly pendingRewrites: Effect.Effect<ReadonlyArray<string>, StoreUnavailable>;
+    pendingRewrite(id: string): Effect.Effect<Option.Option<PendingRewrite>, StoreUnavailable>;
+    saveRewrite(id: string, rewritten: RewrittenSummary): Effect.Effect<void, StoreUnavailable>;
+    dropRewrite(id: string, editId: number): Effect.Effect<void, StoreUnavailable>;
+    finishRecording(
+      id: string,
+      finished: FinishedRecording,
+    ): Effect.Effect<boolean, StoreUnavailable>;
     readonly unlinkedPosts: Effect.Effect<ReadonlyArray<UnlinkedPost>, StoreUnavailable>;
     linkPost(id: string, permalink: string): Effect.Effect<void, StoreUnavailable>;
   }
@@ -335,6 +393,7 @@ export class RecordingStore extends Context.Service<
                     startedBy: recording.startedBy,
                     title: recording.title,
                     agenda: recording.agenda,
+                    summaryStyle: recording.summaryStyle,
                   })}
                 `,
                 event(recording.id, recording.startedAt, "started", null, recording.startedBy),
@@ -518,7 +577,7 @@ export class RecordingStore extends Context.Service<
           sql`
             SELECT r.id, r.guild_id, r.channel_id, r.started_at, r.stopped_at,
                    coalesce(m.real_name, m.display_name) AS started_by_name, r.stop_reason,
-                   r.title, r.agenda
+                   r.title, r.agenda, r.summary_style
             FROM office.recordings r
             JOIN office.members m ON m.user_id = r.started_by
             WHERE r.id = ${id} AND r.stopped_at IS NOT NULL
@@ -529,7 +588,9 @@ export class RecordingStore extends Context.Service<
       const summaryPost = Effect.fn("RecordingStore.summaryPost")((id: string) =>
         onceReady(
           sql`
-            SELECT slack_channel_id, slack_ts, summary, summary_model FROM office.recordings
+            SELECT slack_channel_id, slack_ts, summary, summary_model,
+                   summary_written_style AS summary_style
+            FROM office.recordings
             WHERE id = ${id} AND slack_channel_id IS NOT NULL AND slack_ts IS NOT NULL
           `.pipe(Effect.flatMap(decodePosts), Effect.map(Array.head)),
         ),
@@ -543,22 +604,26 @@ export class RecordingStore extends Context.Service<
 
       const applyEdit = Effect.fn("RecordingStore.applyEdit")(
         (id: string, change: RecordingChange) =>
-          onceReady(
-            Match.value(change).pipe(
-              Match.discriminatorsExhaustive("kind")({
-                title: ({ title }) =>
-                  sql`UPDATE office.recordings SET title = ${title} WHERE id = ${id}`,
-                agenda: ({ agenda }) =>
-                  sql`UPDATE office.recordings SET agenda = ${agenda} WHERE id = ${id}`,
-                tick: ({ item }) => markItem(id, item, true),
-                untick: ({ item }) => markItem(id, item, false),
-                reassign: ({ item, owner }) => sql`
+          Match.value(change).pipe(
+            Match.discriminatorsExhaustive("kind")({
+              title: ({ title }) =>
+                onceReady(sql`UPDATE office.recordings SET title = ${title} WHERE id = ${id}`),
+              agenda: ({ agenda }) =>
+                onceReady(sql`UPDATE office.recordings SET agenda = ${agenda} WHERE id = ${id}`),
+              tick: ({ item }) => onceReady(markItem(id, item, true)),
+              untick: ({ item }) => onceReady(markItem(id, item, false)),
+              reassign: ({ item, owner }) =>
+                onceReady(sql`
                   UPDATE office.recording_action_items SET owner = ${owner}
                   WHERE id = ${item} AND recording_id = ${id} AND replaced_at IS NULL
                     AND (${owner}::text IS NULL OR EXISTS (SELECT 1 FROM office.members WHERE user_id = ${owner}))
-                `,
-              }),
-            ),
+                `),
+              summary_style: ({ style }) =>
+                onceReady(
+                  sql`UPDATE office.recordings SET summary_style = ${style} WHERE id = ${id}`,
+                ),
+              rewrite_summary: () => Effect.void,
+            }),
           ),
         Effect.asVoid,
       );
@@ -667,20 +732,191 @@ export class RecordingStore extends Context.Service<
           ),
       );
 
-      const finishRecording = Effect.fn("RecordingStore.finishRecording")(
-        (id: string, finished: FinishedRecording) =>
+      const untouched = (id: string) => sql`
+        NOT EXISTS (
+          SELECT 1 FROM office.recording_edits e
+          WHERE e.recording_id = ${id} AND e.kind IN ('tick', 'untick', 'reassign')
+            AND e.outcome IS DISTINCT FROM 'ignored'
+        )
+      `;
+
+      const actionItemsTouched = Effect.fn("RecordingStore.actionItemsTouched")(function* (
+        id: string,
+      ) {
+        const rows = yield* onceReady(
+          sql`SELECT NOT ${untouched(id)} AS touched`.pipe(Effect.flatMap(decodeTouched)),
+        );
+
+        return Array.some(rows, ({ touched }) => touched);
+      });
+
+      const replaceActionItems = Effect.fn("RecordingStore.replaceActionItems")(
+        (id: string, pulled: PulledActionItems, at: DateTime.Utc) =>
+          onceReady(
+            sql.withTransaction(
+              Effect.gen(function* () {
+                const pulledAt = DateTime.toDate(at);
+
+                const marked = yield* sql`
+                  UPDATE office.recordings
+                  SET action_items_pulled_at = ${pulledAt}, action_items_model = ${pulled.model}
+                  WHERE id = ${id} AND ${untouched(id)}
+                  RETURNING id
+                `;
+
+                if (marked.length === 0) return false;
+
+                yield* sql`
+                  UPDATE office.recording_action_items SET replaced_at = ${pulledAt}
+                  WHERE recording_id = ${id} AND replaced_at IS NULL
+                `;
+
+                if (Array.isReadonlyArrayNonEmpty(pulled.items))
+                  yield* sql`
+                    INSERT INTO office.recording_action_items ${sql.insert(
+                      Array.map(pulled.items, ({ text, owner }, position) => ({
+                        recordingId: id,
+                        position,
+                        text,
+                        owner,
+                        pulledAt,
+                      })),
+                    )}
+                  `;
+
+                return true;
+              }),
+            ),
+          ),
+      );
+
+      const requestRewrite = Effect.fn("RecordingStore.requestRewrite")(function* (
+        id: string,
+        editId: number,
+      ) {
+        const rows = yield* onceReady(
+          sql`
+            UPDATE office.recordings SET summary_rewrite_edit_id = ${editId}
+            WHERE id = ${id} AND finished_at IS NOT NULL AND slack_ts IS NOT NULL
+            RETURNING id
+          `.pipe(Effect.flatMap(decodeIds)),
+        );
+
+        return rows.length > 0;
+      });
+
+      const pendingRewrites = onceReady(
+        sql`
+          SELECT id FROM office.recordings WHERE summary_rewrite_edit_id IS NOT NULL ORDER BY started_at
+        `.pipe(Effect.flatMap(decodeIds)),
+      ).pipe(
+        Effect.map((rows) => Array.map(rows, (row) => row.id)),
+        Effect.withSpan("RecordingStore.pendingRewrites"),
+      );
+
+      const pendingRewrite = Effect.fn("RecordingStore.pendingRewrite")((id: string) =>
+        onceReady(
+          sql`
+            SELECT r.summary_rewrite_edit_id AS edit_id, e.edited_by_name,
+                   r.summary_written_style AS previous_style
+            FROM office.recordings r
+            JOIN office.recording_edits e ON e.id = r.summary_rewrite_edit_id
+            WHERE r.id = ${id}
+          `.pipe(Effect.flatMap(decodePendingRewrites), Effect.map(Array.head)),
+        ),
+      );
+
+      const saveRewrite = Effect.fn("RecordingStore.saveRewrite")(
+        (id: string, rewritten: RewrittenSummary) =>
+          onceReady(
+            sql.withTransaction(
+              Effect.all([
+                sql`
+                  INSERT INTO office.recording_summaries ${sql.insert({
+                    recordingId: id,
+                    writtenAt: DateTime.toDate(rewritten.writtenAt),
+                    style: rewritten.style,
+                    summary: rewritten.text,
+                    model: rewritten.model,
+                    editId: rewritten.editId,
+                  })}
+                `,
+                sql`
+                  UPDATE office.recordings
+                  SET summary = ${rewritten.text}, summary_model = ${rewritten.model},
+                      summary_written_style = ${rewritten.style},
+                      summary_rewrite_edit_id = CASE
+                        WHEN summary_rewrite_edit_id = ${rewritten.editId} THEN NULL
+                        ELSE summary_rewrite_edit_id
+                      END
+                  WHERE id = ${id}
+                `,
+              ]),
+            ),
+          ),
+        Effect.asVoid,
+      );
+
+      const dropRewrite = Effect.fn("RecordingStore.dropRewrite")(
+        (id: string, editId: number) =>
           onceReady(
             sql`
-              UPDATE office.recordings
-              SET transcript = ${finished.transcript}, summary = ${finished.summary},
-                  summary_model = ${finished.summaryModel}, slack_channel_id = ${finished.slackChannelId},
-                  slack_ts = ${finished.slackTs}, slack_permalink = ${finished.slackPermalink},
-                  finished_at = ${DateTime.toDate(finished.finishedAt)}
-              WHERE id = ${id}
+              UPDATE office.recordings SET summary_rewrite_edit_id = NULL
+              WHERE id = ${id} AND summary_rewrite_edit_id = ${editId}
             `,
           ),
         Effect.asVoid,
       );
+
+      const finishRecording = Effect.fn("RecordingStore.finishRecording")(function* (
+        id: string,
+        finished: FinishedRecording,
+      ) {
+        const { summaryStyle, agenda } = finished.writtenWith;
+        const posted = finished.slackTs !== null;
+
+        const rows = yield* onceReady(
+          sql.withTransaction(
+            Effect.gen(function* () {
+              const updated = yield* sql`
+                UPDATE office.recordings
+                SET transcript = ${finished.transcript}, summary = ${finished.summary},
+                    summary_model = ${finished.summaryModel},
+                    summary_written_style = ${finished.summary === null ? null : summaryStyle},
+                    slack_channel_id = ${finished.slackChannelId},
+                    slack_ts = ${finished.slackTs}, slack_permalink = ${finished.slackPermalink},
+                    finished_at = ${DateTime.toDate(finished.finishedAt)},
+                    summary_rewrite_edit_id = CASE
+                      WHEN ${posted} AND (summary_style <> ${summaryStyle} OR agenda IS DISTINCT FROM ${agenda})
+                      THEN (
+                        SELECT max(e.id) FROM office.recording_edits e
+                        WHERE e.recording_id = ${id} AND e.outcome = 'applied'
+                          AND e.kind IN ('summary_style', 'agenda')
+                      )
+                      ELSE summary_rewrite_edit_id
+                    END
+                WHERE id = ${id}
+                RETURNING summary_rewrite_edit_id IS NOT NULL AS rewriting
+              `.pipe(Effect.flatMap(decodeRewriting));
+
+              if (finished.summary !== null && finished.summaryModel !== null)
+                yield* sql`
+                  INSERT INTO office.recording_summaries ${sql.insert({
+                    recordingId: id,
+                    writtenAt: DateTime.toDate(finished.finishedAt),
+                    style: summaryStyle,
+                    summary: finished.summary,
+                    model: finished.summaryModel,
+                  })}
+                `;
+
+              return updated;
+            }),
+          ),
+        );
+
+        return Array.some(rows, ({ rewriting }) => rewriting);
+      });
 
       const unlinkedPosts = onceReady(
         sql`
@@ -722,6 +958,13 @@ export class RecordingStore extends Context.Service<
         presentDuring,
         actionItemsOf,
         recordActionItems,
+        actionItemsTouched,
+        replaceActionItems,
+        requestRewrite,
+        pendingRewrites,
+        pendingRewrite,
+        saveRewrite,
+        dropRewrite,
         finishRecording,
         unlinkedPosts,
         linkPost,
@@ -752,6 +995,13 @@ export class RecordingStore extends Context.Service<
       presentDuring: notRecording,
       actionItemsOf: notRecording,
       recordActionItems: notRecording,
+      actionItemsTouched: notRecording,
+      replaceActionItems: notRecording,
+      requestRewrite: notRecording,
+      pendingRewrites: notRecording(),
+      pendingRewrite: notRecording,
+      saveRewrite: notRecording,
+      dropRewrite: notRecording,
       finishRecording: notRecording,
       unlinkedPosts: notRecording(),
       linkPost: notRecording,

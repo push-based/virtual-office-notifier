@@ -18,6 +18,7 @@ const anna: RunningRecording = {
   pause: null,
   title: null,
   agenda: null,
+  summaryStyle: "brief",
 };
 
 const recording: RecordingStatus = { ...idle, recording: anna };

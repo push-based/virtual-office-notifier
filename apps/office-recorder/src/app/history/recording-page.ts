@@ -12,6 +12,7 @@ import {
 
 import { ActionItems } from "../edits/action-items";
 import { RecordingEditor } from "../edits/recording-editor";
+import { SummaryRewrite } from "../edits/summary-rewrite";
 import {
   describeStop,
   formatClock,
@@ -20,6 +21,7 @@ import {
   isLive,
   NO_SUMMARY,
   stateBadge,
+  summaryCredit,
   transcriptTurns,
 } from "./describe-recording";
 import type { RecordingDetail } from "./models";
@@ -38,6 +40,7 @@ import { personOf } from "./recording-row";
     PbHeading,
     PbPeople,
     RecordingEditor,
+    SummaryRewrite,
   ],
   template: `
     <button pbButton variant="tertiary" type="button" class="back" (click)="back.emit()">
@@ -62,6 +65,7 @@ import { personOf } from "./recording-row";
         [recordingId]="recording().id"
         [currentTitle]="recording().title"
         [currentAgenda]="recording().agenda"
+        [currentSummaryStyle]="recording().summaryStyle"
         (saved)="edited.emit()"
       />
     </header>
@@ -70,9 +74,16 @@ import { personOf } from "./recording-row";
       <section aria-labelledby="summary-heading">
         <p pbEyebrow tone="muted" id="summary-heading">Summary</p>
         <p class="text-body summary">{{ recording().summary ?? noSummary }}</p>
-        @if (recording().summaryModel; as model) {
-          <p class="text-caption footer">✨ Summary by {{ model }}</p>
+        @if (recording().rewriting) {
+          <p class="text-caption footer" role="status">Rewriting…</p>
+        } @else if (credit(); as credit) {
+          <p class="text-caption footer">{{ credit }}</p>
         }
+        <app-summary-rewrite
+          [recordingId]="recording().id"
+          [rewriting]="recording().rewriting"
+          (saved)="edited.emit()"
+        />
       </section>
       <app-action-items
         [recordingId]="recording().id"
@@ -214,6 +225,8 @@ export class RecordingPage {
   protected readonly badge = computed(() => stateBadge(this.recording().state));
 
   protected readonly live = computed(() => isLive(this.recording().state));
+
+  protected readonly credit = computed(() => summaryCredit(this.recording()));
 
   protected readonly startedAt = computed(() => formatOfficeTime(this.recording().startedAt));
 

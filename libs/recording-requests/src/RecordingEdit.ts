@@ -1,8 +1,16 @@
 import { Data, Schema } from "effect";
 
-import { Agenda, type RecordingProgress, stateOf, Title } from "./Recording.ts";
+import { Agenda, type RecordingProgress, stateOf, SummaryStyle, Title } from "./Recording.ts";
 
-export const EditKind = Schema.Literals(["title", "agenda", "tick", "untick", "reassign"]);
+export const EditKind = Schema.Literals([
+  "title",
+  "agenda",
+  "tick",
+  "untick",
+  "reassign",
+  "summary_style",
+  "rewrite_summary",
+]);
 
 export type EditKind = typeof EditKind.Type;
 
@@ -22,12 +30,21 @@ export const ReassignChange = Schema.Struct({
   owner: Schema.NullOr(Schema.String.check(Schema.isMinLength(1))),
 });
 
+export const SummaryStyleChange = Schema.Struct({
+  kind: Schema.Literal("summary_style"),
+  style: SummaryStyle,
+});
+
+export const RewriteSummaryChange = Schema.Struct({ kind: Schema.Literal("rewrite_summary") });
+
 export const RecordingChange = Schema.Union([
   TitleChange,
   AgendaChange,
   TickChange,
   UntickChange,
   ReassignChange,
+  SummaryStyleChange,
+  RewriteSummaryChange,
 ]);
 
 export type RecordingChange = typeof RecordingChange.Type;
@@ -36,7 +53,7 @@ export const EditOutcome = Schema.Literals(["applied", "ignored"]);
 
 export type EditOutcome = typeof EditOutcome.Type;
 
-export const EditIgnoreReason = Schema.Literals(["silent", "unreadable"]);
+export const EditIgnoreReason = Schema.Literals(["silent", "unreadable", "unfinished"]);
 
 export type EditIgnoreReason = typeof EditIgnoreReason.Type;
 
@@ -55,10 +72,19 @@ export type EditDecision = Data.TaggedEnum<{
 
 export const EditDecision = Data.taggedEnum<EditDecision>();
 
-export const decideEdit = (recording: RecordingProgress): EditDecision =>
-  stateOf(recording) === "silent"
-    ? EditDecision.Ignore({ reason: "silent" })
-    : EditDecision.Apply();
+export const rewritesSummary = (change: RecordingChange): boolean =>
+  change.kind === "summary_style" || change.kind === "agenda" || change.kind === "rewrite_summary";
+
+export const decideEdit = (recording: RecordingProgress, change: RecordingChange): EditDecision => {
+  const state = stateOf(recording);
+
+  if (state === "silent") return EditDecision.Ignore({ reason: "silent" });
+
+  if (change.kind === "rewrite_summary" && state !== "finished")
+    return EditDecision.Ignore({ reason: "unfinished" });
+
+  return EditDecision.Apply();
+};
 
 export const explainEdit = (reason: EditIgnoreReason): string => {
   switch (reason) {
@@ -66,6 +92,8 @@ export const explainEdit = (reason: EditIgnoreReason): string => {
       return "Nobody spoke in that recording, so there's nothing to change.";
     case "unreadable":
       return "The bot couldn't read that change.";
+    case "unfinished":
+      return "That recording's summary isn't written yet, so there's nothing to rewrite.";
   }
 };
 

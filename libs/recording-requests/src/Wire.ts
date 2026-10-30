@@ -66,6 +66,8 @@ export type ActionItem = typeof History.ActionItem.Encoded;
 
 export type RecordingDetail = typeof History.RecordingDetail.Encoded;
 
+export type SummaryStyle = typeof History.SummaryStyle.Encoded;
+
 export type RecordingChange = typeof Edits.RecordingChange.Encoded;
 
 export type TitleChange = typeof Edits.TitleChange.Encoded;
@@ -77,6 +79,10 @@ export type TickChange = typeof Edits.TickChange.Encoded;
 export type UntickChange = typeof Edits.UntickChange.Encoded;
 
 export type ReassignChange = typeof Edits.ReassignChange.Encoded;
+
+export type SummaryStyleChange = typeof Edits.SummaryStyleChange.Encoded;
+
+export type RewriteSummaryChange = typeof Edits.RewriteSummaryChange.Encoded;
 
 export type EditIgnoreReason = typeof Edits.EditIgnoreReason.Encoded;
 
@@ -107,3 +113,13 @@ export const RECORDING_LIMIT_MS = 4 * 60 * 60 * 1000;
 export const TITLE_MAX_LENGTH = 80;
 
 export const AGENDA_MAX_LENGTH = 500;
+
+export const SUMMARY_STYLES = ["brief", "detailed", "decisions"] as const;
+
+export const DEFAULT_SUMMARY_STYLE = "brief" satisfies (typeof SUMMARY_STYLES)[number];
+
+export const SUMMARY_STYLE_LABELS = {
+  brief: "Brief",
+  detailed: "Detailed",
+  decisions: "Decisions & actions",
+} as const satisfies Record<(typeof SUMMARY_STYLES)[number], string>;

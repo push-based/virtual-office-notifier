@@ -46,7 +46,10 @@ const createTables = Effect.gen(function* () {
       title text,
       agenda text,
       action_items_pulled_at timestamptz,
-      action_items_model text
+      action_items_model text,
+      summary_style text NOT NULL DEFAULT 'brief',
+      summary_written_style text,
+      summary_rewrite_edit_id bigint
     )
   `;
   yield* sql`
@@ -108,6 +111,9 @@ interface RecordingRow {
   readonly agenda?: string;
   readonly actionItemsPulledAt?: Date;
   readonly actionItemsModel?: string;
+  readonly summaryStyle?: string;
+  readonly summaryWrittenStyle?: string;
+  readonly summaryRewriteEditId?: number;
 }
 
 const insertRecording = (sql: SqlClient.SqlClient, row: RecordingRow) =>
@@ -163,6 +169,9 @@ const fourStates = Effect.gen(function* () {
     agenda: "What broke on Friday",
     actionItemsPulledAt: at(41),
     actionItemsModel: "model",
+    summaryStyle: "detailed",
+    summaryWrittenStyle: "brief",
+    summaryRewriteEditId: 7,
   });
   yield* sql`
     INSERT INTO office.recording_action_items ${sql.insert([
@@ -381,6 +390,19 @@ describe("RecordingHistory.find", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
+  it.effect(
+    "gives the chosen summary style, the style the summary was written in, and whether it's being rewritten",
+    () =>
+      Effect.gen(function* () {
+        const history = yield* fourStates;
+        const detail = Option.getOrThrow(yield* history.find(FINISHED));
+
+        assert.strictEqual(detail.summaryStyle, "detailed");
+        assert.strictEqual(detail.summaryWrittenStyle, "brief");
+        assert.isTrue(detail.rewriting);
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
   it.effect("gives the transcript so far while a recording is still transcribing", () =>
     Effect.gen(function* () {
       const history = yield* fourStates;
@@ -393,6 +415,9 @@ describe("RecordingHistory.find", () => {
       assert.isNull(detail.agenda);
       assert.isNull(detail.summary);
       assert.isNull(detail.slackPermalink);
+      assert.strictEqual(detail.summaryStyle, "brief");
+      assert.isNull(detail.summaryWrittenStyle);
+      assert.isFalse(detail.rewriting);
       assert.deepStrictEqual(
         Array.map(detail.clips, ({ text }) => text),
         ["First"],

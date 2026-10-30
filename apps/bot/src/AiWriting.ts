@@ -33,6 +33,7 @@ export interface Brief<A> {
   readonly prompt: string;
   readonly request: string;
   readonly reply: Schema.Decoder<A>;
+  readonly maxOutputTokens?: number;
 }
 
 export interface Written<A> {
@@ -115,12 +116,20 @@ const logFailure = Effect.fnUntraced(function* (error: WritingError) {
 const writeWithModel = Effect.fnUntraced(function* <A>(brief: Brief<A>) {
   const model = yield* Model.ModelName;
 
-  const response = yield* LanguageModel.generateText({
+  const generate = LanguageModel.generateText({
     prompt: [
       { role: "system", content: brief.prompt },
       { role: "user", content: brief.request },
     ],
-  }).pipe(Effect.timeout(MODEL_TIMEOUT));
+  });
+
+  const response = yield* (
+    brief.maxOutputTokens === undefined
+      ? generate
+      : OpenAiLanguageModel.withConfigOverride(generate, {
+          max_output_tokens: brief.maxOutputTokens,
+        })
+  ).pipe(Effect.timeout(MODEL_TIMEOUT));
 
   const value = yield* Schema.decodeEffect(brief.reply)(response.text).pipe(
     Effect.mapError(() => UnusableHeadline.make({ text: response.text })),

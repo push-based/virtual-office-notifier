@@ -51,6 +51,7 @@ import { OfficeStore } from "./office-store";
           [recordingId]="running.id"
           [currentTitle]="running.title"
           [currentAgenda]="running.agenda"
+          [currentSummaryStyle]="running.summaryStyle"
           (saved)="store.refresh()"
         />
       } @else {
@@ -59,6 +60,7 @@ import { OfficeStore } from "./office-store";
           <app-plan-fields
             [(title)]="store.draftTitle"
             [(agenda)]="store.draftAgenda"
+            [(summaryStyle)]="store.draftSummaryStyle"
             [disabled]="store.busy()"
           />
         </details>

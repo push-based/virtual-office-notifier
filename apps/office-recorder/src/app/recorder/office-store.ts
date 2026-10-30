@@ -77,6 +77,8 @@ export class OfficeStore {
 
   readonly draftAgenda = signal(EMPTY_DRAFT.agenda);
 
+  readonly draftSummaryStyle = signal(EMPTY_DRAFT.summaryStyle);
+
   readonly running = computed(() => this.status()?.recording ?? null);
 
   readonly busy = computed(() => this.state().busy);
@@ -166,7 +168,11 @@ export class OfficeStore {
       return;
     }
 
-    const draft: Draft = { title: this.draftTitle(), agenda: this.draftAgenda() };
+    const draft: Draft = {
+      title: this.draftTitle(),
+      agenda: this.draftAgenda(),
+      summaryStyle: this.draftSummaryStyle(),
+    };
 
     this.submit(() => this.api.submit("start", planOf(draft)));
   }
@@ -230,6 +236,7 @@ export class OfficeStore {
   private clearDraft(): void {
     this.draftTitle.set(EMPTY_DRAFT.title);
     this.draftAgenda.set(EMPTY_DRAFT.agenda);
+    this.draftSummaryStyle.set(EMPTY_DRAFT.summaryStyle);
   }
 
   private patch(changes: Partial<OfficeState>): void {

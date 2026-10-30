@@ -26,6 +26,9 @@ export const recordingDetail = (overrides: Partial<RecordingDetail> = {}): Recor
   stoppedBy: anna,
   summary: "• Anna said hello",
   summaryModel: "model",
+  summaryStyle: "brief",
+  summaryWrittenStyle: "brief",
+  rewriting: false,
   slackPermalink: "https://office.slack.com/archives/C1/p12",
   clips: [
     { speaker: anna, startedAt: "2026-10-29T12:06:00.000Z", text: "Hello" },

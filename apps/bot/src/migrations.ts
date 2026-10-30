@@ -493,4 +493,54 @@ export const migrations = Migrator.fromRecord({
       ADD CONSTRAINT recording_edits_kind_check CHECK (kind IN ('title', 'agenda', 'tick', 'untick', 'reassign'))
     `;
   }),
+
+  "0010_summary_styles": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      ALTER TABLE office.recording_edits
+        DROP CONSTRAINT IF EXISTS recording_edits_kind_check,
+        ADD CONSTRAINT recording_edits_kind_check CHECK (
+          kind IN ('title', 'agenda', 'tick', 'untick', 'reassign', 'summary_style', 'rewrite_summary')
+        )
+    `;
+
+    yield* sql`
+      ALTER TABLE office.recordings
+        ADD COLUMN summary_style text NOT NULL DEFAULT 'brief'
+          CHECK (summary_style IN ('brief', 'detailed', 'decisions')),
+        ADD COLUMN summary_written_style text
+          CHECK (summary_written_style IN ('brief', 'detailed', 'decisions')),
+        ADD COLUMN summary_rewrite_edit_id bigint REFERENCES office.recording_edits (id)
+    `;
+
+    yield* sql`
+      ALTER TABLE office.recording_requests
+        ADD COLUMN summary_style text CHECK (summary_style IN ('brief', 'detailed', 'decisions'))
+    `;
+
+    yield* sql`UPDATE office.recordings SET summary_written_style = 'brief' WHERE summary IS NOT NULL`;
+
+    yield* sql`
+      CREATE TABLE office.recording_summaries (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        recording_id uuid NOT NULL REFERENCES office.recordings (id),
+        written_at timestamptz NOT NULL,
+        style text NOT NULL CHECK (style IN ('brief', 'detailed', 'decisions')),
+        summary text NOT NULL,
+        model text NOT NULL,
+        edit_id bigint REFERENCES office.recording_edits (id)
+      )
+    `;
+
+    yield* sql`CREATE INDEX recording_summaries_recording ON office.recording_summaries (recording_id, id)`;
+
+    yield* sql`
+      INSERT INTO office.recording_summaries (recording_id, written_at, style, summary, model)
+      SELECT id, finished_at, 'brief', summary, summary_model
+      FROM office.recordings
+      WHERE summary IS NOT NULL AND summary_model IS NOT NULL AND finished_at IS NOT NULL
+      ORDER BY finished_at
+    `;
+  }),
 });

@@ -1,6 +1,12 @@
 import type { BadgeTone } from "design-system";
 
-import type { OfficeMember, RecordingDetail, RecordingState, TranscribedClip } from "./models";
+import {
+  type OfficeMember,
+  type RecordingDetail,
+  type RecordingState,
+  SUMMARY_STYLE_LABELS,
+  type TranscribedClip,
+} from "./models";
 
 const OFFICE_OFFSET_MS = 2 * 60 * 60 * 1000;
 
@@ -55,6 +61,14 @@ export const canOpen = (state: RecordingState): boolean => state !== "silent";
 
 export const isLive = (state: RecordingState): boolean =>
   state === "running" || state === "transcribing";
+
+export const isChanging = (recording: RecordingDetail): boolean =>
+  isLive(recording.state) || recording.rewriting;
+
+export const summaryCredit = (recording: RecordingDetail): string | null =>
+  recording.summaryModel === null
+    ? null
+    : `✨ ${SUMMARY_STYLE_LABELS[recording.summaryWrittenStyle ?? recording.summaryStyle]} summary by ${recording.summaryModel}`;
 
 export const describeStop = (recording: RecordingDetail): string | null => {
   switch (recording.stopReason) {

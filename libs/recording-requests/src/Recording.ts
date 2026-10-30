@@ -1,6 +1,11 @@
 import { identity, pipe, Schema, SchemaTransformation, String } from "effect";
 
-import { AGENDA_MAX_LENGTH, TITLE_MAX_LENGTH } from "./Wire.ts";
+import {
+  AGENDA_MAX_LENGTH,
+  SUMMARY_STYLE_LABELS,
+  SUMMARY_STYLES,
+  TITLE_MAX_LENGTH,
+} from "./Wire.ts";
 
 export const RecordingId = Schema.String.check(Schema.isUUID());
 
@@ -27,9 +32,16 @@ export const Agenda = optionalText(AGENDA_MAX_LENGTH, String.trim);
 
 export type Agenda = typeof Agenda.Type;
 
+export const SummaryStyle = Schema.Literals(SUMMARY_STYLES);
+
+export type SummaryStyle = typeof SummaryStyle.Type;
+
+export const summaryStyleLabel = (style: SummaryStyle): string => SUMMARY_STYLE_LABELS[style];
+
 export interface RecordingPlan {
   readonly title: string | null;
   readonly agenda: string | null;
+  readonly summaryStyle?: SummaryStyle | null;
 }
 
 export const NO_PLAN: RecordingPlan = { title: null, agenda: null };
@@ -98,6 +110,9 @@ export const RecordingDetail = Schema.Struct({
   stoppedBy: Schema.NullOr(OfficeMember),
   summary: Schema.NullOr(Schema.String),
   summaryModel: Schema.NullOr(Schema.String),
+  summaryStyle: SummaryStyle,
+  summaryWrittenStyle: Schema.NullOr(SummaryStyle),
+  rewriting: Schema.Boolean,
   slackPermalink: Schema.NullOr(Schema.String),
   clips: Schema.Array(TranscribedClip),
   actionItems: Schema.NullOr(Schema.Array(ActionItem)),

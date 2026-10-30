@@ -3,7 +3,8 @@ import { PbButton, PbNotice, PbNoticeRegion } from "design-system";
 
 import { EditSaver } from "./edit-saver";
 import { PlanFields } from "./plan-fields";
-import { changesBetween, draftOf } from "./plan";
+import { DEFAULT_SUMMARY_STYLE, type SummaryStyle } from "./models";
+import { type Plan, changesBetween, draftOf } from "./plan";
 
 @Component({
   selector: "app-recording-editor",
@@ -11,7 +12,12 @@ import { changesBetween, draftOf } from "./plan";
   providers: [EditSaver],
   template: `
     @if (open()) {
-      <app-plan-fields [(title)]="title" [(agenda)]="agenda" [disabled]="saver.saving()" />
+      <app-plan-fields
+        [(title)]="title"
+        [(agenda)]="agenda"
+        [(summaryStyle)]="summaryStyle"
+        [disabled]="saver.saving()"
+      />
       <div class="actions">
         <button
           pbButton
@@ -71,6 +77,8 @@ export class RecordingEditor {
 
   readonly currentAgenda = input.required<string | null>();
 
+  readonly currentSummaryStyle = input.required<SummaryStyle>();
+
   readonly label = input("Edit");
 
   readonly saved = output();
@@ -81,19 +89,31 @@ export class RecordingEditor {
 
   protected readonly agenda = signal("");
 
+  protected readonly summaryStyle = signal<SummaryStyle>(DEFAULT_SUMMARY_STYLE);
+
+  private current(): Plan {
+    return {
+      title: this.currentTitle(),
+      agenda: this.currentAgenda(),
+      summaryStyle: this.currentSummaryStyle(),
+    };
+  }
+
   protected edit(): void {
-    const draft = draftOf({ title: this.currentTitle(), agenda: this.currentAgenda() });
+    const draft = draftOf(this.current());
 
     this.title.set(draft.title);
     this.agenda.set(draft.agenda);
+    this.summaryStyle.set(draft.summaryStyle);
     this.open.set(true);
   }
 
   protected save(): void {
-    const changes = changesBetween(
-      { title: this.currentTitle(), agenda: this.currentAgenda() },
-      { title: this.title(), agenda: this.agenda() },
-    );
+    const changes = changesBetween(this.current(), {
+      title: this.title(),
+      agenda: this.agenda(),
+      summaryStyle: this.summaryStyle(),
+    });
 
     this.saver.save(this.recordingId(), changes, () => {
       this.open.set(false);

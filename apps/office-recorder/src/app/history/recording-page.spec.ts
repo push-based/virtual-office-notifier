@@ -4,6 +4,7 @@ import { of } from "rxjs";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { EditApi } from "../edits/edit-api";
+import type { RecordingChange } from "../edits/models";
 import { RECORDER_TIMING } from "../recorder/timing";
 import { NO_SUMMARY } from "./describe-recording";
 import { recordingDetail } from "./fixtures";
@@ -47,14 +48,24 @@ const texts = (element: HTMLElement, selector: string) =>
 const buttonNamed = (element: HTMLElement, name: string) =>
   [...element.querySelectorAll("button")].find((button) => button.textContent?.trim() === name);
 
+let submitted: Array<readonly [string, RecordingChange]> = [];
+
 describe("RecordingPage", () => {
+  beforeEach(() => {
+    submitted = [];
+  });
+
   beforeEach(() =>
     TestBed.configureTestingModule({
       providers: [
         {
           provide: EditApi,
           useValue: {
-            submit: () => of({ id: 1, outcome: null }),
+            submit: (recordingId: string, change: RecordingChange) => {
+              submitted.push([recordingId, change]);
+
+              return of({ id: 1, outcome: null });
+            },
             find: () => of({ id: 1, outcome: "applied" }),
           },
         },
@@ -62,6 +73,7 @@ describe("RecordingPage", () => {
           provide: RECORDER_TIMING,
           useValue: {
             statePollMs: 3000,
+            recordingPollMs: 1000,
             clockTickMs: 1000,
             requestPollMs: 5,
             requestPollLimit: 10,
@@ -126,7 +138,47 @@ describe("RecordingPage", () => {
     const { element } = await render(recordingDetail());
 
     expect(element.querySelector(".summary")?.textContent).toBe("• Anna said hello");
-    expect(element.querySelector(".footer")?.textContent).toBe("✨ Summary by model");
+    expect(element.querySelector(".footer")?.textContent).toBe("✨ Brief summary by model");
+  });
+
+  it("names the style the summary is written in, not the one it's about to be rewritten in", async () => {
+    const { element } = await render(
+      recordingDetail({ summaryStyle: "decisions", summaryWrittenStyle: "detailed" }),
+    );
+
+    expect(element.querySelector(".footer")?.textContent).toBe("✨ Detailed summary by model");
+  });
+
+  it("shows Rewriting… until the rewrite is done, with Rewrite summary held", async () => {
+    const { fixture, element } = await render(recordingDetail({ rewriting: true }));
+
+    expect(element.querySelector(".footer")?.textContent).toBe("Rewriting…");
+    expect(buttonNamed(element, "Rewriting…")?.getAttribute("aria-disabled")).toBe("true");
+
+    fixture.componentInstance.recording.set(recordingDetail({ summary: "• Rewritten" }));
+    await fixture.whenStable();
+
+    expect(element.querySelector(".summary")?.textContent).toBe("• Rewritten");
+    expect(buttonNamed(element, "Rewrite summary")).toBeDefined();
+  });
+
+  it("asks the bot to rewrite the summary on Rewrite summary", async () => {
+    const { fixture, element } = await render(recordingDetail());
+
+    buttonNamed(element, "Rewrite summary")?.click();
+
+    await vi.waitFor(async () => {
+      await fixture.whenStable();
+      expect(fixture.componentInstance.edits()).toBe(1);
+    });
+
+    expect(submitted).toEqual([["r1", { kind: "rewrite_summary" }]]);
+  });
+
+  it("offers Rewrite summary when no model wrote one", async () => {
+    const { element } = await render(recordingDetail({ summary: null, summaryModel: null }));
+
+    expect(buttonNamed(element, "Rewrite summary")).toBeDefined();
   });
 
   it("says no model wrote a summary when none could", async () => {
@@ -175,6 +227,7 @@ describe("RecordingPage", () => {
 
     expect(element.querySelector(".summary")).toBeNull();
     expect(element.querySelector("app-action-items")).toBeNull();
+    expect(buttonNamed(element, "Rewrite summary")).toBeUndefined();
     expect(buttonNamed(element, "Open in Slack")).toBeUndefined();
     expect(element.querySelector(".more")?.textContent).toBe("More on the way…");
   });

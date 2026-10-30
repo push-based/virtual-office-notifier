@@ -9,6 +9,7 @@ import {
   type RecordingPage,
   stateOf,
   StopReason,
+  SummaryStyle,
 } from "./Recording.ts";
 import { PersonInOffice, RowId } from "./RecordingRequest.ts";
 import { type Connected, RecordingUnavailable } from "./RecordingRequests.ts";
@@ -42,6 +43,9 @@ const decodeDetails = Schema.decodeUnknownEffect(
       stoppedByName: Schema.NullOr(Schema.String),
       summary: Schema.NullOr(Schema.String),
       summaryModel: Schema.NullOr(Schema.String),
+      summaryStyle: SummaryStyle,
+      summaryWrittenStyle: Schema.NullOr(SummaryStyle),
+      rewriting: Schema.Boolean,
       slackPermalink: Schema.NullOr(Schema.String),
     }),
   ),
@@ -256,7 +260,8 @@ export class RecordingHistory extends Context.Service<
               SELECT r.id, r.started_at, r.stopped_at, r.finished_at, r.slack_ts, r.started_by,
                      coalesce(m.real_name, m.display_name) AS started_by_name, r.title, r.agenda,
                      r.stop_reason, r.stopped_by, coalesce(s.real_name, s.display_name) AS stopped_by_name,
-                     r.summary, r.summary_model, r.slack_permalink
+                     r.summary, r.summary_model, r.summary_style, r.summary_written_style,
+                     r.summary_rewrite_edit_id IS NOT NULL AS rewriting, r.slack_permalink
               FROM office.recordings r
               LEFT JOIN office.members m ON m.user_id = r.started_by
               LEFT JOIN office.members s ON s.user_id = r.stopped_by
@@ -294,6 +299,9 @@ export class RecordingHistory extends Context.Service<
                 row.stoppedBy === null ? null : memberOf(avatars, row.stoppedBy, row.stoppedByName),
               summary: row.summary,
               summaryModel: row.summaryModel,
+              summaryStyle: row.summaryStyle,
+              summaryWrittenStyle: row.summaryWrittenStyle,
+              rewriting: row.rewriting,
               slackPermalink: row.slackPermalink,
               clips: Array.map(clips, (clip) => ({
                 speaker: memberOf(avatars, clip.userId, clip.name),
