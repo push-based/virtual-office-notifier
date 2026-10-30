@@ -18,20 +18,6 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.pb-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-4);
-}
-.pb-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-4);
-}
-
 /* Button — mirrors push-based.io .pb-btn */
 .pb-btn {
   appearance: none;
@@ -96,54 +82,8 @@ body {
   padding: 0;
   font-weight: 500;
 }
-.pb-btn-tertiary .pb-arrow {
-  color: var(--color-neutral-400);
-  transition: color 0.2s ease-out;
-}
 .pb-btn-tertiary:hover {
   column-gap: var(--space-2);
-}
-.pb-btn-tertiary:hover .pb-arrow {
-  color: var(--color-primary-600);
-}
-
-/* Input — mirrors push-based.io .pb-input */
-.pb-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1-5);
-  max-width: 360px;
-}
-.pb-field-label {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-weight: 500;
-  color: var(--color-neutral-700);
-}
-.pb-input {
-  appearance: none;
-  font: inherit;
-  font-size: 1rem;
-  line-height: 1.5rem;
-  background: #ffffff;
-  color: #344054;
-  border: 1px solid rgba(108, 60, 255, 0.2);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 0 0 2px transparent;
-  outline: none;
-  padding: var(--space-2) var(--space-3);
-  transition:
-    box-shadow 0.15s,
-    border-color 0.15s,
-    background 0.15s;
-}
-.pb-input::placeholder {
-  color: var(--color-neutral-500);
-}
-.pb-input:focus {
-  background: #faf8ff;
-  border-color: var(--color-primary-400);
-  box-shadow: 0 0 0 2px rgba(108, 60, 255, 0.1);
 }
 
 /* Card — mirrors push-based.io .card--default */
@@ -156,19 +96,4 @@ body {
   border-radius: var(--radius-lg);
   padding: var(--space-8);
   max-width: 300px;
-}
-.pb-card-title {
-  margin: 0;
-  padding-top: var(--space-1);
-  font-size: 1rem;
-  line-height: 1.5rem;
-  font-weight: 500;
-  color: var(--color-neutral-900);
-}
-.pb-card-body {
-  margin: 0;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  letter-spacing: -0.28px;
-  color: var(--color-neutral-700);
 }
