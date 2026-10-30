@@ -1,5 +1,5 @@
 import { Context, Duration, Effect, Layer, Match, Option, Schema } from "effect";
-import { SqlClient, SqlError } from "effect/sql";
+import { SqlClient, SqlError, type Statement } from "effect/sql";
 
 import type { Requester } from "./RecordingApi.ts";
 import {
@@ -55,6 +55,33 @@ const decodeChange = Schema.decodeUnknownOption(RecordingChange);
 
 const encodeChange = Schema.encodeEffect(Schema.fromJsonString(RecordingChange));
 
+const itemOfRecording = (sql: SqlClient.SqlClient, item: number) => sql`
+  EXISTS (
+    SELECT 1 FROM office.recording_action_items a
+    WHERE a.id = ${item} AND a.recording_id = office.recordings.id AND a.replaced_at IS NULL
+  )
+`;
+
+const knownMember = (sql: SqlClient.SqlClient, userId: string) =>
+  sql`EXISTS (SELECT 1 FROM office.members m WHERE m.user_id = ${userId})`;
+
+const targetsOf = (
+  sql: SqlClient.SqlClient,
+  change: RecordingChange,
+): ReadonlyArray<Statement.Fragment> =>
+  Match.value(change).pipe(
+    Match.discriminatorsExhaustive("kind")({
+      title: () => [],
+      agenda: () => [],
+      tick: ({ item }) => [itemOfRecording(sql, item)],
+      untick: ({ item }) => [itemOfRecording(sql, item)],
+      reassign: ({ item, owner }) => [
+        itemOfRecording(sql, item),
+        ...(owner === null ? [] : [knownMember(sql, owner)]),
+      ],
+    }),
+  );
+
 const unavailable = (reason: string) => Effect.fail(RecordingUnavailable.make({ reason }));
 
 export class RecordingEdits extends Context.Service<
@@ -96,7 +123,7 @@ export class RecordingEdits extends Context.Service<
                 INSERT INTO office.recording_edits (recording_id, edited_by, edited_by_name, kind, change)
                 SELECT id, ${editor.id}, ${editor.name}, ${change.kind}, ${encoded}::jsonb
                 FROM office.recordings
-                WHERE id = ${recordingId}
+                WHERE id = ${recordingId} AND ${sql.and(targetsOf(sql, change))}
                 RETURNING id, outcome, reason
               `.pipe(Effect.flatMap(decodeSubmitted)),
             );

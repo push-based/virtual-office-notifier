@@ -1,5 +1,6 @@
 import { Array, DateTime, Duration, Option, pipe, String } from "effect";
 
+import { type ActionItemLine, ActionItemList } from "./ActionItems.ts";
 import { OfficeEvent, type OfficeLocation, type SessionRecap } from "./OfficeEvent.ts";
 
 // Slack treats &, < and > as control characters in message text. Escaping them
@@ -233,10 +234,39 @@ export interface RecordingSummary {
   readonly title: string | null;
   readonly speakers: ReadonlyArray<string>;
   readonly summary: Option.Option<{ readonly text: string; readonly model: string }>;
+  readonly actionItems: ActionItemList;
 }
 
 const NO_SUMMARY =
   "No AI model could write a summary this time. The full transcript is in the thread.";
+
+export const NO_ACTION_ITEMS = "No action items could be pulled out";
+
+export const NONE_TAKEN_ON = "Nobody took anything on";
+
+const actionItemLine = ({ text, ownerName, done }: ActionItemLine): string => {
+  const line = `• ${escapeSlackText(ownerName ?? "Unassigned")}: ${escapeSlackText(text)}`;
+
+  return done ? `~${line}~ ✅` : line;
+};
+
+const actionItemsBlock = (list: ActionItemList): ReadonlyArray<SectionBlock> =>
+  ActionItemList.$match(list, {
+    NotTried: () => [],
+    Failed: () => [headline(`*Action items*\n${NO_ACTION_ITEMS}`, Option.none())],
+    Pulled: ({ items }) => [
+      headline(
+        Array.join(
+          [
+            "*Action items*",
+            ...(items.length === 0 ? [NONE_TAKEN_ON] : Array.map(items, actionItemLine)),
+          ],
+          "\n",
+        ),
+        Option.none(),
+      ),
+    ],
+  });
 
 const slackDate = (at: DateTime.Utc): string =>
   `<!date^${DateTime.toEpochSeconds(at)}^{date_short} {time}|${pipe(DateTime.formatIso(at), String.slice(0, 16), String.replace("T", " "))} UTC>`;
@@ -266,6 +296,7 @@ export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
     blocks: [
       headline(heading, Option.none()),
       headline(body, Option.none()),
+      ...actionItemsBlock(recording.actionItems),
       {
         type: "section",
         fields: [

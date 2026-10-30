@@ -1,6 +1,7 @@
 import { Effect, Layer, Option, Redacted, Stream } from "effect";
 import { SecureRandom } from "effect/crypto";
 
+import { ActionItemWriter } from "./ActionItems.ts";
 import { ActivityRecorder } from "./ActivityRecorder.ts";
 import { banter } from "./Banter.ts";
 import { ClipArchive } from "./ClipArchive.ts";
@@ -87,7 +88,13 @@ export const program = Effect.gen(function* () {
 });
 
 const RecorderLayer = Recorder.layer.pipe(
-  Layer.provide([VoiceCapture.layer, ClipArchive.layer, Transcriber.layer, SummaryWriter.layer]),
+  Layer.provide([
+    VoiceCapture.layer,
+    ClipArchive.layer,
+    Transcriber.layer,
+    SummaryWriter.layer,
+    ActionItemWriter.layer,
+  ]),
 );
 
 // Slack is built before Discord, so a missing Slack token fails before logging

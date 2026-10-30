@@ -68,10 +68,10 @@ export interface WrittenSummary {
   readonly model: string;
 }
 
-const SUMMARY_PROMPT = Array.join(
+export const SUMMARY_PROMPT = Array.join(
   [
     "You summarize a recorded conversation from a team's virtual office, a Discord voice channel where people work alongside each other. The transcript was made by speech recognition, one line per stretch of speech, each with the time in UTC+2 and who spoke.",
-    "Write a summary for the team's Slack channel: what was discussed, any decisions, and any action items with the name of whoever took them. Leave out small talk unless it's the whole conversation.",
+    "Write a summary for the team's Slack channel: what was discussed and any decisions. Leave out the action items, which are listed separately, and small talk unless it's the whole conversation.",
     "The request can start with the recording's title and agenda. The agenda is what people meant to cover when they planned it, not what happened: use it to make sense of the conversation, but never say something was discussed or decided unless the transcript shows it.",
     "A line like '14:20–14:35 Paused by Ben' marks a pause: nothing was recorded in that stretch, so don't join what was said before and after it into one topic, and don't guess what was said during it.",
     "Only say what the transcript shows. Speech recognition gets words wrong, so when a line makes no sense, skip it rather than guess.",

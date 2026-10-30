@@ -10,6 +10,7 @@ import {
   PbPeople,
 } from "design-system";
 
+import { ActionItems } from "../edits/action-items";
 import { RecordingEditor } from "../edits/recording-editor";
 import {
   describeStop,
@@ -27,6 +28,7 @@ import { personOf } from "./recording-row";
 @Component({
   selector: "app-recording-page",
   imports: [
+    ActionItems,
     PbAvatar,
     PbBadge,
     PbButton,
@@ -72,6 +74,12 @@ import { personOf } from "./recording-row";
           <p class="text-caption footer">✨ Summary by {{ model }}</p>
         }
       </section>
+      <app-action-items
+        [recordingId]="recording().id"
+        [items]="recording().actionItems"
+        [members]="recording().members"
+        (saved)="edited.emit()"
+      />
     }
     @if (recording().slackPermalink; as link) {
       <button pbButton variant="ghost" type="button" (click)="openInSlack.emit(link)">

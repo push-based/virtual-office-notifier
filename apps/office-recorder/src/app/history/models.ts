@@ -1,4 +1,5 @@
 export type {
+  ActionItem,
   ListedRecording,
   OfficeMember,
   RecordingDetail,

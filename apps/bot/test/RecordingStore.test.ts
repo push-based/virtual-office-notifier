@@ -1,8 +1,9 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Array, DateTime, Effect, Layer, Option } from "effect";
+import { Array, DateTime, Effect, Layer, Option, String } from "effect";
 import { SqlClient } from "effect/sql";
 
+import { ActionItemList } from "../src/ActionItems.ts";
 import { columnNaming, Database } from "../src/Database.ts";
 import { MAX_TRANSCRIPTION_ATTEMPTS } from "../src/Recording.ts";
 import { type NewClip, type RecordingDetails, RecordingStore } from "../src/RecordingStore.ts";
@@ -41,6 +42,51 @@ const clip = (overrides: Partial<NewClip> = {}): NewClip => ({
 
 const planOf = (details: Option.Option<RecordingDetails>) =>
   Option.map(details, ({ title, agenda }) => ({ title, agenda }));
+
+const stopped = Effect.gen(function* () {
+  const store = yield* RecordingStore;
+
+  yield* store.startRecording(newRecording());
+  yield* store.stopRecording(RECORDING, minute(30), "requested", "u1");
+
+  return store;
+});
+
+const itemsOf = (list: ActionItemList) =>
+  ActionItemList.$match(list, {
+    NotTried: () => [],
+    Failed: () => [],
+    Pulled: ({ items }) => items,
+  });
+
+const SESSION = "11111111-1111-4111-8111-111111111111";
+
+const OLDER_SESSION = "22222222-2222-4222-8222-222222222222";
+
+const snapshot = (
+  sql: SqlClient.SqlClient,
+  userId: string,
+  at: number,
+  channels: { readonly from: string | null; readonly to: string | null },
+  session = SESSION,
+) =>
+  sql`
+    INSERT INTO office.voice_snapshots ${sql.insert({
+      entryId: `00000000-0000-4000-8000-${String.padStart(12, "0")(`${at + 1000}`)}`,
+      botSessionId: session,
+      source: "update",
+      observedAt: DateTime.toDate(minute(at)),
+      guildId: "g1",
+      officeChannelId: "office",
+      userId,
+      oldChannelId: channels.from,
+      newChannelId: channels.to,
+    })}
+  `;
+
+const joined = { from: null, to: "office" };
+
+const left = { from: "office", to: null };
 
 const started = Effect.gen(function* () {
   const store = yield* RecordingStore;
@@ -452,6 +498,164 @@ describe("RecordingStore", () => {
         const [row] = yield* sql`SELECT slack_permalink FROM office.recordings`;
 
         assert.deepStrictEqual(row, { slackPermalink: "https://office.slack.com/archives/C1/p12" });
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "names everyone in the office at some point during a recording: who was there, who came in, who spoke and who started it",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* stopped;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`
+          INSERT INTO office.bot_sessions ${sql.insert([
+            { id: OLDER_SESSION, startedAt: DateTime.toDate(minute(-60)) },
+            { id: SESSION, startedAt: DateTime.toDate(minute(-30)) },
+          ])}
+        `;
+        yield* sql`
+          INSERT INTO office.members ${sql.insert(
+            Array.map(
+              [
+                ["u2", "Grace"],
+                ["u3", "Linus"],
+                ["u4", "Mia"],
+                ["u5", "Ola"],
+                ["u6", "Pat"],
+                ["u8", "Uma"],
+              ] as const,
+              ([userId, displayName]) => ({
+                userId,
+                displayName,
+                firstSeenAt: DateTime.toDate(minute(-60)),
+                lastSeenAt: DateTime.toDate(minute(-60)),
+              }),
+            ),
+          )}
+        `;
+
+        yield* snapshot(sql, "u6", -50, joined, OLDER_SESSION);
+        yield* snapshot(sql, "u3", -20, joined);
+        yield* snapshot(sql, "u3", -10, left);
+        yield* snapshot(sql, "u2", -5, joined);
+        yield* snapshot(sql, "u4", 10, joined);
+        yield* snapshot(sql, "u8", 15, { from: null, to: "lounge" });
+        yield* snapshot(sql, "u5", 40, joined);
+        yield* store.addClip(clip({ userId: "u7", displayName: "Sam" }));
+
+        assert.deepStrictEqual(yield* store.presentDuring(RECORDING), [
+          { userId: "u1", name: "Ada" },
+          { userId: "u2", name: "Grace" },
+          { userId: "u4", name: "Mia" },
+          { userId: "u7", name: "Sam" },
+        ]);
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "stores the action items pulled out of a recording once, in order, and knows when none could be",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* stopped;
+
+        assert.isTrue(ActionItemList.$is("NotTried")(yield* store.actionItemsOf(RECORDING)));
+
+        yield* store.recordActionItems(
+          RECORDING,
+          Option.some({
+            model: "m",
+            items: [
+              { text: "write up the deploy checklist", owner: "u1" },
+              { text: "ask IT about the VPN", owner: null },
+            ],
+          }),
+          minute(31),
+        );
+        yield* store.recordActionItems(RECORDING, Option.none(), minute(32));
+
+        assert.deepStrictEqual(
+          Array.map(
+            itemsOf(yield* store.actionItemsOf(RECORDING)),
+            ({ text, ownerName, done }) => ({
+              text,
+              ownerName,
+              done,
+            }),
+          ),
+          [
+            { text: "write up the deploy checklist", ownerName: "Ada", done: false },
+            { text: "ask IT about the VPN", ownerName: null, done: false },
+          ],
+        );
+
+        const other = "8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10";
+
+        yield* store.startRecording({ ...newRecording(other), startedAt: minute(40) });
+        yield* store.stopRecording(other, minute(50), "requested", "u1");
+        yield* store.recordActionItems(other, Option.none(), minute(51));
+        yield* store.recordActionItems(
+          other,
+          Option.some({ model: "m", items: [{ text: "book the room", owner: null }] }),
+          minute(52),
+        );
+
+        assert.isTrue(ActionItemList.$is("Failed")(yield* store.actionItemsOf(other)));
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("tells an empty list from one no model could pull out", () =>
+    Effect.gen(function* () {
+      const store = yield* stopped;
+
+      yield* store.recordActionItems(RECORDING, Option.some({ model: "m", items: [] }), minute(31));
+
+      assert.deepStrictEqual(
+        yield* store.actionItemsOf(RECORDING),
+        ActionItemList.Pulled({ items: [] }),
+      );
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "ticks, unticks and reassigns an action item, to someone from the office or nobody",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* stopped;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`
+          INSERT INTO office.members (user_id, display_name, first_seen_at, last_seen_at)
+          VALUES ('u2', 'Grace', now(), now())
+        `;
+        yield* store.recordActionItems(
+          RECORDING,
+          Option.some({ model: "m", items: [{ text: "book the room", owner: "u1" }] }),
+          minute(31),
+        );
+
+        const [item] = itemsOf(yield* store.actionItemsOf(RECORDING));
+        const id = item?.id ?? 0;
+
+        const current = Effect.map(store.actionItemsOf(RECORDING), (list) =>
+          Array.map(itemsOf(list), ({ ownerName, done }) => ({ ownerName, done })),
+        );
+
+        yield* store.applyEdit(RECORDING, { kind: "tick", item: id });
+        assert.deepStrictEqual(yield* current, [{ ownerName: "Ada", done: true }]);
+
+        yield* store.applyEdit(RECORDING, { kind: "reassign", item: id, owner: "u2" });
+        assert.deepStrictEqual(yield* current, [{ ownerName: "Grace", done: true }]);
+
+        yield* store.applyEdit(RECORDING, { kind: "reassign", item: id, owner: "stranger" });
+        assert.deepStrictEqual(yield* current, [{ ownerName: "Grace", done: true }]);
+
+        yield* store.applyEdit(RECORDING, { kind: "untick", item: id });
+        yield* store.applyEdit(RECORDING, { kind: "reassign", item: id, owner: null });
+        assert.deepStrictEqual(yield* current, [{ ownerName: null, done: false }]);
+
+        yield* store.applyEdit("8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10", { kind: "tick", item: id });
+        assert.deepStrictEqual(yield* current, [{ ownerName: null, done: false }]);
       }).pipe(Effect.provide(TestLayer)),
   );
 

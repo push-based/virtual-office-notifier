@@ -82,6 +82,15 @@ export const TranscribedClip = Schema.Struct({
 
 export type TranscribedClip = typeof TranscribedClip.Type;
 
+export const ActionItem = Schema.Struct({
+  id: Schema.Finite,
+  text: Schema.String,
+  owner: Schema.NullOr(OfficeMember),
+  done: Schema.Boolean,
+});
+
+export type ActionItem = typeof ActionItem.Type;
+
 export const RecordingDetail = Schema.Struct({
   ...ListedRecording.fields,
   agenda: Schema.NullOr(Schema.String),
@@ -91,6 +100,8 @@ export const RecordingDetail = Schema.Struct({
   summaryModel: Schema.NullOr(Schema.String),
   slackPermalink: Schema.NullOr(Schema.String),
   clips: Schema.Array(TranscribedClip),
+  actionItems: Schema.NullOr(Schema.Array(ActionItem)),
+  members: Schema.Array(OfficeMember),
 });
 
 export type RecordingDetail = typeof RecordingDetail.Type;

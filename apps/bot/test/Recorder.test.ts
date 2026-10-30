@@ -23,6 +23,8 @@ import { RecordingEdits } from "recording-requests/RecordingEdits";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
+import { ActionItemWriter, type PulledItem } from "../src/ActionItems.ts";
+import type { Written } from "../src/AiWriting.ts";
 import { ClipArchive } from "../src/ClipArchive.ts";
 import { columnNaming, Database } from "../src/Database.ts";
 import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
@@ -83,6 +85,7 @@ interface HarnessOptions {
   readonly present?: ReadonlyArray<VoiceStateUpdate>;
   readonly transcribe?: (audio: Uint8Array) => Effect.Effect<Transcript, TranscriptionError>;
   readonly summary?: Option.Option<WrittenSummary>;
+  readonly actionItems?: Option.Option<Written<ReadonlyArray<PulledItem>>>;
   readonly before?: Effect.Effect<void, StoreUnavailable, RecordingStore>;
   readonly slack?: FakeSlackClientOptions;
 }
@@ -100,6 +103,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const history = yield* makeFakeSlackHistory();
   const summaryRequests = yield* Ref.make<ReadonlyArray<string>>([]);
   const whileSummarizing = yield* Ref.make<Effect.Effect<void>>(Effect.void);
+  const actionItemRequests = yield* Ref.make<ReadonlyArray<string>>([]);
 
   const transcriber = Layer.succeed(
     Transcriber,
@@ -117,12 +121,23 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     }),
   );
 
+  const actionItemWriter = Layer.succeed(
+    ActionItemWriter,
+    ActionItemWriter.of({
+      pull: (request) =>
+        Ref.update(actionItemRequests, (all) => [...all, request]).pipe(
+          Effect.as(options.actionItems ?? Option.some({ value: [], model: "m" })),
+        ),
+    }),
+  );
+
   const layer = Recorder.layer.pipe(
     Layer.provide([
       VoiceCapture.layerTest(heard),
       ClipArchive.layerDisabled,
       transcriber,
       summaries,
+      actionItemWriter,
       slack.layer,
       history.layer,
       SecureRandom.layerWebCrypto,
@@ -222,6 +237,16 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     readonly handledAt: Date | null;
   }>`SELECT edited_by, kind, change, outcome, reason, handled_at FROM office.recording_edits ORDER BY id`;
 
+  const actionItemRows = sql<{
+    readonly text: string;
+    readonly owner: string | null;
+    readonly done: boolean;
+  }>`SELECT text, owner, done FROM office.recording_action_items ORDER BY position`;
+
+  const actionItemIds = sql<{
+    readonly id: number;
+  }>`SELECT id::int AS id FROM office.recording_action_items ORDER BY position`;
+
   const clipRows = sql<{
     readonly userId: string;
     readonly transcription: string;
@@ -258,6 +283,8 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     eventually,
     recordingRows,
     editRows,
+    actionItemRows,
+    actionItemIds,
     clipRows,
     requestRows,
     eventRows,
@@ -274,6 +301,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     updates: slack.updates,
     recordedPosts: history.posts,
     summaryRequests: Ref.get(summaryRequests),
+    actionItemRequests: Ref.get(actionItemRequests),
     whileSummarizing: (effect: Effect.Effect<void>) => Ref.set(whileSummarizing, effect),
   };
 });
@@ -525,6 +553,7 @@ describe("Recorder", () => {
       assert.strictEqual(recording?.stopReason, "office_emptied");
       assert.isNull(recording?.summary);
       assert.deepStrictEqual(yield* h.posts, []);
+      assert.deepStrictEqual(yield* h.actionItemRequests, []);
       assert.deepStrictEqual(yield* h.recordings, ["Capturing", "Off"]);
     }),
   );
@@ -961,6 +990,128 @@ describe("Recorder", () => {
       assert.isNull((yield* h.recordingRows)[0]?.title);
       assert.deepStrictEqual(yield* h.posts, []);
     }),
+  );
+
+  it.effect(
+    "pulls out the action items on their own, gives each one an owner from the office or none, and lists them below the summary in Slack",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({
+          present: [ada],
+          actionItems: Option.some({
+            value: [
+              { text: "write up the deploy checklist", ownerName: "ada" },
+              { text: "ask IT about the VPN", ownerName: null },
+              { text: "book the room for Thursday", ownerName: "Bob" },
+            ],
+            model: "m",
+          }),
+        });
+
+        yield* finishedRecording(h, { title: "Deploy retro", agenda: null });
+
+        const [request] = yield* h.actionItemRequests;
+        assert.match(
+          request ?? "",
+          /^People in the office:\nAda\n\nTitle: Deploy retro\n\nTranscript:\nOffice recording from /,
+        );
+
+        assert.deepStrictEqual(yield* h.actionItemRows, [
+          { text: "write up the deploy checklist", owner: "u1", done: false },
+          { text: "ask IT about the VPN", owner: null, done: false },
+          { text: "book the room for Thursday", owner: null, done: false },
+        ]);
+
+        const [post] = yield* h.posts;
+        const card = yield* encodeJson(post?.blocks);
+        assert.include(
+          card,
+          "*Action items*\\n• Ada: write up the deploy checklist\\n• Unassigned: ask IT about the VPN\\n• Unassigned: book the room for Thursday",
+        );
+        assert.match(card, /• They said hello.*\*Action items\*/);
+        assert.deepStrictEqual(yield* h.updates, []);
+      }),
+  );
+
+  it.effect("says no action items could be pulled out when no model answers", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada], actionItems: Option.none() });
+
+      yield* finishedRecording(h);
+
+      assert.deepStrictEqual(yield* h.actionItemRows, []);
+      assert.include(
+        yield* encodeJson((yield* h.posts)[0]?.blocks),
+        "*Action items*\\nNo action items could be pulled out",
+      );
+    }),
+  );
+
+  it.effect(
+    "ticks, unticks and reassigns action items through recording edits, and edits the Slack post with no thread note",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({
+          present: [ada],
+          actionItems: Option.some({
+            value: [
+              { text: "write up the deploy checklist", ownerName: "Ada" },
+              { text: "ask IT about the VPN", ownerName: null },
+            ],
+            model: "m",
+          }),
+        });
+
+        const id = yield* finishedRecording(h);
+
+        yield* h.sql`
+          INSERT INTO office.members (user_id, display_name, first_seen_at, last_seen_at)
+          VALUES ('u2', 'Grace', now(), now())
+        `;
+
+        const [checklist, vpn] = Array.map(yield* h.actionItemIds, (row) => row.id);
+
+        yield* h.edit("u2", id, { kind: "tick", item: checklist ?? 0 });
+        yield* h.tick;
+
+        const [ticked] = yield* h.eventually(h.updates, (all) => all.length === 1);
+        assert.include(
+          yield* encodeJson(ticked?.message.blocks),
+          "*Action items*\\n~• Ada: write up the deploy checklist~ ✅\\n• Unassigned: ask IT about the VPN",
+        );
+
+        yield* h.edit("u3", id, { kind: "reassign", item: vpn ?? 0, owner: "u2" });
+        yield* h.tick;
+        yield* h.eventually(h.updates, (all) => all.length === 2);
+
+        yield* h.edit("u3", id, { kind: "untick", item: checklist ?? 0 });
+        yield* h.tick;
+
+        const updates = yield* h.eventually(h.updates, (all) => all.length === 3);
+        assert.include(
+          yield* encodeJson(updates[2]?.message.blocks),
+          "*Action items*\\n• Ada: write up the deploy checklist\\n• Grace: ask IT about the VPN",
+        );
+
+        assert.deepStrictEqual(yield* h.actionItemRows, [
+          { text: "write up the deploy checklist", owner: "u1", done: false },
+          { text: "ask IT about the VPN", owner: "u2", done: false },
+        ]);
+        assert.deepStrictEqual(
+          Array.map(yield* allHandled(h), ({ editedBy, kind, outcome }) => [
+            editedBy,
+            kind,
+            outcome,
+          ]),
+          [
+            ["u2", "tick", "applied"],
+            ["u3", "reassign", "applied"],
+            ["u3", "untick", "applied"],
+          ],
+        );
+        assert.strictEqual((yield* h.posts).length, 1);
+        assert.strictEqual((yield* h.uploads).length, 1);
+      }),
   );
 
   it.effect("keeps the status row current for the Activity", () =>

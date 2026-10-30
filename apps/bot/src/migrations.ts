@@ -463,4 +463,34 @@ export const migrations = Migrator.fromRecord({
     yield* sql`CREATE INDEX recording_edits_pending ON office.recording_edits (id) WHERE handled_at IS NULL`;
     yield* sql`CREATE INDEX recording_edits_recording ON office.recording_edits (recording_id, id)`;
   }),
+
+  "0009_recording_action_items": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      ALTER TABLE office.recordings
+      ADD COLUMN action_items_pulled_at timestamptz, ADD COLUMN action_items_model text
+    `;
+
+    yield* sql`
+      CREATE TABLE office.recording_action_items (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        recording_id uuid NOT NULL REFERENCES office.recordings (id),
+        position integer NOT NULL CHECK (position >= 0),
+        text text NOT NULL,
+        owner text REFERENCES office.members (user_id),
+        done boolean NOT NULL DEFAULT false,
+        pulled_at timestamptz NOT NULL,
+        replaced_at timestamptz
+      )
+    `;
+
+    yield* sql`CREATE INDEX recording_action_items_recording ON office.recording_action_items (recording_id, position)`;
+
+    yield* sql`ALTER TABLE office.recording_edits DROP CONSTRAINT IF EXISTS recording_edits_kind_check`;
+    yield* sql`
+      ALTER TABLE office.recording_edits
+      ADD CONSTRAINT recording_edits_kind_check CHECK (kind IN ('title', 'agenda', 'tick', 'untick', 'reassign'))
+    `;
+  }),
 });
