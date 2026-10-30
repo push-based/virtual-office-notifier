@@ -1,8 +1,14 @@
-import { Array, Context, DateTime, Duration, Effect, Layer, Option, Schema } from "effect";
+import { Array, Context, DateTime, Duration, Effect, Layer, Match, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { type ActiveRecording, RowId } from "recording-requests/RecordingRequest";
 
+import {
+  type ActionItemLine,
+  ActionItemList,
+  type Member,
+  type PulledActionItems,
+} from "./ActionItems.ts";
 import { memberUpsert } from "./ActivityLog.ts";
 import { Database, describeError } from "./Database.ts";
 import {
@@ -187,6 +193,25 @@ const decodeUnlinked = Schema.decodeUnknownEffect(
   ),
 );
 
+const decodeMembers = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ userId: Schema.String, name: Schema.String })),
+);
+
+const decodeTried = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ tried: Schema.Boolean, pulled: Schema.Boolean })),
+);
+
+const decodeActionItems = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      id: RowId,
+      text: Schema.String,
+      ownerName: Schema.NullOr(Schema.String),
+      done: Schema.Boolean,
+    }),
+  ),
+);
+
 const decodeIds = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: Schema.String })));
 
 const decodeCount = Schema.decodeUnknownEffect(
@@ -235,6 +260,13 @@ export class RecordingStore extends Context.Service<
     recordingDetails(id: string): Effect.Effect<Option.Option<RecordingDetails>, StoreUnavailable>;
     summaryPost(id: string): Effect.Effect<Option.Option<SummaryPost>, StoreUnavailable>;
     applyEdit(id: string, change: RecordingChange): Effect.Effect<void, StoreUnavailable>;
+    presentDuring(id: string): Effect.Effect<ReadonlyArray<Member>, StoreUnavailable>;
+    actionItemsOf(id: string): Effect.Effect<ActionItemList, StoreUnavailable>;
+    recordActionItems(
+      id: string,
+      pulled: Option.Option<PulledActionItems>,
+      at: DateTime.Utc,
+    ): Effect.Effect<void, StoreUnavailable>;
     finishRecording(id: string, finished: FinishedRecording): Effect.Effect<void, StoreUnavailable>;
     readonly unlinkedPosts: Effect.Effect<ReadonlyArray<UnlinkedPost>, StoreUnavailable>;
     linkPost(id: string, permalink: string): Effect.Effect<void, StoreUnavailable>;
@@ -503,14 +535,136 @@ export class RecordingStore extends Context.Service<
         ),
       );
 
+      const markItem = (id: string, item: number, done: boolean) =>
+        sql`
+          UPDATE office.recording_action_items SET done = ${done}
+          WHERE id = ${item} AND recording_id = ${id} AND replaced_at IS NULL
+        `;
+
       const applyEdit = Effect.fn("RecordingStore.applyEdit")(
         (id: string, change: RecordingChange) =>
           onceReady(
-            change.kind === "title"
-              ? sql`UPDATE office.recordings SET title = ${change.title} WHERE id = ${id}`
-              : sql`UPDATE office.recordings SET agenda = ${change.agenda} WHERE id = ${id}`,
+            Match.value(change).pipe(
+              Match.discriminatorsExhaustive("kind")({
+                title: ({ title }) =>
+                  sql`UPDATE office.recordings SET title = ${title} WHERE id = ${id}`,
+                agenda: ({ agenda }) =>
+                  sql`UPDATE office.recordings SET agenda = ${agenda} WHERE id = ${id}`,
+                tick: ({ item }) => markItem(id, item, true),
+                untick: ({ item }) => markItem(id, item, false),
+                reassign: ({ item, owner }) => sql`
+                  UPDATE office.recording_action_items SET owner = ${owner}
+                  WHERE id = ${item} AND recording_id = ${id} AND replaced_at IS NULL
+                    AND (${owner}::text IS NULL OR EXISTS (SELECT 1 FROM office.members WHERE user_id = ${owner}))
+                `,
+              }),
+            ),
           ),
         Effect.asVoid,
+      );
+
+      const presentDuring = Effect.fn("RecordingStore.presentDuring")((id: string) =>
+        onceReady(
+          sql`
+            WITH r AS (
+              SELECT id, channel_id, started_at, coalesce(stopped_at, now()) AS stopped_at, started_by
+              FROM office.recordings WHERE id = ${id}
+            ),
+            session AS (
+              SELECT b.id FROM office.bot_sessions b, r
+              WHERE b.started_at <= r.started_at
+              ORDER BY b.started_at DESC
+              LIMIT 1
+            ),
+            before AS (
+              SELECT DISTINCT ON (s.user_id) s.user_id,
+                     s.new_channel_id IS NOT DISTINCT FROM s.office_channel_id AS is_in
+              FROM office.voice_snapshots s, r
+              WHERE s.office_channel_id = r.channel_id AND s.observed_at <= r.started_at
+                AND s.bot_session_id IN (SELECT id FROM session)
+              ORDER BY s.user_id, s.observed_at DESC, s.id DESC
+            ),
+            present AS (
+              SELECT user_id FROM before WHERE is_in
+              UNION
+              SELECT s.user_id FROM office.voice_snapshots s, r
+              WHERE s.office_channel_id = r.channel_id
+                AND s.observed_at > r.started_at AND s.observed_at <= r.stopped_at
+                AND s.new_channel_id IS NOT DISTINCT FROM s.office_channel_id
+              UNION
+              SELECT user_id FROM office.recording_clips WHERE recording_id = ${id}
+              UNION
+              SELECT started_by FROM r
+            )
+            SELECT m.user_id, coalesce(m.real_name, m.display_name) AS name
+            FROM present p
+            JOIN office.members m USING (user_id)
+            ORDER BY lower(coalesce(m.real_name, m.display_name)), m.user_id
+          `.pipe(Effect.flatMap(decodeMembers)),
+        ),
+      );
+
+      const actionItemsOf = Effect.fn("RecordingStore.actionItemsOf")(function* (id: string) {
+        const [state] = yield* onceReady(
+          sql`
+            SELECT action_items_pulled_at IS NOT NULL AS tried, action_items_model IS NOT NULL AS pulled
+            FROM office.recordings WHERE id = ${id}
+          `.pipe(Effect.flatMap(decodeTried)),
+        );
+
+        if (state === undefined || !state.tried) return ActionItemList.NotTried();
+
+        if (!state.pulled) return ActionItemList.Failed();
+
+        const items: ReadonlyArray<ActionItemLine> = yield* onceReady(
+          sql`
+            SELECT a.id, a.text, coalesce(m.real_name, m.display_name) AS owner_name, a.done
+            FROM office.recording_action_items a
+            LEFT JOIN office.members m ON m.user_id = a.owner
+            WHERE a.recording_id = ${id} AND a.replaced_at IS NULL
+            ORDER BY a.position, a.id
+          `.pipe(Effect.flatMap(decodeActionItems)),
+        );
+
+        return ActionItemList.Pulled({ items });
+      });
+
+      const recordActionItems = Effect.fn("RecordingStore.recordActionItems")(
+        (id: string, pulled: Option.Option<PulledActionItems>, at: DateTime.Utc) =>
+          onceReady(
+            sql.withTransaction(
+              Effect.gen(function* () {
+                const pulledAt = DateTime.toDate(at);
+                const model = Option.getOrNull(Option.map(pulled, ({ model }) => model));
+
+                const marked = yield* sql`
+                  UPDATE office.recordings
+                  SET action_items_pulled_at = ${pulledAt}, action_items_model = ${model}
+                  WHERE id = ${id} AND action_items_pulled_at IS NULL
+                  RETURNING id
+                `;
+
+                const items = Option.match(pulled, {
+                  onNone: () => [],
+                  onSome: ({ items }) => items,
+                });
+
+                if (marked.length === 0 || !Array.isReadonlyArrayNonEmpty(items)) return;
+
+                yield* sql`
+                  INSERT INTO office.recording_action_items ${sql.insert(
+                    Array.map(items, ({ text, owner }, position) => ({
+                      recordingId: id,
+                      position,
+                      text,
+                      owner,
+                      pulledAt,
+                    })),
+                  )}
+                `;
+              }),
+            ),
+          ),
       );
 
       const finishRecording = Effect.fn("RecordingStore.finishRecording")(
@@ -565,6 +719,9 @@ export class RecordingStore extends Context.Service<
         recordingDetails,
         summaryPost,
         applyEdit,
+        presentDuring,
+        actionItemsOf,
+        recordActionItems,
         finishRecording,
         unlinkedPosts,
         linkPost,
@@ -592,6 +749,9 @@ export class RecordingStore extends Context.Service<
       recordingDetails: notRecording,
       summaryPost: notRecording,
       applyEdit: notRecording,
+      presentDuring: notRecording,
+      actionItemsOf: notRecording,
+      recordActionItems: notRecording,
       finishRecording: notRecording,
       unlinkedPosts: notRecording(),
       linkPost: notRecording,

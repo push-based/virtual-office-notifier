@@ -44,7 +44,21 @@ const createTables = Effect.gen(function* () {
       slack_permalink text,
       finished_at timestamptz,
       title text,
-      agenda text
+      agenda text,
+      action_items_pulled_at timestamptz,
+      action_items_model text
+    )
+  `;
+  yield* sql`
+    CREATE TABLE office.recording_action_items (
+      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+      recording_id uuid NOT NULL,
+      position integer NOT NULL,
+      text text NOT NULL,
+      owner text,
+      done boolean NOT NULL DEFAULT false,
+      pulled_at timestamptz NOT NULL DEFAULT now(),
+      replaced_at timestamptz
     )
   `;
   yield* sql`
@@ -92,6 +106,8 @@ interface RecordingRow {
   readonly finishedAt?: Date;
   readonly title?: string;
   readonly agenda?: string;
+  readonly actionItemsPulledAt?: Date;
+  readonly actionItemsModel?: string;
 }
 
 const insertRecording = (sql: SqlClient.SqlClient, row: RecordingRow) =>
@@ -145,7 +161,25 @@ const fourStates = Effect.gen(function* () {
     finishedAt: at(41),
     title: "Deploy retro",
     agenda: "What broke on Friday",
+    actionItemsPulledAt: at(41),
+    actionItemsModel: "model",
   });
+  yield* sql`
+    INSERT INTO office.recording_action_items ${sql.insert([
+      { recordingId: FINISHED, position: 1, text: "ask IT about the VPN", owner: null },
+      { recordingId: FINISHED, position: 0, text: "write up the deploy checklist", owner: "u1" },
+    ])}
+  `;
+  yield* sql`
+    INSERT INTO office.recording_action_items ${sql.insert({
+      recordingId: FINISHED,
+      position: 2,
+      text: "an earlier pull",
+      owner: "u3",
+      replacedAt: at(42),
+    })}
+  `;
+  yield* sql`UPDATE office.recording_action_items SET done = true WHERE owner = 'u1'`;
   yield* insertRecording(sql, {
     id: TRANSCRIBING,
     startedAt: at(50),
@@ -298,6 +332,52 @@ describe("RecordingHistory.find", () => {
         ],
       );
       assert.strictEqual(detail.clips[0]?.speaker.avatarUrl, "https://cdn.example/ada.png");
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "gives the current action items in order with their owners, and everyone they can be given to",
+    () =>
+      Effect.gen(function* () {
+        const history = yield* fourStates;
+        const detail = Option.getOrThrow(yield* history.find(FINISHED));
+
+        assert.deepStrictEqual(
+          Array.map(detail.actionItems ?? [], ({ text, owner, done }) => ({ text, owner, done })),
+          [
+            {
+              text: "write up the deploy checklist",
+              owner: { userId: "u1", name: "Ada", avatarUrl: "https://cdn.example/ada.png" },
+              done: true,
+            },
+            { text: "ask IT about the VPN", owner: null, done: false },
+          ],
+        );
+        assert.deepStrictEqual(
+          Array.map(detail.members, ({ name }) => name),
+          ["Ada", "grace", "Linus"],
+        );
+      }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("still gives the recording when its action items can't be read", () =>
+    Effect.gen(function* () {
+      const history = yield* fourStates;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`ALTER TABLE office.recording_action_items RENAME TO unreadable_action_items`;
+
+      const detail = Option.getOrThrow(yield* history.find(FINISHED));
+      assert.isNull(detail.actionItems);
+      assert.strictEqual(detail.summary, "• Ada said hello");
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("has no action items for a recording none could be pulled out of", () =>
+    Effect.gen(function* () {
+      const history = yield* fourStates;
+
+      assert.isNull(Option.getOrThrow(yield* history.find(TRANSCRIBING)).actionItems);
     }).pipe(Effect.provide(TestLayer)),
   );
 

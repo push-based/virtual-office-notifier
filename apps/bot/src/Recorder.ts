@@ -6,6 +6,7 @@ import {
   DateTime,
   Duration,
   Effect,
+  Equal,
   ErrorReporter,
   Fiber,
   Layer,
@@ -35,6 +36,7 @@ import {
   type StatusUpdate,
 } from "recording-requests/RecordingRequests";
 
+import { ActionItemList, ActionItemWriter, actionItemsRequest, ownedBy } from "./ActionItems.ts";
 import type { BotPresence } from "./BotPresence.ts";
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
 import { SlackConfig } from "./Config.ts";
@@ -51,7 +53,7 @@ import {
 } from "./RecordingStore.ts";
 import { SlackClient } from "./SlackClient.ts";
 import { SlackHistory } from "./SlackHistory.ts";
-import { summaryMessage } from "./SlackMessage.ts";
+import { type SlackMessage, summaryMessage } from "./SlackMessage.ts";
 import { noVoices, speakingAt, startedSpeaking, stoppedSpeaking, type Voices } from "./Speaking.ts";
 import {
   hasSpeech,
@@ -154,6 +156,7 @@ export class Recorder extends Context.Service<
       const archive = yield* ClipArchive;
       const transcriber = yield* Transcriber;
       const summaries = yield* SummaryWriter;
+      const actionItemWriter = yield* ActionItemWriter;
       const slack = yield* SlackClient;
       const history = yield* SlackHistory;
       const { channelId: slackChannel } = yield* SlackConfig;
@@ -171,7 +174,7 @@ export class Recorder extends Context.Service<
         const storeHealthy = yield* Ref.make(true);
         const unavailableAttempts = yield* Ref.make(0);
         const mutex = yield* Semaphore.make(1);
-        const retitling = yield* Semaphore.make(1);
+        const updatingPost = yield* Semaphore.make(1);
 
         const storeIssue = (what: string) => (error: StoreUnavailable | RecordingUnavailable) =>
           Ref.getAndSet(storeHealthy, false).pipe(
@@ -377,67 +380,88 @@ export class Recorder extends Context.Service<
             while ((yield* store.outstandingClips(id)) > 0) yield* Effect.sleep(FINISH_POLL);
           });
 
-        const retitle = (id: string) =>
-          retitling
+        const postedMessage = (id: string) =>
+          Effect.gen(function* () {
+            const details = yield* store.recordingDetails(id);
+            const post = yield* store.summaryPost(id);
+
+            if (Option.isNone(details) || Option.isNone(post)) return Option.none();
+
+            const lines = yield* store.clipsOf(id);
+            const actionItems = yield* store.actionItemsOf(id);
+            const { startedAt, stoppedAt, startedByName, title } = details.value;
+            const { slackChannelId, slackTs, summary, summaryModel } = post.value;
+
+            return Option.some({
+              channel: slackChannelId,
+              ts: slackTs,
+              message: summaryMessage({
+                office,
+                startedAt,
+                stoppedAt,
+                startedByName,
+                title,
+                speakers: speakersOf(lines),
+                summary:
+                  summary === null || summaryModel === null
+                    ? Option.none()
+                    : Option.some({ text: summary, model: summaryModel }),
+                actionItems,
+              }),
+            });
+          });
+
+        const updatePostUnless = (id: string, unchanged: (message: SlackMessage) => boolean) =>
+          updatingPost
             .withPermits(1)(
               Effect.gen(function* () {
-                const details = yield* store.recordingDetails(id);
-                const post = yield* store.summaryPost(id);
+                const current = yield* postedMessage(id);
 
-                if (Option.isNone(details) || Option.isNone(post)) return;
+                if (Option.isNone(current) || unchanged(current.value.message)) return;
 
-                const lines = yield* store.clipsOf(id);
-                const { startedAt, stoppedAt, startedByName, title } = details.value;
-                const { slackChannelId, slackTs, summary, summaryModel } = post.value;
+                const { channel, ts, message } = current.value;
 
-                yield* slack.updateMessage(
-                  slackChannelId,
-                  slackTs,
-                  summaryMessage({
-                    office,
-                    startedAt,
-                    stoppedAt,
-                    startedByName,
-                    title,
-                    speakers: speakersOf(lines),
-                    summary:
-                      summary === null || summaryModel === null
-                        ? Option.none()
-                        : Option.some({ text: summary, model: summaryModel }),
-                  }),
-                );
-
-                yield* Effect.logInfo("Retitled the recording's summary in Slack");
+                yield* slack.updateMessage(channel, ts, message);
+                yield* Effect.logInfo("Updated the recording's summary in Slack");
               }),
             )
             .pipe(
               Effect.catchTags({
                 SlackError: (error) =>
-                  Effect.logWarning("Couldn't retitle the recording's summary in Slack").pipe(
+                  Effect.logWarning("Couldn't update the recording's summary in Slack").pipe(
                     Effect.annotateLogs({ reason: error.reason._tag }),
                     Effect.andThen(report(error)),
                   ),
                 StoreUnavailable: (error) =>
-                  Effect.logWarning("Couldn't read the recording to retitle its summary").pipe(
+                  Effect.logWarning("Couldn't read the recording to update its summary").pipe(
                     Effect.annotateLogs({ reason: error.reason }),
                   ),
               }),
               Effect.annotateLogs({ recordingId: id }),
             );
 
-        const retitleIfRenamed = (id: string, postedTitle: string | null) =>
-          store.recordingDetails(id).pipe(
-            Effect.flatMap((latest) =>
-              Option.exists(latest, ({ title }) => title !== postedTitle)
-                ? retitle(id)
-                : Effect.void,
-            ),
-            Effect.catchTag("StoreUnavailable", (error) =>
-              Effect.logWarning("Couldn't check whether the recording was renamed").pipe(
-                Effect.annotateLogs({ reason: error.reason }),
-              ),
-            ),
-          );
+        const updatePost = (id: string) => updatePostUnless(id, () => false);
+
+        const updatePostIfChanged = (id: string, posted: SlackMessage) =>
+          updatePostUnless(id, (current) => Equal.equals(current, posted));
+
+        const pullActionItems = (id: string, request: string) =>
+          Effect.gen(function* () {
+            const known = yield* store.actionItemsOf(id);
+
+            if (!ActionItemList.$is("NotTried")(known)) return known;
+
+            const members = yield* store.presentDuring(id);
+            const pulled = yield* actionItemWriter.pull(actionItemsRequest(members, request));
+
+            yield* store.recordActionItems(
+              id,
+              Option.map(pulled, ({ value, model }) => ({ model, items: ownedBy(members, value) })),
+              yield* DateTime.now,
+            );
+
+            return yield* store.actionItemsOf(id);
+          });
 
         const finish = Effect.fn("Recorder.finish")(
           function* (id: string) {
@@ -471,21 +495,23 @@ export class Recorder extends Context.Service<
               return;
             }
 
-            const summary = yield* summaries.write(summaryRequest(details.value, transcript));
+            const request = summaryRequest(details.value, transcript);
+            const summary = yield* summaries.write(request);
+            const actionItems = yield* pullActionItems(id, request);
             const { startedAt, stoppedAt, startedByName, title } = details.value;
 
-            const posted = yield* slack.postMessage({
-              channel: slackChannel,
-              ...summaryMessage({
-                office,
-                startedAt,
-                stoppedAt,
-                startedByName,
-                title,
-                speakers: speakersOf(lines),
-                summary,
-              }),
+            const message = summaryMessage({
+              office,
+              startedAt,
+              stoppedAt,
+              startedByName,
+              title,
+              speakers: speakersOf(lines),
+              summary,
+              actionItems,
             });
+
+            const posted = yield* slack.postMessage({ channel: slackChannel, ...message });
 
             yield* slack
               .uploadFile({
@@ -541,7 +567,7 @@ export class Recorder extends Context.Service<
               finishedAt: at,
             });
 
-            yield* retitleIfRenamed(id, title);
+            yield* updatePostIfChanged(id, message);
 
             yield* Effect.logInfo("Posted the recording summary").pipe(
               Effect.annotateLogs({
@@ -731,9 +757,9 @@ export class Recorder extends Context.Service<
             store.applyEdit(edit.recordingId, edit.change).pipe(
               Effect.as({
                 afterCommit:
-                  edit.change.kind === "title"
-                    ? retitle(edit.recordingId).pipe(Effect.forkScoped, Effect.asVoid)
-                    : Effect.void,
+                  edit.change.kind === "agenda"
+                    ? Effect.void
+                    : updatePost(edit.recordingId).pipe(Effect.forkScoped, Effect.asVoid),
               }),
             ),
         };

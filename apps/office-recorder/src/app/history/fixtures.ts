@@ -32,5 +32,11 @@ export const recordingDetail = (overrides: Partial<RecordingDetail> = {}): Recor
     { speaker: anna, startedAt: "2026-10-29T12:06:10.000Z", text: "Anyone there?" },
     { speaker: ben, startedAt: "2026-10-29T12:07:00.000Z", text: "Morning" },
   ],
+  actionItems: [
+    { id: 4, text: "write up the deploy checklist", owner: anna, done: false },
+    { id: 5, text: "ask IT about the VPN", owner: null, done: false },
+    { id: 6, text: "book the room for Thursday", owner: ben, done: true },
+  ],
+  members: [anna, ben],
   ...overrides,
 });

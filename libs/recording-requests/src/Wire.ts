@@ -62,6 +62,8 @@ export type RecordingPage = typeof History.RecordingPage.Encoded;
 
 export type TranscribedClip = typeof History.TranscribedClip.Encoded;
 
+export type ActionItem = typeof History.ActionItem.Encoded;
+
 export type RecordingDetail = typeof History.RecordingDetail.Encoded;
 
 export type RecordingChange = typeof Edits.RecordingChange.Encoded;
@@ -69,6 +71,12 @@ export type RecordingChange = typeof Edits.RecordingChange.Encoded;
 export type TitleChange = typeof Edits.TitleChange.Encoded;
 
 export type AgendaChange = typeof Edits.AgendaChange.Encoded;
+
+export type TickChange = typeof Edits.TickChange.Encoded;
+
+export type UntickChange = typeof Edits.UntickChange.Encoded;
+
+export type ReassignChange = typeof Edits.ReassignChange.Encoded;
 
 export type EditIgnoreReason = typeof Edits.EditIgnoreReason.Encoded;
 

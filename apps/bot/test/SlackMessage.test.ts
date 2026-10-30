@@ -1,6 +1,7 @@
-import { Array, DateTime, Duration, Option } from "effect";
+import { Array, DateTime, Duration, Option, String } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
+import { ActionItemList } from "../src/ActionItems.ts";
 import { OfficeEvent } from "../src/OfficeEvent.ts";
 import {
   AI_DISCLAIMER,
@@ -345,7 +346,17 @@ describe("summaryMessage", () => {
     title: null,
     speakers: ["Ada <3", "Grace"],
     summary: Option.some({ text: "• Ada & Grace agreed to ship", model: "nvidia/nemotron" }),
+    actionItems: ActionItemList.NotTried(),
   };
+
+  const actionItemsText = (actionItems: ActionItemList) =>
+    Array.flatMap(summaryMessage({ ...recording, actionItems }).blocks, (block) =>
+      block.type === "section" &&
+      block.text !== undefined &&
+      String.startsWith("*Action items*")(block.text.text)
+        ? [block.text.text]
+        : [],
+    );
 
   it("leads with when and how long, then the summary, who started it and who spoke", () => {
     const message = summaryMessage(recording);
@@ -383,5 +394,37 @@ describe("summaryMessage", () => {
     expect(card).toContain("*Who spoke*\\nNobody");
     expect(card).not.toContain("Summary by");
     expect(card).not.toContain(AI_DISCLAIMER);
+  });
+
+  it("lists the action items in their own block right below the summary, done ones struck through", () => {
+    const actionItems = ActionItemList.Pulled({
+      items: [
+        { id: 1, text: "write up the deploy checklist", ownerName: "Anna", done: false },
+        { id: 2, text: "ask IT about the <VPN>", ownerName: null, done: false },
+        { id: 3, text: "book the room for Thursday", ownerName: "Ben & co", done: true },
+      ],
+    });
+
+    expect(actionItemsText(actionItems)).toEqual([
+      "*Action items*\n• Anna: write up the deploy checklist\n• Unassigned: ask IT about the &lt;VPN&gt;\n~• Ben &amp; co: book the room for Thursday~ ✅",
+    ]);
+
+    const blocks = summaryMessage({ ...recording, actionItems }).blocks;
+    expect(JSON.stringify(blocks[1])).toContain("agreed to ship");
+    expect(JSON.stringify(blocks[2])).toContain("*Action items*");
+  });
+
+  it("says when nobody took anything on, and when no model could pull the action items out", () => {
+    expect(actionItemsText(ActionItemList.Pulled({ items: [] }))).toEqual([
+      "*Action items*\nNobody took anything on",
+    ]);
+    expect(actionItemsText(ActionItemList.Failed())).toEqual([
+      "*Action items*\nNo action items could be pulled out",
+    ]);
+  });
+
+  it("has no action items block for a recording from before they were pulled out", () => {
+    expect(actionItemsText(ActionItemList.NotTried())).toEqual([]);
+    expect(summaryMessage(recording).blocks).toHaveLength(4);
   });
 });

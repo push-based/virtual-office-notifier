@@ -2,6 +2,7 @@ import { Array, Context, DateTime, Duration, Effect, Layer, Option, pipe, Schema
 import { SqlClient } from "effect/sql";
 
 import {
+  type ActionItem,
   type ListedRecording,
   type OfficeMember,
   type RecordingDetail,
@@ -9,7 +10,7 @@ import {
   stateOf,
   StopReason,
 } from "./Recording.ts";
-import { PersonInOffice } from "./RecordingRequest.ts";
+import { PersonInOffice, RowId } from "./RecordingRequest.ts";
 import { type Connected, RecordingUnavailable } from "./RecordingRequests.ts";
 
 export const PAGE_SIZE = 20;
@@ -44,6 +45,26 @@ const decodeDetails = Schema.decodeUnknownEffect(
       slackPermalink: Schema.NullOr(Schema.String),
     }),
   ),
+);
+
+const decodeActionItems = Schema.decodeUnknownEffect(
+  Schema.Array(
+    Schema.Struct({
+      id: RowId,
+      text: Schema.String,
+      owner: Schema.NullOr(Schema.String),
+      ownerName: Schema.NullOr(Schema.String),
+      done: Schema.Boolean,
+    }),
+  ),
+);
+
+const decodePulled = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ pulled: Schema.Boolean })),
+);
+
+const decodeMembers = Schema.decodeUnknownEffect(
+  Schema.Array(Schema.Struct({ userId: Schema.String, name: Schema.String })),
 );
 
 const decodeSpeakers = Schema.decodeUnknownEffect(
@@ -149,6 +170,37 @@ export class RecordingHistory extends Context.Service<
           )
         : Effect.succeed((_id: string): ReadonlyArray<OfficeMember> => []);
 
+    const actionItemsOf = (sql: SqlClient.SqlClient, id: string, avatars: Avatars) =>
+      Effect.gen(function* () {
+        const [pulled] = yield* sql`
+          SELECT action_items_model IS NOT NULL AS pulled FROM office.recordings WHERE id = ${id}
+        `.pipe(Effect.flatMap(decodePulled));
+
+        if (pulled?.pulled !== true) return null;
+
+        const items = yield* sql`
+          SELECT a.id, a.text, a.owner, coalesce(m.real_name, m.display_name) AS owner_name, a.done
+          FROM office.recording_action_items a
+          LEFT JOIN office.members m ON m.user_id = a.owner
+          WHERE a.recording_id = ${id} AND a.replaced_at IS NULL
+          ORDER BY a.position, a.id
+        `.pipe(Effect.flatMap(decodeActionItems));
+
+        return Array.map(items, (item): ActionItem => ({
+          id: item.id,
+          text: item.text,
+          owner: item.owner === null ? null : memberOf(avatars, item.owner, item.ownerName),
+          done: item.done,
+        }));
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Couldn't read the recording's action items").pipe(
+            Effect.annotateLogs({ reason: error.message }),
+            Effect.as(null),
+          ),
+        ),
+      );
+
     const page = Effect.fn("RecordingHistory.page")((before: Option.Option<DateTime.Utc>) =>
       connected((sql) =>
         timed(
@@ -227,6 +279,13 @@ export class RecordingHistory extends Context.Service<
               ORDER BY c.started_at, c.id
             `.pipe(Effect.flatMap(decodeClips));
 
+            const members = yield* sql`
+              SELECT user_id, coalesce(real_name, display_name) AS name FROM office.members
+              ORDER BY lower(coalesce(real_name, display_name)), user_id
+            `.pipe(Effect.flatMap(decodeMembers));
+
+            const actionItems = yield* actionItemsOf(sql, id, avatars);
+
             const detail: RecordingDetail = {
               ...listed(row, speakers(row.id), avatars),
               agenda: row.agenda,
@@ -241,6 +300,10 @@ export class RecordingHistory extends Context.Service<
                 startedAt: clip.startedAt,
                 text: clip.transcript,
               })),
+              actionItems,
+              members: Array.map(members, (member) =>
+                memberOf(avatars, member.userId, member.name),
+              ),
             };
 
             return Option.some(detail);

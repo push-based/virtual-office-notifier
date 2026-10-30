@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option, pipe, Redacted, Schema, String } from "effect";
+import { Array, DateTime, Effect, Layer, Option, pipe, Redacted, Schema, String } from "effect";
 import { HttpClientRequest, HttpServer } from "effect/http";
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
 import { SqlClient } from "effect/sql";
@@ -617,6 +617,52 @@ describe("RecordingEdits", () => {
       );
       assert.strictEqual(yield* titleOf, "Retro");
     }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "takes a tick, untick or reassign only for an action item of that recording and an owner from the office",
+    () =>
+      Effect.gen(function* () {
+        const edits = yield* RecordingEdits;
+        const store = yield* RecordingStore;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* recorded({ posted: true });
+        yield* store.recordActionItems(
+          RECORDING,
+          Option.some({ model: "m", items: [{ text: "book the room", owner: null }] }),
+          DateTime.makeUnsafe(62_000),
+        );
+
+        const [row] = yield* sql<{ readonly id: number }>`
+          SELECT id::int AS id FROM office.recording_action_items
+        `;
+
+        const item = row?.id ?? 0;
+
+        const accepted = yield* Effect.all([
+          edits.submit(grace, RECORDING, { kind: "tick", item }),
+          edits.submit(grace, RECORDING, { kind: "untick", item }),
+          edits.submit(grace, RECORDING, { kind: "reassign", item, owner: "u1" }),
+          edits.submit(grace, RECORDING, { kind: "reassign", item, owner: null }),
+        ]);
+
+        assert.isTrue(Array.every(accepted, Option.isSome));
+
+        const refused = yield* Effect.all([
+          edits.submit(grace, RECORDING, { kind: "tick", item: item + 1 }),
+          edits.submit(grace, RECORDING, { kind: "reassign", item, owner: "stranger" }),
+          edits.submit(grace, "8c3d4e5f-1111-4c55-9a0e-8e3b8f9b2a10", { kind: "tick", item }),
+        ]);
+
+        assert.isTrue(Array.every(refused, Option.isNone));
+        assert.deepStrictEqual(yield* sql`SELECT kind FROM office.recording_edits ORDER BY id`, [
+          { kind: "tick" },
+          { kind: "untick" },
+          { kind: "reassign" },
+          { kind: "reassign" },
+        ]);
+      }).pipe(Effect.provide(TestLayer)),
   );
 
   it.effect(

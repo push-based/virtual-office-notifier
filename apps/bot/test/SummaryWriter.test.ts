@@ -6,6 +6,7 @@ import {
   hasSpeech,
   MAX_SUMMARY_LENGTH,
   speakersOf,
+  SUMMARY_PROMPT,
   SummaryText,
   summaryRequest,
   transcriptLines,
@@ -181,4 +182,11 @@ describe("SummaryText", () => {
       assert.isTrue(Exit.isFailure(yield* Effect.exit(decode('""'))));
     }),
   );
+});
+
+describe("SUMMARY_PROMPT", () => {
+  it("leaves the action items out of the summary, since they're pulled out on their own", () => {
+    assert.include(SUMMARY_PROMPT, "Leave out the action items, which are listed separately");
+    assert.notInclude(SUMMARY_PROMPT, "any action items");
+  });
 });

@@ -2,7 +2,7 @@ import { Data, Schema } from "effect";
 
 import { Agenda, type RecordingProgress, stateOf, Title } from "./Recording.ts";
 
-export const EditKind = Schema.Literals(["title", "agenda"]);
+export const EditKind = Schema.Literals(["title", "agenda", "tick", "untick", "reassign"]);
 
 export type EditKind = typeof EditKind.Type;
 
@@ -10,7 +10,25 @@ export const TitleChange = Schema.Struct({ kind: Schema.Literal("title"), title:
 
 export const AgendaChange = Schema.Struct({ kind: Schema.Literal("agenda"), agenda: Agenda });
 
-export const RecordingChange = Schema.Union([TitleChange, AgendaChange]);
+export const ActionItemId = Schema.Int.check(Schema.isGreaterThan(0));
+
+export const TickChange = Schema.Struct({ kind: Schema.Literal("tick"), item: ActionItemId });
+
+export const UntickChange = Schema.Struct({ kind: Schema.Literal("untick"), item: ActionItemId });
+
+export const ReassignChange = Schema.Struct({
+  kind: Schema.Literal("reassign"),
+  item: ActionItemId,
+  owner: Schema.NullOr(Schema.String.check(Schema.isMinLength(1))),
+});
+
+export const RecordingChange = Schema.Union([
+  TitleChange,
+  AgendaChange,
+  TickChange,
+  UntickChange,
+  ReassignChange,
+]);
 
 export type RecordingChange = typeof RecordingChange.Type;
 

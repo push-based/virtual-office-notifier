@@ -1,9 +1,10 @@
 import { Component, signal } from "@angular/core";
 import { TestBed } from "@angular/core/testing";
 import { of } from "rxjs";
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { EditApi } from "../edits/edit-api";
+import { RECORDER_TIMING } from "../recorder/timing";
 import { NO_SUMMARY } from "./describe-recording";
 import { recordingDetail } from "./fixtures";
 import type { RecordingDetail } from "./models";
@@ -55,6 +56,16 @@ describe("RecordingPage", () => {
           useValue: {
             submit: () => of({ id: 1, outcome: null }),
             find: () => of({ id: 1, outcome: "applied" }),
+          },
+        },
+        {
+          provide: RECORDER_TIMING,
+          useValue: {
+            statePollMs: 3000,
+            clockTickMs: 1000,
+            requestPollMs: 5,
+            requestPollLimit: 10,
+            noticeMs: 6000,
           },
         },
       ],
@@ -125,6 +136,29 @@ describe("RecordingPage", () => {
     expect(element.querySelector(".footer")).toBeNull();
   });
 
+  it("lists the action items under the summary", async () => {
+    const { element } = await render(recordingDetail());
+
+    const sections = [...element.querySelectorAll("[pbEyebrow]")].map((eyebrow) =>
+      eyebrow.textContent?.trim(),
+    );
+
+    expect(sections).toEqual(["Who spoke", "Summary", "Action items", "Transcript"]);
+    expect(texts(element, "app-action-items .text")).toEqual([
+      "write up the deploy checklist",
+      "ask IT about the VPN",
+      "book the room for Thursday",
+    ]);
+  });
+
+  it("refreshes the recording once an action item edit is applied", async () => {
+    const { fixture, element } = await render(recordingDetail());
+
+    element.querySelector<HTMLInputElement>("app-action-items .tick")?.click();
+
+    await vi.waitFor(() => expect(fixture.componentInstance.edits()).toBe(1));
+  });
+
   it("groups the transcript by who spoke, and says nothing more is coming once finished", async () => {
     const { element } = await render(recordingDetail());
 
@@ -140,6 +174,7 @@ describe("RecordingPage", () => {
     );
 
     expect(element.querySelector(".summary")).toBeNull();
+    expect(element.querySelector("app-action-items")).toBeNull();
     expect(buttonNamed(element, "Open in Slack")).toBeUndefined();
     expect(element.querySelector(".more")?.textContent).toBe("More on the way…");
   });

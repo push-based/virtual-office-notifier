@@ -42,6 +42,11 @@ const detail: RecordingDetail = {
   summaryModel: "model",
   slackPermalink: "https://office.slack.com/archives/C1/p12",
   clips: [{ speaker: ada, startedAt: DateTime.makeUnsafe("2026-10-29T12:06:00Z"), text: "Hello" }],
+  actionItems: [
+    { id: 4, text: "write up the deploy checklist", owner: ada, done: true },
+    { id: 5, text: "ask IT about the VPN", owner: null, done: false },
+  ],
+  members: [ada],
 };
 
 const asked = Ref.makeUnsafe<ReadonlyArray<Option.Option<DateTime.Utc>>>([]);
@@ -194,6 +199,11 @@ describe("the recording history API", () => {
         stopReason: "requested",
         slackPermalink: "https://office.slack.com/archives/C1/p12",
         clips: [{ speaker: ada, startedAt: "2026-10-29T12:06:00.000Z", text: "Hello" }],
+        actionItems: [
+          { id: 4, text: "write up the deploy checklist", owner: ada, done: true },
+          { id: 5, text: "ask IT about the VPN", owner: null, done: false },
+        ],
+        members: [ada],
       });
     }),
   );
@@ -275,6 +285,29 @@ describe("the recording edits API", () => {
         assert.strictEqual((yield* post(`{"kind":"agenda","agenda":"${xs(501)}"}`)).status, 400);
         assert.strictEqual((yield* post(`{"kind":"summary_style","style":"brief"}`)).status, 400);
       }),
+  );
+
+  it.effect("takes ticks, unticks and reassigns of an action item", () =>
+    Effect.gen(function* () {
+      const call = yield* signedIn;
+      yield* Ref.set(submittedEdits, []);
+
+      const post = (body: string) =>
+        call(`/api/recordings/${RECORDING}/edits`, { method: "POST", body });
+
+      assert.strictEqual((yield* post('{"kind":"tick","item":4}')).status, 202);
+      assert.strictEqual((yield* post('{"kind":"untick","item":4}')).status, 202);
+      assert.strictEqual((yield* post('{"kind":"reassign","item":5,"owner":"u1"}')).status, 202);
+      assert.strictEqual((yield* post('{"kind":"reassign","item":5,"owner":null}')).status, 202);
+      assert.strictEqual((yield* post('{"kind":"reword","item":5,"text":"x"}')).status, 400);
+
+      assert.deepStrictEqual(yield* Ref.get(submittedEdits), [
+        { kind: "tick", item: 4 },
+        { kind: "untick", item: 4 },
+        { kind: "reassign", item: 5, owner: "u1" },
+        { kind: "reassign", item: 5, owner: null },
+      ]);
+    }),
   );
 
   it.effect("checks on an edit, and answers 404 for an edit or recording that doesn't exist", () =>

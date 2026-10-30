@@ -68,6 +68,48 @@ describe("RecordingChange", () => {
   );
 });
 
+describe("RecordingChange for action items", () => {
+  it.effect("ticks or unticks one action item, or gives it to someone or nobody", () =>
+    Effect.gen(function* () {
+      assert.deepStrictEqual(yield* decodeChange({ kind: "tick", item: 3 }), {
+        kind: "tick",
+        item: 3,
+      });
+      assert.deepStrictEqual(yield* decodeChange({ kind: "untick", item: 3 }), {
+        kind: "untick",
+        item: 3,
+      });
+      assert.deepStrictEqual(yield* decodeChange({ kind: "reassign", item: 3, owner: "u2" }), {
+        kind: "reassign",
+        item: 3,
+        owner: "u2",
+      });
+      assert.deepStrictEqual(yield* decodeChange({ kind: "reassign", item: 3, owner: null }), {
+        kind: "reassign",
+        item: 3,
+        owner: null,
+      });
+    }),
+  );
+
+  it.effect("can't reword or delete an item, and needs a real item and owner", () =>
+    Effect.gen(function* () {
+      const refused = [
+        { kind: "tick", item: 0 },
+        { kind: "tick", item: 1.5 },
+        { kind: "tick", item: "3" },
+        { kind: "reassign", item: 3 },
+        { kind: "reassign", item: 3, owner: "" },
+        { kind: "reword", item: 3, text: "book a bigger room" },
+        { kind: "delete", item: 3 },
+      ];
+
+      for (const change of refused)
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(decodeChange(change))));
+    }),
+  );
+});
+
 describe("decideEdit", () => {
   it("applies an edit to a running, transcribing or finished recording", () => {
     assert.deepStrictEqual(
@@ -108,5 +150,21 @@ describe("the page's edit types", () => {
       readonly agenda: string | null;
     }>();
     expectTypeOf<Wire.RequestSubmission["title"]>().toEqualTypeOf<string | null | undefined>();
+  });
+
+  it("send an action item by its ID, and a new owner as a user ID or null", () => {
+    expectTypeOf<Wire.TickChange>().toEqualTypeOf<{
+      readonly kind: "tick";
+      readonly item: number;
+    }>();
+    expectTypeOf<Wire.UntickChange>().toEqualTypeOf<{
+      readonly kind: "untick";
+      readonly item: number;
+    }>();
+    expectTypeOf<Wire.ReassignChange>().toEqualTypeOf<{
+      readonly kind: "reassign";
+      readonly item: number;
+      readonly owner: string | null;
+    }>();
   });
 });
