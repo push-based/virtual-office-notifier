@@ -1,6 +1,6 @@
 import { Component, input } from "@angular/core";
+import { PbAvatar, PbAvatarGroup, PbEyebrow } from "design-system";
 
-import { PbAvatar, PbAvatarGroup, PbEyebrow } from "../../../design-system";
 import type { Occupant } from "../models";
 
 @Component({

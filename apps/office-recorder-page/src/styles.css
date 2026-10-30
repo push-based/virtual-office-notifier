@@ -2,8 +2,8 @@
 @import "@fontsource/geist/500.css";
 @import "@fontsource/geist/600.css";
 @import "@fontsource/geist-mono/600.css";
-@import "./design-system/tokens.css";
-@import "./design-system/components.css";
+@import "design-system/tokens.css";
+@import "design-system/components.css";
 
 * {
   box-sizing: border-box;

@@ -1,6 +1,6 @@
 packages:
-  - activity/client
-  - packages/*
+  - apps/*
+  - libs/*
 
 catalog:
   effect: 4.1.0
@@ -10,3 +10,13 @@ catalog:
   "@effect/sql-pg": 4.1.0
   "@effect/sql-pglite": 4.1.0
   "@effect/vitest": 4.1.0
+
+catalogs:
+  angular:
+    "@angular/common": 22.3.0-next.2
+    "@angular/compiler": 22.3.0-next.2
+    "@angular/compiler-cli": 22.3.0-next.2
+    "@angular/core": 22.3.0-next.2
+    "@angular/platform-browser": 22.3.0-next.2
+    "@push-based/vite-plugin-ngp": 0.2.0
+    typescript: 6.0.3

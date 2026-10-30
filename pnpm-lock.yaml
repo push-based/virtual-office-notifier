@@ -5,6 +5,28 @@ settings:
   excludeLinksFromLockfile: false
 
 catalogs:
+  angular:
+    '@angular/common':
+      specifier: 22.3.0-next.2
+      version: 22.3.0-next.2
+    '@angular/compiler':
+      specifier: 22.3.0-next.2
+      version: 22.3.0-next.2
+    '@angular/compiler-cli':
+      specifier: 22.3.0-next.2
+      version: 22.3.0-next.2
+    '@angular/core':
+      specifier: 22.3.0-next.2
+      version: 22.3.0-next.2
+    '@angular/platform-browser':
+      specifier: 22.3.0-next.2
+      version: 22.3.0-next.2
+    '@push-based/vite-plugin-ngp':
+      specifier: 0.2.0
+      version: 0.2.0
+    typescript:
+      specifier: 6.0.3
+      version: 6.0.3
   default:
     '@effect/ai-openai-compat':
       specifier: 4.1.0
@@ -31,6 +53,24 @@ catalogs:
 importers:
 
   .:
+    devDependencies:
+      '@effect/tsgo':
+        specifier: 0.63.0
+        version: 0.63.0
+      '@oxlint/plugins':
+        specifier: 1.89.0
+        version: 1.89.0
+      '@types/node':
+        specifier: 26.6.5
+        version: 26.6.5
+      oxlint:
+        specifier: 1.89.0
+        version: 1.89.0
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
+  apps/bot:
     dependencies:
       '@discordjs/voice':
         specifier: 0.19.2
@@ -61,29 +101,17 @@ importers:
         version: 4.1.0
       recording-requests:
         specifier: workspace:*
-        version: link:packages/recording-requests
+        version: link:../../libs/recording-requests
     devDependencies:
-      '@cloudflare/workers-types':
-        specifier: ^5.20261024.1
-        version: 5.20261024.1
       '@effect/sql-pglite':
         specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)
-      '@effect/tsgo':
-        specifier: 0.63.0
-        version: 0.63.0
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)(vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)))
-      '@oxlint/plugins':
-        specifier: 1.89.0
-        version: 1.89.0
       '@types/node':
         specifier: 26.6.5
         version: 26.6.5
-      oxlint:
-        specifier: 1.89.0
-        version: 1.89.0
       rolldown:
         specifier: 1.2.14
         version: 1.2.14
@@ -93,23 +121,20 @@ importers:
       vitest:
         specifier: 5.0.5
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
-      wrangler:
-        specifier: 4.152.0
-        version: 4.152.0(@cloudflare/workers-types@5.20261024.1)(@types/node@26.6.5)
 
-  activity/client:
+  apps/office-recorder-page:
     dependencies:
       '@angular/common':
-        specifier: 22.3.0-next.2
+        specifier: catalog:angular
         version: 22.3.0-next.2(@angular/core@22.3.0-next.2(@angular/compiler@22.3.0-next.2)(rxjs@7.8.2))(rxjs@7.8.2)
       '@angular/compiler':
-        specifier: 22.3.0-next.2
+        specifier: catalog:angular
         version: 22.3.0-next.2
       '@angular/core':
-        specifier: 22.3.0-next.2
+        specifier: catalog:angular
         version: 22.3.0-next.2(@angular/compiler@22.3.0-next.2)(rxjs@7.8.2)
       '@angular/platform-browser':
-        specifier: 22.3.0-next.2
+        specifier: catalog:angular
         version: 22.3.0-next.2(@angular/common@22.3.0-next.2(@angular/core@22.3.0-next.2(@angular/compiler@22.3.0-next.2)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0-next.2(@angular/compiler@22.3.0-next.2)(rxjs@7.8.2))
       '@discord/embedded-app-sdk':
         specifier: 2.5.0
@@ -120,9 +145,12 @@ importers:
       '@fontsource/geist-mono':
         specifier: 5.3.0
         version: 5.3.0
+      design-system:
+        specifier: workspace:*
+        version: link:../../libs/design-system
       recording-requests:
         specifier: workspace:*
-        version: link:../../packages/recording-requests
+        version: link:../../libs/recording-requests
       rxjs:
         specifier: 7.8.2
         version: 7.8.2
@@ -131,10 +159,10 @@ importers:
         version: 2.8.1
     devDependencies:
       '@angular/compiler-cli':
-        specifier: 22.3.0-next.2
+        specifier: catalog:angular
         version: 22.3.0-next.2(@angular/compiler@22.3.0-next.2)(typescript@6.0.3)
       '@push-based/vite-plugin-ngp':
-        specifier: 0.2.0
+        specifier: catalog:angular
         version: 0.2.0(@angular/compiler-cli@22.3.0-next.2(@angular/compiler@22.3.0-next.2)(typescript@6.0.3))(@angular/compiler@22.3.0-next.2)(tsrs@0.20.0-ts7.1.0-beta)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
       jsdom:
         specifier: 30.1.2
@@ -143,7 +171,7 @@ importers:
         specifier: 0.20.0-ts7.1.0-beta
         version: 0.20.0-ts7.1.0-beta
       typescript:
-        specifier: 6.0.3
+        specifier: catalog:angular
         version: 6.0.3
       vite:
         specifier: 8.3.4
@@ -152,7 +180,65 @@ importers:
         specifier: 5.0.5
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
 
-  packages/recording-requests:
+  apps/office-recorder-worker:
+    dependencies:
+      '@effect/sql-pg':
+        specifier: 'catalog:'
+        version: 4.1.0(effect@4.1.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.0
+      recording-requests:
+        specifier: workspace:*
+        version: link:../../libs/recording-requests
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^5.20261024.1
+        version: 5.20261024.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      wrangler:
+        specifier: 4.152.0
+        version: 4.152.0(@cloudflare/workers-types@5.20261024.1)(@types/node@26.6.5)
+
+  libs/design-system:
+    devDependencies:
+      '@angular/common':
+        specifier: catalog:angular
+        version: 22.3.0-next.2(@angular/core@22.3.0-next.2(@angular/compiler@22.3.0-next.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@angular/compiler':
+        specifier: catalog:angular
+        version: 22.3.0-next.2
+      '@angular/compiler-cli':
+        specifier: catalog:angular
+        version: 22.3.0-next.2(@angular/compiler@22.3.0-next.2)(typescript@6.0.3)
+      '@angular/core':
+        specifier: catalog:angular
+        version: 22.3.0-next.2(@angular/compiler@22.3.0-next.2)(rxjs@7.8.2)
+      '@angular/platform-browser':
+        specifier: catalog:angular
+        version: 22.3.0-next.2(@angular/common@22.3.0-next.2(@angular/core@22.3.0-next.2(@angular/compiler@22.3.0-next.2)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.3.0-next.2(@angular/compiler@22.3.0-next.2)(rxjs@7.8.2))
+      '@push-based/vite-plugin-ngp':
+        specifier: catalog:angular
+        version: 0.2.0(@angular/compiler-cli@22.3.0-next.2(@angular/compiler@22.3.0-next.2)(typescript@6.0.3))(@angular/compiler@22.3.0-next.2)(tsrs@0.20.0-ts7.1.0-beta)(typescript@6.0.3)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+      jsdom:
+        specifier: 30.1.2
+        version: 30.1.2
+      rxjs:
+        specifier: 7.8.2
+        version: 7.8.2
+      tslib:
+        specifier: 2.8.1
+        version: 2.8.1
+      typescript:
+        specifier: catalog:angular
+        version: 6.0.3
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
+
+  libs/recording-requests:
     devDependencies:
       '@effect/sql-pglite':
         specifier: 'catalog:'
@@ -163,6 +249,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.1.0
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
       vitest:
         specifier: 5.0.5
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(jsdom@30.1.2)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2))
