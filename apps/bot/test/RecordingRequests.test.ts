@@ -321,13 +321,13 @@ describe("RecordingRequests", () => {
       yield* requests.publishStatus({
         recordingId: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
         botInOffice: true,
-        occupants: [{ userId: "u1", displayName: "Ada", avatarUrl: null }],
+        occupants: [{ userId: "u1", displayName: "Ada", avatarUrl: null, speaking: true }],
       });
 
       const status = yield* requests.status;
       assert.isTrue(status.botInOffice);
       assert.deepStrictEqual(status.occupants, [
-        { userId: "u1", displayName: "Ada", avatarUrl: null },
+        { userId: "u1", displayName: "Ada", avatarUrl: null, speaking: true },
       ]);
       assert.strictEqual(status.recording?.startedByName, "Ada");
       assert.strictEqual(
@@ -357,6 +357,20 @@ describe("RecordingRequests", () => {
       const after = yield* requests.status;
       assert.isNull(after.recording);
       assert.isFalse(after.botInOffice);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("reads occupants written before speaking was tracked as not speaking", () =>
+    Effect.gen(function* () {
+      const requests = yield* RecordingRequests;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* requests.publishStatus({ recordingId: null, botInOffice: true, occupants: [] });
+      yield* sql`UPDATE office.recording_status SET occupants = '[{"userId":"u1","displayName":"Ada","avatarUrl":null}]'::jsonb`;
+
+      assert.deepStrictEqual((yield* requests.status).occupants, [
+        { userId: "u1", displayName: "Ada", avatarUrl: null, speaking: false },
+      ]);
     }).pipe(Effect.provide(TestLayer)),
   );
 

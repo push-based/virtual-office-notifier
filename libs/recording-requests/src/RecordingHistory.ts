@@ -9,7 +9,7 @@ import {
   stateOf,
   StopReason,
 } from "./Recording.ts";
-import { Occupant } from "./RecordingRequest.ts";
+import { PersonInOffice } from "./RecordingRequest.ts";
 import { type Connected, RecordingUnavailable } from "./RecordingRequests.ts";
 
 export const PAGE_SIZE = 20;
@@ -62,7 +62,7 @@ const decodeClips = Schema.decodeUnknownEffect(
 );
 
 const decodeOccupants = Schema.decodeUnknownEffect(
-  Schema.Array(Schema.Struct({ occupants: Schema.Array(Occupant) })),
+  Schema.Array(Schema.Struct({ occupants: Schema.Array(PersonInOffice) })),
 );
 
 type Avatars = ReadonlyMap<string, string>;

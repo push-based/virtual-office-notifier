@@ -79,5 +79,5 @@ UTC+2 all year, with no daylight saving. Days, weeks and hours in the office sta
 _Avoid_: local time, CET
 
 **Recording status**:
-What the Office Recorder shows: whether the bot is in the office, who is there, and the recording that is running, if any.
+What the Office Recorder shows: whether the bot is in the office, who is there and which of them the bot hears speaking, and the recording that is running, if any.
 _Avoid_: state, office state

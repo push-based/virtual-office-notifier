@@ -7,6 +7,7 @@ export interface Person {
   readonly id: string;
   readonly name: string;
   readonly avatarUrl: string | null;
+  readonly speaking?: boolean;
 }
 
 @Component({
@@ -15,7 +16,13 @@ export interface Person {
   template: `
     <pb-avatar-group [label]="label()">
       @for (person of people(); track person.id) {
-        <li><pb-avatar [name]="person.name" [src]="person.avatarUrl" /></li>
+        <li>
+          <pb-avatar
+            [name]="person.name"
+            [src]="person.avatarUrl"
+            [speaking]="person.speaking ?? false"
+          />
+        </li>
       }
     </pb-avatar-group>
   `,

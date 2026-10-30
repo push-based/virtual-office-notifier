@@ -25,6 +25,19 @@ import { InitialsPipe } from "./initials.pipe";
       display: flex;
       align-items: center;
       justify-content: center;
+      outline: var(--space-0-5) solid transparent;
+      outline-offset: var(--space-0-5);
+      transition: outline-color 150ms ease-out;
+    }
+
+    :host(.speaking) {
+      outline-color: var(--color-success-500);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      :host {
+        transition: none;
+      }
     }
 
     .initials {
@@ -37,10 +50,12 @@ import { InitialsPipe } from "./initials.pipe";
       object-fit: cover;
     }
   `,
-  host: { "[attr.title]": "name()" },
+  host: { "[attr.title]": "name()", "[class.speaking]": "speaking()" },
 })
 export class PbAvatar {
   readonly name = input.required<string>();
 
   readonly src = input<string | null>(null);
+
+  readonly speaking = input(false);
 }

@@ -51,11 +51,14 @@ import {
 import { SlackClient } from "./SlackClient.ts";
 import { SlackHistory } from "./SlackHistory.ts";
 import { summaryMessage } from "./SlackMessage.ts";
+import { noVoices, speakingAt, startedSpeaking, stoppedSpeaking, type Voices } from "./Speaking.ts";
 import { hasSpeech, speakersOf, SummaryWriter, transcriptText } from "./SummaryWriter.ts";
 import { Transcriber } from "./Transcriber.ts";
-import { type CaptureError, type Clip, VoiceCapture } from "./VoiceCapture.ts";
+import { type CaptureError, type Clip, Heard, VoiceCapture } from "./VoiceCapture.ts";
 
 export const POLL_INTERVAL = CHECK_INTERVAL;
+
+export const STATUS_INTERVAL = Duration.seconds(1);
 
 export const FINISH_POLL = Duration.seconds(15);
 
@@ -155,6 +158,8 @@ export class Recorder extends Context.Service<
         const presence = yield* Ref.make<BotPresence>("Away");
         const started = yield* Ref.make(false);
         const lastStatus = yield* Ref.make("");
+        const voices = yield* Ref.make<Voices>(noVoices);
+        const statusChanged = yield* Queue.dropping<void>(1);
         const storeHealthy = yield* Ref.make(true);
         const unavailableAttempts = yield* Ref.make(0);
         const mutex = yield* Semaphore.make(1);
@@ -172,10 +177,17 @@ export class Recorder extends Context.Service<
 
         const storeOk = Ref.set(storeHealthy, true);
 
+        const statusChange = Queue.offer(statusChanged, undefined).pipe(Effect.asVoid);
+
         const writeStatus = Effect.gen(function* () {
           const current = yield* Ref.get(session);
           const inOffice = (yield* Ref.get(presence)) === "InOffice";
-          const occupants = yield* gateway.occupants;
+          const speaking = speakingAt(yield* Ref.get(voices), yield* DateTime.now);
+
+          const occupants = Array.map(yield* gateway.occupants, (member) => ({
+            ...member,
+            speaking: speaking.has(member.userId),
+          }));
 
           const status: StatusUpdate = {
             recordingId: Option.getOrNull(Option.map(current, ({ recording }) => recording.id)),
@@ -185,18 +197,29 @@ export class Recorder extends Context.Service<
 
           const key = yield* encodeStatusKey(status).pipe(Effect.orDie);
 
-          if (key === (yield* Ref.get(lastStatus))) return;
+          if (key !== (yield* Ref.get(lastStatus)))
+            yield* requests
+              .publishStatus(status)
+              .pipe(
+                Effect.andThen(Ref.set(lastStatus, key)),
+                Effect.catchTag(
+                  "RecordingUnavailable",
+                  storeIssue("Couldn't update the recording status"),
+                ),
+              );
 
-          yield* requests
-            .publishStatus(status)
-            .pipe(
-              Effect.andThen(Ref.set(lastStatus, key)),
-              Effect.catchTag(
-                "RecordingUnavailable",
-                storeIssue("Couldn't update the recording status"),
-              ),
-            );
+          return speaking.size > 0;
         });
+
+        const publishStatuses = Effect.forever(
+          Effect.gen(function* () {
+            yield* Queue.take(statusChanged);
+
+            if (yield* writeStatus) yield* statusChange;
+
+            yield* Effect.sleep(STATUS_INTERVAL);
+          }),
+        );
 
         const archiveClip = (recordingId: string, clip: Clip, ogg: Uint8Array) =>
           Option.match(archive.bucket, {
@@ -272,17 +295,44 @@ export class Recorder extends Context.Service<
           ),
         );
 
+        const updateVoices = (change: (current: Voices) => Voices) =>
+          Ref.update(voices, change).pipe(Effect.andThen(statusChange));
+
         const runCapture = (recordingId: string) =>
-          voice.capture(office).pipe(
-            Stream.runForEach((clip) => handleClip(recordingId, clip)),
-            Effect.retry(captureRetry),
-            Effect.catchTag("CaptureError", (error) =>
-              Effect.logError("Gave up on the voice connection").pipe(
-                Effect.annotateLogs({ reason: error.reason }),
+          Effect.gen(function* () {
+            const clips = yield* Queue.unbounded<Clip, Cause.Done>();
+
+            const saving = yield* Stream.fromQueue(clips).pipe(
+              Stream.runForEach((clip) => handleClip(recordingId, clip)),
+              Effect.forkScoped,
+            );
+
+            yield* voice.capture(office).pipe(
+              Stream.runForEach((heard) =>
+                Heard.$match(heard, {
+                  Spoke: ({ clip }) => Queue.offer(clips, clip),
+                  StartedSpeaking: ({ userId }) =>
+                    updateVoices((current) => startedSpeaking(current, userId)),
+                  StoppedSpeaking: ({ userId }) =>
+                    DateTime.now.pipe(
+                      Effect.flatMap((at) =>
+                        updateVoices((current) => stoppedSpeaking(current, userId, at)),
+                      ),
+                    ),
+                }),
               ),
-            ),
-            Effect.annotateLogs({ recordingId }),
-          );
+              Effect.ensuring(updateVoices(() => noVoices)),
+              Effect.retry(captureRetry),
+              Effect.catchTag("CaptureError", (error) =>
+                Effect.logError("Gave up on the voice connection").pipe(
+                  Effect.annotateLogs({ reason: error.reason }),
+                ),
+              ),
+            );
+
+            yield* Queue.end(clips);
+            yield* Fiber.join(saving);
+          }).pipe(Effect.scoped, Effect.annotateLogs({ recordingId }));
 
         const interruptCapture = (current: Option.Option<Session>) =>
           Option.match(
@@ -610,7 +660,7 @@ export class Recorder extends Context.Service<
 
             yield* requests.handlePending(requestHandler);
             yield* storeOk;
-            yield* writeStatus;
+            yield* statusChange;
           }).pipe(
             Effect.catchTag(
               ["StoreUnavailable", "RecordingUnavailable"],
@@ -675,7 +725,7 @@ export class Recorder extends Context.Service<
                 );
               }
 
-              yield* writeStatus;
+              yield* statusChange;
             }),
           );
 
@@ -785,6 +835,7 @@ export class Recorder extends Context.Service<
         );
 
         yield* Effect.forever(transcribeNext).pipe(Effect.forkScoped);
+        yield* publishStatuses.pipe(Effect.forkScoped);
 
         const follow = Stream.runForEach(gateway.botPresence, onPresence);
         const poll = Effect.forever(Effect.sleep(POLL_INTERVAL).pipe(Effect.andThen(tick)));
