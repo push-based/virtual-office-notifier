@@ -154,7 +154,7 @@ describe("SlackNotifier", () => {
 
   it.effect("posts the same wording on every retry", () =>
     Effect.gen(function* () {
-      const slack = yield* makeSlack([respond(503, ""), ok]);
+      const slack = yield* makeSlack([respond(429, "", { "retry-after": "1" }), ok]);
 
       const fiber = yield* slack.notifier
         .notify(opened)

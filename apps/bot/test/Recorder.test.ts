@@ -32,8 +32,14 @@ import type { Clip } from "../src/ClipCutter.ts";
 import { columnNaming, Database, reconnectDelay } from "../src/Database.ts";
 import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
-import { FINISH_POLL, POLL_INTERVAL, startRecorder, STATUS_INTERVAL } from "../src/Recorder.ts";
-import { RecordingStore, type StoreUnavailable } from "../src/RecordingStore.ts";
+import {
+  FINISH_POLL,
+  FINISH_RETRY,
+  POLL_INTERVAL,
+  startRecorder,
+  STATUS_INTERVAL,
+} from "../src/Recorder.ts";
+import { RecordingStore, StoreUnavailable } from "../src/RecordingStore.ts";
 import { InvalidPayload } from "../src/SlackClient.ts";
 import { SummaryWriter, type WrittenSummary } from "../src/SummaryWriter.ts";
 import { type Transcript, Transcriber, TranscriptionError } from "../src/Transcriber.ts";
@@ -100,6 +106,7 @@ interface HarnessOptions {
   >;
   readonly slack?: FakeSlackClientOptions;
   readonly archive?: ClipArchive["Service"];
+  readonly store?: (store: RecordingStore["Service"]) => RecordingStore["Service"];
 }
 
 const transcribeAll = () => Effect.succeed({ text: "hello world", model: "whisper" });
@@ -189,7 +196,14 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
         recordings,
       }),
     ),
-    Layer.provideMerge(RecordingStore.layer),
+    Layer.provideMerge(
+      options.store === undefined
+        ? RecordingStore.layer
+        : Layer.effect(
+            RecordingStore,
+            Effect.map(Effect.service(RecordingStore), options.store),
+          ).pipe(Layer.provide(RecordingStore.layer)),
+    ),
     Layer.provideMerge(
       Layer.effect(
         RecordingRequests,
@@ -482,6 +496,104 @@ describe("Recorder", () => {
       assert.isNull(recording?.slackPermalink);
       assert.strictEqual((yield* h.posts).length, 1);
     }),
+  );
+
+  it.effect("posts the summary once when finishing fails after the post went out", () =>
+    Effect.gen(function* () {
+      const failures = yield* Ref.make(1);
+
+      const h = yield* makeHarness({
+        present: [ada],
+        store: (store) =>
+          RecordingStore.of({
+            ...store,
+            finishRecording: (id, finished) =>
+              Ref.getAndUpdate(failures, (left) => left - 1).pipe(
+                Effect.flatMap((left) =>
+                  left > 0
+                    ? Effect.fail(StoreUnavailable.make({ reason: "Timed out after 10 seconds" }))
+                    : store.finishRecording(id, finished),
+                ),
+              ),
+          }),
+      });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.speak(clip("u1", 2));
+      yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
+      yield* h.request("u1", "stop");
+      yield* h.tick;
+      yield* recordingStopped(h);
+      yield* TestClock.adjust(FINISH_POLL);
+      yield* h.eventually(Ref.get(failures), (left) => left === 0);
+      yield* h.settle;
+      yield* TestClock.adjust(FINISH_RETRY);
+
+      const [recording] = yield* recordingFinished(h);
+      assert.strictEqual(recording?.summary, "• They said hello");
+      assert.strictEqual(
+        recording?.slackPermalink,
+        permalinkOf(SLACK_ENV.SLACK_CHANNEL_ID, "900.0"),
+      );
+      assert.strictEqual((yield* h.posts).length, 1);
+      assert.strictEqual((yield* h.uploads).length, 1);
+      assert.strictEqual((yield* h.recordedPosts).length, 1);
+    }),
+  );
+
+  it.effect(
+    "updates the summary it already posted when it finishes a recording after a restart",
+    () =>
+      Effect.gen(function* () {
+        const id = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
+
+        const h = yield* makeHarness({
+          before: Effect.gen(function* () {
+            const store = yield* RecordingStore;
+            const now = yield* DateTime.now;
+
+            yield* store.startRecording({
+              id,
+              guildId: "guild",
+              channelId: OFFICE,
+              startedAt: now,
+              startedBy: "u1",
+              startedByName: "Ada",
+              title: null,
+              agenda: null,
+              summaryStyle: "brief",
+            });
+
+            const clipId = yield* store.addClip({
+              recordingId: id,
+              userId: "u1",
+              displayName: "Ada",
+              startedAt: now,
+              durationMs: 2000,
+              bytes: 400,
+              objectPath: null,
+              transcription: "pending",
+            });
+
+            yield* store.clipTranscribed(clipId, now, "hello world", "whisper");
+            yield* store.stopRecording(id, now, "requested", "u1");
+            yield* store.recordSummaryPost(id, { slackChannelId: "C1", slackTs: "123.456" });
+          }),
+        });
+
+        const [recording] = yield* recordingFinished(h);
+        assert.strictEqual(recording?.summary, "• They said hello");
+        assert.strictEqual(recording?.slackPermalink, permalinkOf("C1", "123.456"));
+        assert.deepStrictEqual(yield* h.posts, []);
+        assert.deepStrictEqual(yield* h.uploads, []);
+
+        const [updated] = yield* h.updates;
+        assert.strictEqual(updated?.channel, "C1");
+        assert.strictEqual(updated?.ts, "123.456");
+        assert.include(yield* encodeJson(updated?.message.blocks), "• They said hello");
+      }),
   );
 
   it.effect("links recordings posted before it stored links, once, at startup", () =>

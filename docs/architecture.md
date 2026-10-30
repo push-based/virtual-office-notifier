@@ -40,7 +40,7 @@ The Console, a Discord Activity, sits beside the bot: an Angular page and a Clou
 
 Office events are handled one at a time, so one that arrives while a Slack post is being retried waits its turn and messages stay in order.
 
-Each call to Slack's Web API times out after 10 seconds and is retried up to 4 times with jittered exponential backoff from 1 second, or after Slack's `Retry-After` when rate-limited (`ratelimited` or a 429). Slack answers `200` with `ok: false` when it refuses something, so failures are told apart by Slack's error code: `invalid_auth`, `token_revoked`, `account_inactive`, `channel_not_found` and `not_in_channel` mean the bot has lost access, and anything else means it rejected what was sent. Neither is retried. Either way the failure is logged and the next event is handled as normal.
+Each call to Slack's Web API times out after 10 seconds and is retried up to 4 times with jittered exponential backoff from 1 second, or after Slack's `Retry-After` when rate-limited (`ratelimited` or a 429). Slack answers `200` with `ok: false` when it refuses something, so failures are told apart by Slack's error code: `invalid_auth`, `token_revoked`, `account_inactive`, `channel_not_found` and `not_in_channel` mean the bot has lost access, and anything else means it rejected what was sent. Neither is retried. Posting a message and attaching an uploaded file aren't safe to repeat, since Slack may have acted on a request that timed out, so those two are only retried when Slack answered that it did nothing: rate-limited or a 5xx. A timeout or a dropped connection isn't retried. Either way the failure is logged and the next event is handled as normal.
 
 Everything else runs in its own fiber, so nothing can hold up or stop the announcements:
 

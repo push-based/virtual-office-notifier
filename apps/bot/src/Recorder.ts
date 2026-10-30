@@ -50,11 +50,13 @@ import { oggOpusFile, opusPacketsDuration } from "./OggOpus.ts";
 import { MIN_CLIP_DURATION, type StopReason } from "./Recording.ts";
 import {
   type PendingClip,
+  type PostedSummary,
+  type RecordingDetails,
   RecordingStore,
   type StoreUnavailable,
   type UnlinkedPost,
 } from "./RecordingStore.ts";
-import { SlackClient } from "./SlackClient.ts";
+import { slackDidNotAct, type PostedMessage, SlackClient } from "./SlackClient.ts";
 import { SlackHistory } from "./SlackHistory.ts";
 import { rewriteNote, type SlackMessage, summaryMessage } from "./SlackMessage.ts";
 import { noVoices, speakingAt, startedSpeaking, stoppedSpeaking, type Voices } from "./Speaking.ts";
@@ -66,6 +68,7 @@ import {
   summaryRequest,
   SummaryWriter,
   transcriptText,
+  type WrittenSummary,
 } from "./SummaryWriter.ts";
 import { Transcriber, type TranscriptionError } from "./Transcriber.ts";
 import { type CaptureError, Heard, VoiceCapture } from "./VoiceCapture.ts";
@@ -82,7 +85,7 @@ export const REJECTED_CLIP_PAUSE = Duration.seconds(5);
 
 const SAVING_LIMIT = Duration.seconds(30);
 
-const FINISH_RETRY = Duration.minutes(10);
+export const FINISH_RETRY = Duration.minutes(10);
 
 const FINISH_ATTEMPTS = 6;
 
@@ -100,6 +103,16 @@ interface Capture {
 interface Session {
   readonly recording: ActiveRecording;
   readonly capture: Option.Option<Capture>;
+}
+
+interface Draft {
+  readonly details: RecordingDetails;
+  readonly speakers: number;
+  readonly transcript: string;
+  readonly summary: Option.Option<WrittenSummary>;
+  readonly message: SlackMessage;
+  readonly post: Option.Option<PostedSummary>;
+  readonly at: DateTime.Utc;
 }
 
 type Audio = Data.TaggedEnum<{
@@ -611,128 +624,184 @@ export const startRecorder = Effect.gen(function* () {
 
     const { rewrite } = yield* SummaryRewriter.make(rewriteOnce);
 
-    const finish = Effect.fn("Recorder.finish")(
-      function* (id: string) {
-        yield* awaitClips(id);
+    const draftSummary = Effect.fn("Recorder.draftSummary")(function* (id: string) {
+      yield* awaitClips(id);
 
-        const details = yield* store.recordingDetails(id);
+      const details = yield* store.recordingDetails(id);
 
-        if (Option.isNone(details)) {
-          yield* Effect.logWarning("The recording to finish wasn't found");
+      if (Option.isNone(details)) {
+        yield* Effect.logWarning("The recording to finish wasn't found");
 
-          return;
-        }
+        return Option.none<Draft>();
+      }
 
-        const lines = yield* store.clipsOf(id);
-        const pauses = yield* store.pausesOf(id);
-        const transcript = transcriptText(details.value, lines, pauses);
-        const at = yield* DateTime.now;
+      const lines = yield* store.clipsOf(id);
+      const pauses = yield* store.pausesOf(id);
+      const transcript = transcriptText(details.value, lines, pauses);
+      const at = yield* DateTime.now;
 
-        if (!hasSpeech(lines)) {
-          yield* store.finishRecording(id, {
-            transcript,
-            writtenWith: {
-              summaryStyle: details.value.summaryStyle,
-              agenda: details.value.agenda,
-            },
-            summary: null,
-            summaryModel: null,
-            slackChannelId: null,
-            slackTs: null,
-            slackPermalink: null,
-            finishedAt: at,
-          });
-          yield* Effect.logInfo("Nothing was said during the recording, so nothing is posted");
-
-          return;
-        }
-
-        const { startedAt, stoppedAt, startedByName, title, agenda, summaryStyle } = details.value;
-
-        const request = summaryRequest(details.value, transcript);
-        const summary = yield* summaries.write(request, summaryStyle);
-        const actionItems = yield* pullActionItems(id, request);
-
-        const message = summaryMessage({
-          office,
-          startedAt,
-          stoppedAt,
-          startedByName,
-          title,
-          speakers: speakersOf(lines),
-          summary,
-          actionItems,
+      if (!hasSpeech(lines)) {
+        yield* store.finishRecording(id, {
+          transcript,
+          writtenWith: {
+            summaryStyle: details.value.summaryStyle,
+            agenda: details.value.agenda,
+          },
+          summary: null,
+          summaryModel: null,
+          slackChannelId: null,
+          slackTs: null,
+          slackPermalink: null,
+          finishedAt: at,
         });
+        yield* Effect.logInfo("Nothing was said during the recording, so nothing is posted");
 
-        const posted = yield* slack.postMessage({ channel: slackChannel, ...message });
+        return Option.none<Draft>();
+      }
 
-        yield* slack
-          .uploadFile({
-            channel: slackChannel,
-            threadTs: posted.ts,
-            filename: `office-recording-${fileDate(startedAt)}.txt`,
-            title: "Transcript",
-            content: new TextEncoder().encode(transcript),
-          })
-          .pipe(
-            Effect.catchTag("SlackError", (error) =>
-              Effect.logWarning("Couldn't attach the transcript to the summary").pipe(
-                Effect.annotateLogs({ reason: error.reason._tag }),
-                Effect.andThen(report(error)),
-              ),
-            ),
-          );
+      const { startedAt, stoppedAt, startedByName, title, summaryStyle } = details.value;
 
-        yield* history
-          .recordPost({
-            channel: posted.channel,
-            ts: posted.ts,
-            threadTs: null,
-            kind: "Recording",
-            model: Option.getOrNull(Option.map(summary, ({ model }) => model)),
-            postedAt: at,
-          })
-          .pipe(
-            Effect.catchTag("HistoryUnavailable", (error) =>
-              Effect.logWarning("Couldn't record the Slack post").pipe(
-                Effect.annotateLogs({ reason: error.reason }),
-              ),
-            ),
-          );
+      const request = summaryRequest(details.value, transcript);
+      const summary = yield* summaries.write(request, summaryStyle);
+      const actionItems = yield* pullActionItems(id, request);
+      const speakers = speakersOf(lines);
 
-        const permalink = yield* slack.permalink(posted.channel, posted.ts).pipe(
-          Effect.asSome,
+      const message = summaryMessage({
+        office,
+        startedAt,
+        stoppedAt,
+        startedByName,
+        title,
+        speakers,
+        summary,
+        actionItems,
+      });
+
+      return Option.some<Draft>({
+        details: details.value,
+        speakers: speakers.length,
+        transcript,
+        summary,
+        message,
+        post: yield* store.postedSummary(id),
+        at,
+      });
+    });
+
+    const postSummary = Effect.fn("Recorder.postSummary")(function* (id: string, draft: Draft) {
+      const posted = yield* slack
+        .postMessage({ channel: slackChannel, ...draft.message })
+        .pipe(Effect.retry({ schedule: finishRetry, while: slackDidNotAct }));
+
+      yield* store
+        .recordSummaryPost(id, { slackChannelId: posted.channel, slackTs: posted.ts })
+        .pipe(Effect.retry(finishRetry));
+
+      yield* slack
+        .uploadFile({
+          channel: posted.channel,
+          threadTs: posted.ts,
+          filename: `office-recording-${fileDate(draft.details.startedAt)}.txt`,
+          title: "Transcript",
+          content: new TextEncoder().encode(draft.transcript),
+        })
+        .pipe(
           Effect.catchTag("SlackError", (error) =>
-            Effect.logWarning("Couldn't get the link to the summary").pipe(
+            Effect.logWarning("Couldn't attach the transcript to the summary").pipe(
               Effect.annotateLogs({ reason: error.reason._tag }),
-              Effect.as(Option.none<string>()),
+              Effect.andThen(report(error)),
             ),
           ),
         );
 
-        const rewriting = yield* store.finishRecording(id, {
-          transcript,
-          writtenWith: { summaryStyle, agenda },
-          summary: Option.getOrNull(Option.map(summary, ({ text }) => text)),
-          summaryModel: Option.getOrNull(Option.map(summary, ({ model }) => model)),
-          slackChannelId: posted.channel,
-          slackTs: posted.ts,
-          slackPermalink: Option.getOrNull(permalink),
-          finishedAt: at,
-        });
-
-        yield* updatePostIfChanged(id, message);
-
-        if (rewriting) yield* rewrite(id);
-
-        yield* Effect.logInfo("Posted the recording summary").pipe(
-          Effect.annotateLogs({
-            speakers: speakersOf(lines).length,
-            summarized: Option.isSome(summary),
-          }),
+      yield* history
+        .recordPost({
+          channel: posted.channel,
+          ts: posted.ts,
+          threadTs: null,
+          kind: "Recording",
+          model: Option.getOrNull(Option.map(draft.summary, ({ model }) => model)),
+          postedAt: draft.at,
+        })
+        .pipe(
+          Effect.catchTag("HistoryUnavailable", (error) =>
+            Effect.logWarning("Couldn't record the Slack post").pipe(
+              Effect.annotateLogs({ reason: error.reason }),
+            ),
+          ),
         );
+
+      return posted;
+    });
+
+    const repostSummary = (post: PostedSummary, draft: Draft) =>
+      slack.updateMessage(post.slackChannelId, post.slackTs, draft.message).pipe(
+        Effect.andThen(Effect.logInfo("Updated the summary that was already posted")),
+        Effect.catchTag("SlackError", (error) =>
+          Effect.logWarning("Couldn't update the recording's summary in Slack").pipe(
+            Effect.annotateLogs({ reason: error.reason._tag }),
+            Effect.andThen(report(error)),
+          ),
+        ),
+        Effect.as<PostedMessage>({ channel: post.slackChannelId, ts: post.slackTs }),
+      );
+
+    const publishSummary = (id: string, draft: Draft) =>
+      Option.match(draft.post, {
+        onNone: () => postSummary(id, draft),
+        onSome: (post) => repostSummary(post, draft),
+      });
+
+    const completeFinish = Effect.fn("Recorder.completeFinish")(function* (
+      id: string,
+      draft: Draft,
+      posted: PostedMessage,
+    ) {
+      const { summaryStyle, agenda } = draft.details;
+
+      const permalink = yield* slack.permalink(posted.channel, posted.ts).pipe(
+        Effect.asSome,
+        Effect.catchTag("SlackError", (error) =>
+          Effect.logWarning("Couldn't get the link to the summary").pipe(
+            Effect.annotateLogs({ reason: error.reason._tag }),
+            Effect.as(Option.none<string>()),
+          ),
+        ),
+      );
+
+      const rewriting = yield* store.finishRecording(id, {
+        transcript: draft.transcript,
+        writtenWith: { summaryStyle, agenda },
+        summary: Option.getOrNull(Option.map(draft.summary, ({ text }) => text)),
+        summaryModel: Option.getOrNull(Option.map(draft.summary, ({ model }) => model)),
+        slackChannelId: posted.channel,
+        slackTs: posted.ts,
+        slackPermalink: Option.getOrNull(permalink),
+        finishedAt: draft.at,
+      });
+
+      yield* updatePostIfChanged(id, draft.message);
+
+      if (rewriting) yield* rewrite(id);
+
+      yield* Effect.logInfo("Posted the recording summary").pipe(
+        Effect.annotateLogs({
+          speakers: draft.speakers,
+          summarized: Option.isSome(draft.summary),
+        }),
+      );
+    });
+
+    const finish = Effect.fn("Recorder.finish")(
+      function* (id: string) {
+        const draft = yield* draftSummary(id).pipe(Effect.retry(finishRetry));
+
+        if (Option.isNone(draft)) return;
+
+        const posted = yield* publishSummary(id, draft.value);
+
+        yield* completeFinish(id, draft.value, posted).pipe(Effect.retry(finishRetry));
       },
-      Effect.retry(finishRetry),
       Effect.catch((error) =>
         Effect.logError("Gave up finishing the recording").pipe(
           Effect.annotateLogs({ reason: error.message }),

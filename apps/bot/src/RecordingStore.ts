@@ -119,6 +119,11 @@ export interface SummaryPost {
   readonly summaryStyle: SummaryStyle | null;
 }
 
+export interface PostedSummary {
+  readonly slackChannelId: string;
+  readonly slackTs: string;
+}
+
 export interface WrittenWith {
   readonly summaryStyle: SummaryStyle;
   readonly agenda: string | null;
@@ -222,6 +227,11 @@ const PendingRewriteRow = Schema.Struct({
   previousStyle: Schema.NullOr(SummaryStyle),
 });
 
+const PostedRow = Schema.Struct({
+  slackChannelId: Schema.String,
+  slackTs: Schema.String,
+});
+
 const UnlinkedRow = Schema.Struct({
   id: Schema.String,
   slackChannelId: Schema.String,
@@ -300,6 +310,8 @@ export class RecordingStore extends Context.Service<
     pausesOf(recordingId: string): Effect.Effect<ReadonlyArray<PauseLine>, StoreUnavailable>;
     recordingDetails(id: string): Effect.Effect<Option.Option<RecordingDetails>, StoreUnavailable>;
     summaryPost(id: string): Effect.Effect<Option.Option<SummaryPost>, StoreUnavailable>;
+    postedSummary(id: string): Effect.Effect<Option.Option<PostedSummary>, StoreUnavailable>;
+    recordSummaryPost(id: string, post: PostedSummary): Effect.Effect<void, StoreUnavailable>;
     applyEdit(id: string, change: RecordingChange): Effect.Effect<void, StoreUnavailable>;
     presentDuring(id: string): Effect.Effect<ReadonlyArray<Member>, StoreUnavailable>;
     actionItemsOf(id: string): Effect.Effect<ActionItemList, StoreUnavailable>;
@@ -440,6 +452,16 @@ export class RecordingStore extends Context.Service<
           SELECT slack_channel_id, slack_ts, summary, summary_model,
                  summary_written_style AS summary_style
           FROM office.recordings
+          WHERE id = ${id} AND finished_at IS NOT NULL
+            AND slack_channel_id IS NOT NULL AND slack_ts IS NOT NULL
+        `,
+      });
+
+      const findPosted = SqlSchema.findOneOption({
+        Request: Schema.String,
+        Result: PostedRow,
+        execute: (id) => sql`
+          SELECT slack_channel_id, slack_ts FROM office.recordings
           WHERE id = ${id} AND slack_channel_id IS NOT NULL AND slack_ts IS NOT NULL
         `,
       });
@@ -585,7 +607,8 @@ export class RecordingStore extends Context.Service<
         Result: UnlinkedRow,
         execute: () => sql`
           SELECT id, slack_channel_id, slack_ts FROM office.recordings
-          WHERE slack_ts IS NOT NULL AND slack_channel_id IS NOT NULL AND slack_permalink IS NULL
+          WHERE finished_at IS NOT NULL AND slack_ts IS NOT NULL AND slack_channel_id IS NOT NULL
+            AND slack_permalink IS NULL
           ORDER BY started_at
         `,
       });
@@ -759,6 +782,22 @@ export class RecordingStore extends Context.Service<
 
       const summaryPost = Effect.fn("RecordingStore.summaryPost")((id: string) =>
         onceReady(findPost(id)),
+      );
+
+      const postedSummary = Effect.fn("RecordingStore.postedSummary")((id: string) =>
+        onceReady(findPosted(id)),
+      );
+
+      const recordSummaryPost = Effect.fn("RecordingStore.recordSummaryPost")(
+        (id: string, post: PostedSummary) =>
+          onceReady(
+            sql`
+              UPDATE office.recordings
+              SET slack_channel_id = ${post.slackChannelId}, slack_ts = ${post.slackTs}
+              WHERE id = ${id}
+            `,
+          ),
+        Effect.asVoid,
       );
 
       const markItem = (id: string, item: number, done: boolean) =>
@@ -1021,6 +1060,8 @@ export class RecordingStore extends Context.Service<
         pausesOf,
         recordingDetails,
         summaryPost,
+        postedSummary,
+        recordSummaryPost,
         applyEdit,
         presentDuring,
         actionItemsOf,
@@ -1058,6 +1099,8 @@ export class RecordingStore extends Context.Service<
       pausesOf: notRecording,
       recordingDetails: notRecording,
       summaryPost: notRecording,
+      postedSummary: notRecording,
+      recordSummaryPost: notRecording,
       applyEdit: notRecording,
       presentDuring: notRecording,
       actionItemsOf: notRecording,
