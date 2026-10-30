@@ -5,7 +5,9 @@ import {
   type Observable,
   Subject,
   catchError,
+  concatMap,
   defer,
+  distinctUntilChanged,
   finalize,
   first,
   interval,
@@ -14,6 +16,7 @@ import {
   mergeMap,
   of,
   repeat,
+  share,
   startWith,
   switchMap,
   timer,
@@ -26,6 +29,7 @@ import type {
   RecordingStatus,
   SubmittedRequest,
 } from "./models";
+import { describePresence, samePresence } from "./describe-presence";
 import { outcomeNotice, unreachableNotice } from "./notices";
 import { RecorderApi } from "./recorder-api";
 import { RecorderSession } from "./session";
@@ -112,12 +116,24 @@ export class OfficeStore {
 
     if (this.destroyRef.destroyed) return;
 
-    merge(
-      defer(() => this.fetchStatus()).pipe(repeat({ delay: () => timer(this.pollMs()) })),
+    const statuses = merge(
+      timer(0).pipe(
+        switchMap(() =>
+          defer(() => this.fetchStatus()).pipe(repeat({ delay: () => timer(this.pollMs()) })),
+        ),
+      ),
       this.refreshes.pipe(mergeMap(() => this.fetchStatus())),
-    )
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((status) => this.patch({ status, now: Date.now() }));
+    ).pipe(takeUntilDestroyed(this.destroyRef), share());
+
+    statuses.subscribe((status) => this.patch({ status, now: Date.now() }));
+
+    statuses
+      .pipe(
+        map(describePresence),
+        distinctUntilChanged(samePresence),
+        concatMap((presence) => this.session.showPresence(presence)),
+      )
+      .subscribe();
 
     interval(this.timing.clockTickMs)
       .pipe(takeUntilDestroyed(this.destroyRef))
