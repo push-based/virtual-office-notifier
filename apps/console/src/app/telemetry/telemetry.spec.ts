@@ -2,7 +2,7 @@ import { provideHttpClient } from "@angular/common/http";
 import { HttpTestingController, provideHttpClientTesting } from "@angular/common/http/testing";
 import { ErrorHandler } from "@angular/core";
 import { TestBed } from "@angular/core/testing";
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/angular";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { provideTelemetry, sentryOptionsFor, type Telemetry } from "./telemetry";

@@ -198,7 +198,7 @@ Optional. With `SENTRY_DSN` set, the bot sends errors, traces and logs to [Sentr
 gh secret set SENTRY_DSN
 ```
 
-The Console reports to a project of its own. Create a Browser JavaScript project in Sentry, then set its DSN and re-run the latest `CI` workflow on `main`:
+The Console reports to a project of its own. Create an Angular project in Sentry, then set its DSN and re-run the latest `CI` workflow on `main`:
 
 ```bash
 gh secret set SENTRY_CONSOLE_DSN

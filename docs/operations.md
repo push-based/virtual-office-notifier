@@ -107,7 +107,7 @@ With `SENTRY_DSN` set, the bot sends errors, traces and logs to [Sentry](https:/
 
 ### The Console
 
-With `SENTRY_CONSOLE_DSN` set, the Console reports to a Sentry project of its own, from both the Worker ([`apps/console/worker/Observability.ts`](../apps/console/worker/Observability.ts), through [`@sentry/cloudflare`](https://docs.sentry.io/platforms/javascript/guides/cloudflare/)) and the page ([`apps/console/src/app/telemetry/telemetry.ts`](../apps/console/src/app/telemetry/telemetry.ts), through [`@sentry/browser`](https://docs.sentry.io/platforms/javascript/)).
+With `SENTRY_CONSOLE_DSN` set, the Console reports to a Sentry project of its own, from both the Worker ([`apps/console/worker/Observability.ts`](../apps/console/worker/Observability.ts), through [`@sentry/cloudflare`](https://docs.sentry.io/platforms/javascript/guides/cloudflare/)) and the page ([`apps/console/src/app/telemetry/telemetry.ts`](../apps/console/src/app/telemetry/telemetry.ts), through [`@sentry/angular`](https://docs.sentry.io/platforms/javascript/guides/angular/)).
 
 - **Issues.** A defect or a `5xx` in an `/api/*` handler is an error, using its `[ErrorReporter.severity]` when it has one; a `4xx` isn't reported. On the page, every error that reaches Angular's `ErrorHandler` is an error.
 - **Traces.** Each `/api/*` request is a trace named after its route, like `GET /api/recordings/:id`. The page's load and its `/api/*` calls are traced too, and join the Worker's traces.

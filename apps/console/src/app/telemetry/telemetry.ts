@@ -6,7 +6,7 @@ import {
   makeEnvironmentProviders,
   provideAppInitializer,
 } from "@angular/core";
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/angular";
 
 export interface Telemetry {
   readonly dsn: string;
@@ -34,16 +34,9 @@ export const sentryOptionsFor = ({
   ],
 });
 
-export class SentryErrorHandler extends ErrorHandler {
-  override handleError(cause: unknown): void {
-    Sentry.captureException(cause);
-    super.handleError(cause);
-  }
-}
-
 export const provideTelemetry = (): EnvironmentProviders =>
   makeEnvironmentProviders([
-    { provide: ErrorHandler, useClass: SentryErrorHandler },
+    { provide: ErrorHandler, useValue: Sentry.createErrorHandler() },
     provideAppInitializer(() => {
       inject(HttpClient)
         .get<Telemetry | null>("/api/telemetry")
