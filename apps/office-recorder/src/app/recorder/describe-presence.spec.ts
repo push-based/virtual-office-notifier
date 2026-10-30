@@ -49,7 +49,7 @@ describe("samePresence", () => {
   it("ignores who is in the office and when the status was written", () => {
     const later: RecordingStatus = {
       ...recording,
-      occupants: [{ userId: "2", displayName: "Ben", avatarUrl: null }],
+      occupants: [{ userId: "2", displayName: "Ben", avatarUrl: null, speaking: true }],
       updatedAt: "2026-10-27T12:00:03Z",
     };
 
