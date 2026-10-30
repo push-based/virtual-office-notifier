@@ -1,0 +1,68 @@
+# The database
+
+The bot records voice activity in the office to a Postgres database on [Supabase](https://supabase.com). It's collected now, to decide later what to use it for. The design is in [issue #10](https://github.com/push-based/virtual-office-notifier/issues/10), and [creating the project](setup.md#database) is part of setup.
+
+Everything the bot stores is here: the voice activity, every Slack post and what came of it, and every recording. The database can never stop the announcements, as [below](#when-the-database-is-down).
+
+## What's recorded
+
+Everything lives in an `office` schema, out of the `public` schema that Supabase serves through its REST API.
+
+| Table                    | What's in it                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `voice_snapshots`        | One row per Discord voice-state update touching the office: joining, leaving, moving in or out, and every change inside. It has the old and new value of every field Discord sends (channel, self and server mute and deafen, camera, streaming, suppressed, request to speak and voice session), as Discord sent them. Bots are left out. `source` is `update`, or `startup` for someone already in the office when the bot started.   |
+| `voice_effects`          | One row per soundboard sound or emoji reaction someone sent in the office, as Discord sent it: the sound's ID, volume and name (looked up from the server's sounds and Discord's default ones, empty when it couldn't be found), the emoji, and the animation. Bots are left out.                                                                                                                                                       |
+| `members`                | One row per Discord user seen, with their latest display name and when they were first and last seen. `real_name` and `slack_user_id` are yours to fill in by hand; the bot never writes them. They link people in Slack threads to the office.                                                                                                                                                                                         |
+| `bot_sessions`           | One row per run of the bot, with when it started and stopped. `stopped_at` stays empty when it didn't stop cleanly, so gaps in the data can be told apart from an empty office.                                                                                                                                                                                                                                                         |
+| `rejected_updates`       | Anything the database refused to store, as JSON with the error, so it can be fixed and replayed by hand.                                                                                                                                                                                                                                                                                                                                |
+| `banter_posts`           | One row per bit of [banter](slack.md#banter), with when and which stretch of time it covered, so the daily limit holds across restarts.                                                                                                                                                                                                                                                                                                 |
+| `slack_posts`            | Every message the bot posts to Slack: channel, `ts`, thread, kind (`Opened`, `Emptied`, `Reminder`, `Banter` or `Reply`) and the model that wrote it.                                                                                                                                                                                                                                                                                   |
+| `slack_messages`         | Every Slack message the bot [considered](slack.md#answering-in-slack): who wrote it, their linked office member if any, the text, whether it was a mention and when it arrived.                                                                                                                                                                                                                                                         |
+| `slack_decisions`        | One per considered message: Clef's model, the exact request, its choices with their probabilities and confidence, how long it took, the settings in effect, and what the bot did and why.                                                                                                                                                                                                                                               |
+| `slack_reactions`        | Every reaction added to or removed from the bot's posts, as Slack sent it, for judging how the posts land.                                                                                                                                                                                                                                                                                                                              |
+| `responder_settings`     | The [settings](slack.md#answering-in-slack) for answering in Slack, in a single row.                                                                                                                                                                                                                                                                                                                                                    |
+| `recordings`             | One row per [recording](recording.md): when it started and stopped, who started and stopped it, why it stopped, who paused it and since when while it's paused, its current title, agenda and summary style, and once it's finished, the transcript, the current summary with the model and style it was written in, whether a rewrite is waiting (`summary_rewrite_edit_id`, the edit that asked for it), and where the Slack post is. |
+| `recording_events`       | The history of each recording: `started`, `paused` and `resumed` with who did it, `resumed` with the reason `requested` or `bot_restarted`, and `stopped` with the reason.                                                                                                                                                                                                                                                              |
+| `recording_requests`     | Every press of the Console's buttons, with who pressed it, the title, agenda and summary style given with Start, and what the bot did about it: `started`, `stopped`, `paused`, `resumed` or `ignored` with the reason.                                                                                                                                                                                                                 |
+| `recording_edits`        | Every [recording edit](recording.md#title-and-agenda): which recording, who made it and when, what it changed (`kind` and the new value in `change`), and when the bot handled it: `applied`, or `ignored` with the reason. Nothing in it is overwritten, so it's the full history of every title, agenda, tick, change of owner, summary style and **Rewrite summary**.                                                                |
+| `recording_action_items` | The [action items](recording.md#action-items) pulled out of each recording, in order: what needs doing, the owner (an `office.members` user, or none), whether it's done, and when it was pulled out. `recordings` keeps when they were pulled out and the model that did it, which stays empty when no model could.                                                                                                                    |
+| `recording_summaries`    | Every summary written for a recording, the first one and each rewrite: its style, the model, when, and the recording edit that caused it (none for the first). `recordings.summary` is always the latest, and nothing here is overwritten.                                                                                                                                                                                              |
+| `recording_clips`        | One row per stretch of speech: who spoke, when, for how long, where the audio is in the bucket, and the transcript once Whisper has heard it, or why it was skipped or failed.                                                                                                                                                                                                                                                          |
+| `recording_status`       | A single row the Console reads: whether the bot is in the office, who's there, and the recording that's on.                                                                                                                                                                                                                                                                                                                             |
+
+## The views
+
+The `voice_activity` view turns the snapshots into readable events with names: `AlreadyThere`, `Joined`, `Left`, `Muted`/`Unmuted`, `Deafened`/`Undeafened`, `ServerMuted`/`ServerUnmuted`, `ServerDeafened`/`ServerUndeafened`, `CameraOn`/`CameraOff` and `StreamStarted`/`StreamStopped`. Anything already on when someone arrives counts as switched on, so joining muted is `Joined` and `Muted`. Deafening in Discord also mutes, so it shows as `Deafened` and `Muted`.
+
+The `office_activity` view is `voice_activity` plus the voice effects: `PlayedSound` with the sound's name in `detail`, `Reacted` with the emoji, or `SentEffect` for anything else. It's what [banter](slack.md#banter) and the [office stats](recording.md#office-stats) read.
+
+```sql
+SELECT observed_at, coalesce(real_name, display_name) AS who, event, detail
+FROM office.office_activity
+ORDER BY observed_at DESC
+LIMIT 50;
+```
+
+## Migrations
+
+Nothing is ever deleted. Migrations live in [`apps/bot/src/migrations.ts`](../apps/bot/src/migrations.ts), bundled into the app. They run once each on the first successful connection, and only ever add: new tables, new columns and wider constraints, never a drop of data.
+
+## When the database is down
+
+The database can never stop the announcements:
+
+- Connecting happens in the background after startup, so the bot runs normally while it's down. Once connected, it logs `Connected to the database`.
+- Observations are buffered in memory and written in order by a single writer, up to 50,000 at a time. When the buffer is full, new ones are refused and logged in full.
+- If it can't connect, run the migrations or write, it retries in bursts of 5 attempts 1, 2, 4, 8 and 16 seconds apart, then waits an hour before the next burst. A write that takes over 10 seconds counts as an outage too. The entry being written keeps its place. Each failed attempt is logged with what went wrong.
+- A row the database rejects (a data or constraint error) goes to `rejected_updates` instead, so it can't block everything behind it. If that fails too, it's logged in full.
+- On shutdown it spends up to 10 seconds writing what's left, including the run's `stopped_at` in `bot_sessions`. Anything still unwritten is logged in full.
+
+Anything that can't be stored is logged with an `entry` holding the full JSON, so it can be found in the [logs](operations.md#logs) and replayed by hand. The log lines to look for are in [troubleshooting](operations.md#troubleshooting).
+
+## The connection
+
+`DATABASE_URL` is the Supabase **session pooler** connection string, not the direct connection or the transaction pooler: the direct one is IPv6-only unless the project has the IPv4 add-on, and GCP VMs only have IPv4 by default, while the transaction pooler (port 6543) doesn't support the prepared statements the client uses. Percent-encode any special characters in the password.
+
+The connection is encrypted and checked against Supabase's own root certificate in [`apps/bot/src/SupabaseCa.ts`](../apps/bot/src/SupabaseCa.ts), which Node doesn't trust by default. It expires on 26 April 2031.
+
+Locally, leave `DATABASE_URL` out unless you mean to record; without it, nothing is recorded or read. `pnpm --filter bot dev` with the production URL writes into the production data. The deploy, on the other hand, fails without it, so production always records.

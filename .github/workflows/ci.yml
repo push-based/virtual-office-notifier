@@ -63,7 +63,7 @@ jobs:
       - name: Require the Activity's deploy token
         if: env.CLOUDFLARE_DEPLOY_TOKEN == ''
         run: |
-          echo "::error::The CLOUDFLARE_DEPLOY_TOKEN secret is not set, so nothing was deployed. See the Activity setup in the README."
+          echo "::error::The CLOUDFLARE_DEPLOY_TOKEN secret is not set, so nothing was deployed. See the Console setup in docs/setup.md."
           exit 1
 
       - uses: actions/checkout@v7

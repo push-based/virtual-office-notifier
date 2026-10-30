@@ -6,6 +6,7 @@ Thanks for helping out. The process here is light, but every merge into `main` d
 - [Setting up](#setting-up)
 - [Making a change](#making-a-change)
 - [Checks](#checks)
+- [Toolchain](#toolchain)
 - [Commits and pull requests](#commits-and-pull-requests)
 - [Deploys](#deploys)
 - [License](#license)
@@ -25,7 +26,7 @@ pnpm install
 cp .env.example .env
 ```
 
-Most changes don't need a `.env` at all, since the tests run without tokens or network access. To try a change for real, fill in `.env` with your own Discord bot, test server and Slack app. The [README](README.md#configuration) covers setting those up.
+Most changes don't need a `.env` at all, since the tests run without tokens or network access. To try a change for real, fill in `.env` with your own Discord bot, test server and Slack app. [Setting it up](docs/setup.md) covers creating those.
 
 > [!WARNING]
 > Never point a local run at the production Discord or Slack tokens. Two copies watching the same channel post every announcement twice.
@@ -34,7 +35,7 @@ Most changes don't need a `.env` at all, since the tests run without tokens or n
 
 - Branch off `main`, and keep a pull request to one change. Unrelated cleanups go in their own.
 - Add or update tests for any change in behaviour.
-- Update the [README](README.md) when you change what gets posted, the configuration or the deploy.
+- Update the [docs](docs) when you change what gets posted, the configuration, the Console or the deploy, and the [README](README.md) when a feature is added or removed.
 
 ### Code style
 
@@ -67,7 +68,7 @@ A new environment variable has to be wired through in several places, or product
 
 1. Read it in [`apps/bot/src/Config.ts`](apps/bot/src/Config.ts).
 2. Add it to [`.env.example`](.env.example).
-3. Add it to the configuration table in the [README](README.md#configuration).
+3. Add it to the configuration table in [docs/setup.md](docs/setup.md#configuration).
 4. Pass the secret to the deploy step in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 5. Write it to the env file in [`apps/bot/scripts/deploy.ts`](apps/bot/scripts/deploy.ts).
 
@@ -81,7 +82,38 @@ CI runs one task on every pull request and every push to `main`. Run it before y
 pnpm vp run ci
 ```
 
-It typechecks, checks formatting and lint, tests and builds every package, and dry-runs the Console's deploy. It's defined in the root [`vite.config.ts`](vite.config.ts), and tasks whose inputs haven't changed replay from the cache.
+It typechecks, checks formatting and lint, tests and builds every package, and dry-runs the Console's deploy. It's defined in the root [`vite.config.ts`](vite.config.ts), and tasks whose inputs haven't changed replay from the cache. A newer push to a pull request cancels the run before it. CI sets up Node, pnpm and `vp` with [`setup-vp`](https://github.com/voidzero-dev/setup-vp), and keeps the task cache between runs, including the tasks that passed in a failed run. Dependabot keeps the pinned actions up to date.
+
+The pieces, which you can run on their own:
+
+| Command                     | What it does                                                                                                                                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm vp run -r typecheck`  | Type-check every package with TypeScript 7.                                                                                                                                                                                                            |
+| `pnpm vp run check`         | Check formatting with Oxfmt and lint with Oxlint, across the whole repo, with the `fmt` and `lint` config in the root `vite.config.ts`. Lint includes the Effect rules. `pnpm vp check --fix` formats every file and applies the automatic lint fixes. |
+| `pnpm vp run -r test`       | Run every package's tests with Vitest.                                                                                                                                                                                                                 |
+| `pnpm vp run -r build`      | Bundle the bot to `apps/bot/dist/main.js` with a source map, and build the Console to `apps/console/dist`: the page in `client/`, type-checked on the way, and the Worker with its generated `wrangler.json` in `worker/`.                             |
+| `pnpm vp run console#check` | Build the Console and run `wrangler deploy --dry-run` on the result.                                                                                                                                                                                   |
+| `pnpm --filter bot dev`     | Run the bot from source with `.env`.                                                                                                                                                                                                                   |
+| `pnpm --filter bot start`   | Run the bot's bundle with `.env`.                                                                                                                                                                                                                      |
+| `pnpm --filter console dev` | Serve the Console's page with live reload and run its Worker in the Workers runtime on the same origin. See [Toolchain](#toolchain) for the database it needs.                                                                                         |
+
+Run a single package's task with `pnpm vp run <package>#<task>`, for example `pnpm vp run bot#test`. `pnpm vp cache clean` clears the task cache.
+
+## Toolchain
+
+The workspace runs on [Vite+](https://viteplus.dev). Each package defines its tasks in its `vite.config.ts`, and `vp run` runs them in dependency order and caches the results, so a task whose inputs haven't changed replays instead of running again. `pnpm vp` runs the local copy if you don't have `vp` installed globally.
+
+Lint is type-aware (`lint.options.typeAware`), so rules that need types run too, including the Effect rules. Those come from [`@effect/tsgo`](https://github.com/Effect-TS/tsgo): the `prepare` script swaps the Oxlint and `tsgolint` that Vite+ brings in for its Effect-patched builds, and leaves TypeScript as it is. It only supports exact Oxlint and `oxlint-tsgolint` versions, so upgrade `vite-plus` and `@effect/tsgo` together.
+
+Every Effect rule is an error for the bot, the Worker, `activity-sign-in` and `recording-requests`, so `vp check` fails on any of them, including the rules that are only suggestions by default. Fix the code rather than silencing a rule. The patched `tsgolint` reads its options from the `@effect/language-service` entry in the root [`tsconfig.json`](tsconfig.json), which lists the unstable Effect modules the app is allowed to use in `allowedUnstableApis`, so using a new one means adding it there.
+
+Vite, Vitest, Oxlint and Oxfmt come from Vite+. The catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml) points `vite` at Vite+'s core, and its overrides keep a single copy of Vite and Vitest across the workspace, which `@effect/vitest` needs to register its tests with the runner `vp test` starts. Upgrade them by bumping `vite-plus` and `vitest` there together.
+
+The Console's page and the design system are compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package is pinned to exactly that version in the `angular` catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml), with the plugin and the TypeScript 6 that Angular's compiler needs. Upgrade them together there. The Console's Worker is type-checked with the root's TypeScript 7 instead, from its own [`tsconfig.json`](apps/console/worker/tsconfig.json), and ngp only compiles the browser build, not the Worker.
+
+Running the Console locally needs a Postgres for its `DATABASE` Hyperdrive binding, with a password in the URL, even if you never record. Set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE`, for example to `postgres://postgres:postgres@localhost:5432/postgres` (the `console` preview in [`.claude/launch.json`](.claude/launch.json) uses that), and put the Worker's secrets in `apps/console/.dev.vars`.
+
+The lint rules in `tools/oxlint/anti-slop` are vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop). [`UPSTREAM.md`](tools/oxlint/anti-slop/UPSTREAM.md) records the commit they were copied from.
 
 ## Commits and pull requests
 
