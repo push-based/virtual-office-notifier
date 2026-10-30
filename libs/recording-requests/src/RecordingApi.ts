@@ -117,7 +117,7 @@ export class EditGroup extends HttpApiGroup.make("edits")
   .middleware(SignedIn)
   .prefix("/api") {}
 
-export class RecordingApi extends HttpApi.make("office-recorder")
+export class RecordingApi extends HttpApi.make("console")
   .add(SignInGroup.prefix("/api"))
   .add(RecordingGroup)
   .add(StatsGroup)

@@ -1,7 +1,7 @@
 {
   "name": "design-system",
   "private": true,
-  "description": "The Office Recorder's Angular components, pipes and design tokens",
+  "description": "The Console's Angular components, pipes and design tokens",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

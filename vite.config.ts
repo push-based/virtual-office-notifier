@@ -62,7 +62,7 @@ export default defineConfig({
       {
         files: [
           "apps/bot/**",
-          "apps/office-recorder/worker/**",
+          "apps/console/worker/**",
           "libs/activity-sign-in/**",
           "libs/recording-requests/**",
         ],
@@ -141,7 +141,7 @@ export default defineConfig({
         "vp run check",
         "vp run -r test",
         "vp run -r build",
-        "vp run office-recorder#check",
+        "vp run console#check",
       ],
     },
   },

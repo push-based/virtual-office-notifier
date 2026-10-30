@@ -2,19 +2,19 @@ import { Component, inject, signal } from "@angular/core";
 import { PbTabs, type Tab } from "design-system";
 
 import { RecordingHistory } from "./history/recording-history";
-import { OfficeRecorder } from "./recorder/office-recorder";
+import { RecordingPanel } from "./recorder/recording-panel";
 import { OfficeStore } from "./recorder/office-store";
 import { OfficeStats } from "./stats/office-stats";
 
 @Component({
   selector: "app-root",
-  imports: [OfficeRecorder, OfficeStats, PbTabs, RecordingHistory],
+  imports: [RecordingPanel, OfficeStats, PbTabs, RecordingHistory],
   providers: [OfficeStore],
   template: `
     <main>
       <div class="frame">
         <nav>
-          <pb-tabs name="view" label="Office Recorder" [tabs]="views" [(selected)]="view" />
+          <pb-tabs name="view" label="Console" [tabs]="views" [(selected)]="view" />
         </nav>
         <div
           role="tabpanel"
@@ -22,7 +22,7 @@ import { OfficeStats } from "./stats/office-stats";
           aria-labelledby="view-tab-now"
           [hidden]="view() !== 'now'"
         >
-          <app-office-recorder />
+          <app-recording-panel />
         </div>
         <div
           role="tabpanel"

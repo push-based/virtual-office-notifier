@@ -1,7 +1,7 @@
 {
   "name": "recording-requests",
   "private": true,
-  "description": "Recording requests and the recording status, shared by the bot, the Office Recorder's Worker and its page",
+  "description": "Recording requests and the recording status, shared by the bot, the Console's Worker and its page",
   "type": "module",
   "exports": {
     "./wire": "./src/Wire.ts",

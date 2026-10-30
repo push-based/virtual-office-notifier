@@ -135,7 +135,7 @@ importers:
         specifier: 'catalog:'
         version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.6.5)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5(vitest@5.0.5))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2))(jsdom@30.1.2)
 
-  apps/office-recorder:
+  apps/console:
     dependencies:
       '@angular/common':
         specifier: catalog:angular

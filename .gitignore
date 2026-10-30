@@ -44,4 +44,4 @@ coverage/
 .DS_Store
 Thumbs.db
 
-apps/office-recorder/.dev.vars
+apps/console/.dev.vars

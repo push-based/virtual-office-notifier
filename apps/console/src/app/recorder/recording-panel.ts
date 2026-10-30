@@ -18,7 +18,7 @@ import { describePhase } from "./describe-phase";
 import { OfficeStore } from "./office-store";
 
 @Component({
-  selector: "app-office-recorder",
+  selector: "app-recording-panel",
   imports: [
     PbButton,
     PbCard,
@@ -35,7 +35,7 @@ import { OfficeStore } from "./office-store";
   template: `
     @let status = description();
     <pb-card size="lg">
-      <p pbEyebrow>Office recorder</p>
+      <p pbEyebrow>Recording</p>
       <pb-status-heading
         [heading]="status.heading"
         [subheading]="store.running()?.title ?? null"
@@ -119,7 +119,7 @@ import { OfficeStore } from "./office-store";
     }
   `,
 })
-export class OfficeRecorder implements OnInit {
+export class RecordingPanel implements OnInit {
   protected readonly store = inject(OfficeStore);
 
   protected readonly description = computed(() =>

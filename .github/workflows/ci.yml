@@ -73,7 +73,7 @@ jobs:
           node-version-file: .nvmrc
           cache: true
 
-      - run: vp run office-recorder#build
+      - run: vp run console#build
 
       - uses: google-github-actions/auth@v3
         with:
@@ -95,6 +95,6 @@ jobs:
           RECORDINGS_BUCKET: ${{ secrets.RECORDINGS_BUCKET }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
-      - run: vp run office-recorder#deploy
+      - run: vp run console#deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_DEPLOY_TOKEN }}

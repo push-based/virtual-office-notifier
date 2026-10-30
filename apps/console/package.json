@@ -1,7 +1,7 @@
 {
-  "name": "office-recorder",
+  "name": "console",
   "private": true,
-  "description": "The Office Recorder Discord Activity: the Angular page and the Cloudflare Worker that signs people in, serves the recording requests and the page",
+  "description": "The Console, a Discord Activity: the Angular page and the Cloudflare Worker that signs people in, serves the recording requests and the page",
   "type": "module",
   "scripts": {
     "dev": "vp dev",

@@ -81,7 +81,7 @@ CI runs one task on every pull request and every push to `main`. Run it before y
 pnpm vp run ci
 ```
 
-It typechecks, checks formatting and lint, tests and builds every package, and dry-runs the Activity's deploy. It's defined in the root [`vite.config.ts`](vite.config.ts), and tasks whose inputs haven't changed replay from the cache.
+It typechecks, checks formatting and lint, tests and builds every package, and dry-runs the Console's deploy. It's defined in the root [`vite.config.ts`](vite.config.ts), and tasks whose inputs haven't changed replay from the cache.
 
 ## Commits and pull requests
 
