@@ -7,6 +7,7 @@ import {
   Duration,
   Effect,
   ErrorReporter,
+  FiberSet,
   Layer,
   Option,
   Queue,
@@ -14,6 +15,7 @@ import {
   Ref,
   Schedule,
   Schema,
+  Semaphore,
   Stream,
 } from "effect";
 import {
@@ -39,8 +41,10 @@ import {
   NO_VOICE_DETAILS,
   type OfficeEvent,
   type OfficeLocation,
+  type OfficeSession,
   type Occupants,
   sessionOf,
+  type TimedVoiceStateUpdate,
   trackOccupancy,
   type VoiceDetails,
   type VoiceStateUpdate,
@@ -77,21 +81,45 @@ const stamped = <A extends VoiceStateUpdate | VoiceEffect, E, R>(updates: Stream
     Stream.mapEffect((update) => DateTime.now.pipe(Effect.map((at) => ({ ...update, at })))),
   );
 
-const officeEvents =
+interface Followed {
+  readonly update: TimedVoiceStateUpdate;
+  readonly events: ReadonlyArray<OfficeEvent>;
+}
+
+const REPLAYED_UPDATES = 1000;
+
+const followOffice =
   (officeChannelId: string, occupants: Occupants) =>
-  <E, R>(updates: Stream.Stream<VoiceStateUpdate, E, R>): Stream.Stream<OfficeEvent, E, R> =>
+  <R>(updates: Stream.Stream<VoiceStateUpdate, never, R>) =>
     stamped(updates).pipe(
-      Stream.mapAccum(() => sessionOf(occupants), trackOccupancy(officeChannelId)),
+      Stream.mapAccum(
+        () => sessionOf(occupants),
+        (session, update): readonly [OfficeSession, ReadonlyArray<Followed>] => {
+          const [next, events] = trackOccupancy(officeChannelId)(session, update);
+
+          return [next, [{ update, events }]];
+        },
+      ),
+      Stream.broadcast({ capacity: "unbounded", replay: REPLAYED_UPDATES }),
+      Effect.map((followed) => ({
+        updates: followed.pipe(Stream.map(({ update }) => update)),
+        officeEvents: followed.pipe(
+          Stream.map(({ events }) => events),
+          Stream.flattenIterable,
+        ),
+      })),
     );
 
 // Starts with whoever was already in the office at startup, then follows every
 // update touching it.
 const voiceObservations =
   (officeChannelId: string, present: ReadonlyArray<VoiceStateUpdate>) =>
-  <E, R>(updates: Stream.Stream<VoiceStateUpdate, E, R>): Stream.Stream<VoiceObservation, E, R> =>
+  <E, R>(
+    updates: Stream.Stream<TimedVoiceStateUpdate, E, R>,
+  ): Stream.Stream<VoiceObservation, E, R> =>
     stamped(Stream.fromIterable(present)).pipe(
       Stream.map((update): VoiceObservation => ({ ...update, source: "startup", officeChannelId })),
-      Stream.concat(stamped(updates).pipe(Stream.filterMap(observe(officeChannelId)))),
+      Stream.concat(updates.pipe(Stream.filterMap(observe(officeChannelId)))),
     );
 
 const fromOthers =
@@ -158,19 +186,20 @@ const occupantOfUpdate = (update: VoiceStateUpdate): PersonInOffice => ({
   avatarUrl: update.avatarUrl,
 });
 
-const voiceStateUpdates = (client: Client) =>
-  Stream.callback<VoiceStateUpdate>(
-    Effect.fnUntraced(function* (queue) {
-      const onUpdate = (oldState: VoiceState, newState: VoiceState) => {
-        Queue.offerUnsafe(queue, toVoiceStateUpdate(oldState, newState));
-      };
+const listenToVoiceStates = Effect.fnUntraced(function* (client: Client) {
+  const updates = yield* Queue.unbounded<VoiceStateUpdate>();
 
-      yield* Effect.acquireRelease(
-        Effect.sync(() => client.on(Events.VoiceStateUpdate, onUpdate)),
-        () => Effect.sync(() => client.off(Events.VoiceStateUpdate, onUpdate)),
-      );
-    }),
+  const onUpdate = (oldState: VoiceState, newState: VoiceState) => {
+    Queue.offerUnsafe(updates, toVoiceStateUpdate(oldState, newState));
+  };
+
+  yield* Effect.acquireRelease(
+    Effect.sync(() => client.on(Events.VoiceStateUpdate, onUpdate)),
+    () => Effect.sync(() => client.off(Events.VoiceStateUpdate, onUpdate)),
   );
+
+  return updates;
+});
 
 type DefaultSoundNames = ReadonlyMap<string, string>;
 
@@ -360,8 +389,10 @@ export class DiscordGateway extends Context.Service<
     DiscordGateway,
     Effect.gen(function* () {
       const { botToken, officeChannelId } = yield* DiscordConfig;
-      const context = yield* Effect.context();
-      const runFork = Effect.runForkWith(context);
+
+      const runFork = yield* FiberSet.make().pipe(
+        Effect.flatMap((callbacks) => FiberSet.runtime(callbacks)()),
+      );
 
       const client = yield* Effect.acquireRelease(
         Effect.sync(
@@ -403,7 +434,7 @@ export class DiscordGateway extends Context.Service<
       );
 
       const defaultSounds = yield* fetchDefaultSoundNames(ready);
-      const updates = () => voiceStateUpdates(client).pipe(fromOthers(ready.user.id));
+      const heard = yield* listenToVoiceStates(client);
 
       // From the voice states Discord sends on connect.
       const present = Option.match(office, {
@@ -438,8 +469,15 @@ export class DiscordGateway extends Context.Service<
           ),
       });
 
+      const followed = yield* Stream.fromQueue(heard).pipe(
+        fromOthers(ready.user.id),
+        followOffice(officeChannelId, occupants),
+      );
+
       const wanted = yield* Ref.make<BotPresence>("Away");
       const recording = yield* Ref.make<RecordingMode>("Off");
+      const moving = yield* Semaphore.make(1);
+      const oneMoveAtATime = moving.withPermits(1);
 
       const goWhereWanted = Option.match(office, {
         onNone: () => Effect.void,
@@ -450,6 +488,7 @@ export class DiscordGateway extends Context.Service<
                 ? Effect.void
                 : moveBot(channel.guild, officeChannelId)(presence),
             ),
+            oneMoveAtATime,
           ),
       });
 
@@ -460,7 +499,9 @@ export class DiscordGateway extends Context.Service<
             Ref.set(recording, mode).pipe(
               Effect.andThen(setNickname(channel.guild, nicknameFor(mode))),
               Effect.andThen(
-                mode === "Capturing" ? leaveForRecording(channel.guild) : goWhereWanted,
+                mode === "Capturing"
+                  ? oneMoveAtATime(leaveForRecording(channel.guild))
+                  : goWhereWanted,
               ),
             ),
         });
@@ -480,8 +521,8 @@ export class DiscordGateway extends Context.Service<
       client.on(Events.ShardResume, () => runFork(goWhereWanted));
 
       return DiscordGateway.of({
-        officeEvents: updates().pipe(officeEvents(officeChannelId, occupants)),
-        voiceObservations: updates().pipe(
+        officeEvents: followed.officeEvents,
+        voiceObservations: followed.updates.pipe(
           voiceObservations(officeChannelId, Array.map(present, alreadyPresent)),
         ),
         voiceEffects: voiceEffects(client, defaultSounds).pipe(
@@ -490,8 +531,7 @@ export class DiscordGateway extends Context.Service<
         ),
         botPresence: Option.match(office, {
           onNone: () => Stream.empty,
-          onSome: () =>
-            botPresence(occupants, updates().pipe(officeEvents(officeChannelId, occupants))),
+          onSome: () => botPresence(occupants, followed.officeEvents),
         }),
         moveBot: (presence) => Ref.set(wanted, presence).pipe(Effect.andThen(goWhereWanted)),
         setRecording,
@@ -506,9 +546,9 @@ export class DiscordGateway extends Context.Service<
     }),
   );
 
-  // Feeds the same occupancy tracking and observations from a queue, so tests
-  // exercise everything but discord.js itself. `present` is who was in the
-  // office at startup.
+  // Feeds the same shared occupancy tracking and observations from a queue, so
+  // tests exercise everything but discord.js itself. `present` is who was in
+  // the office at startup.
   static readonly layerTest = ({
     updates,
     occupants = new Set(),
@@ -524,18 +564,16 @@ export class DiscordGateway extends Context.Service<
       Effect.gen(function* () {
         const { officeChannelId } = yield* DiscordConfig;
 
-        // Every stream needs every update, like the listeners on the real
-        // client.
-        const shared = yield* Stream.fromQueue(updates).pipe(
+        const followed = yield* Stream.fromQueue(updates).pipe(
           fromOthers(selfId),
-          Stream.broadcast({ capacity: "unbounded", replay: 1000 }),
+          followOffice(officeChannelId, occupants),
         );
 
         const inOffice = yield* Ref.make<ReadonlyMap<string, PersonInOffice>>(
           new Map(Array.map(present, (update) => [update.userId, occupantOfUpdate(update)])),
         );
 
-        yield* shared.pipe(
+        yield* followed.updates.pipe(
           Stream.runForEach((update) =>
             Ref.update(inOffice, (members) => {
               const next = new Map(members);
@@ -552,16 +590,13 @@ export class DiscordGateway extends Context.Service<
         );
 
         return DiscordGateway.of({
-          officeEvents: shared.pipe(officeEvents(officeChannelId, occupants)),
-          voiceObservations: shared.pipe(voiceObservations(officeChannelId, present)),
+          officeEvents: followed.officeEvents,
+          voiceObservations: followed.updates.pipe(voiceObservations(officeChannelId, present)),
           voiceEffects: Stream.fromIterable(effects).pipe(
             fromOthers(selfId),
             officeEffects(officeChannelId),
           ),
-          botPresence: botPresence(
-            occupants,
-            shared.pipe(officeEvents(officeChannelId, occupants)),
-          ),
+          botPresence: botPresence(occupants, followed.officeEvents),
           moveBot: (presence) =>
             moves === undefined ? Effect.void : Queue.offer(moves, presence).pipe(Effect.asVoid),
           setRecording: (mode) =>
