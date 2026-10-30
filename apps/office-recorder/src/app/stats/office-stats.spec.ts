@@ -99,4 +99,20 @@ describe("OfficeStats", () => {
       "Couldn't count the stats: /api/stats answered 503",
     );
   });
+
+  it("counts again when asked after a failure", async () => {
+    const answers = [throwError(() => new Error("/api/stats answered 503")), of(busy)];
+    const { api, fixture, element } = setup(() => answers.shift() ?? of(empty), "session");
+    await fixture.whenStable();
+
+    const retry = element.querySelector<HTMLButtonElement>("button.retry");
+    expect(retry?.textContent?.trim()).toBe("Try again");
+
+    retry?.click();
+    await fixture.whenStable();
+
+    expect(api.stats.mock.calls).toEqual([["week"], ["week"]]);
+    expect(element.querySelector("pb-notice")).toBeNull();
+    expect(textOf(element, "pb-stat .value")).toEqual(["2", "1h 30m"]);
+  });
 });
