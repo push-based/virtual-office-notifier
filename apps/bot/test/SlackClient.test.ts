@@ -11,6 +11,7 @@ import {
   Unavailable,
 } from "../src/SlackClient.ts";
 import {
+  hang,
   makeFakeSlackHttp,
   networkDown,
   type Reply,
@@ -316,7 +317,9 @@ describe("SlackClient", () => {
     Effect.gen(function* () {
       const slack = yield* makeClient([respond(503, "")]);
 
-      const fiber = yield* slack.client.postMessage(message).pipe(Effect.flip, Effect.forkChild);
+      const fiber = yield* slack.client
+        .updateMessage("C-OFFICE", "1.0", message)
+        .pipe(Effect.flip, Effect.forkChild);
 
       yield* TestClock.adjust("1 minute");
       const { reason } = yield* Fiber.join(fiber);
@@ -330,13 +333,70 @@ describe("SlackClient", () => {
     Effect.gen(function* () {
       const slack = yield* makeClient([networkDown]);
 
-      const fiber = yield* slack.client.postMessage(message).pipe(Effect.flip, Effect.forkChild);
+      const fiber = yield* slack.client
+        .updateMessage("C-OFFICE", "1.0", message)
+        .pipe(Effect.flip, Effect.forkChild);
 
       yield* TestClock.adjust("1 minute");
       const error = yield* Fiber.join(fiber);
 
       assert.instanceOf(error.reason, Transport);
+      assert.strictEqual((yield* slack.requests).length, 5);
       assert.notInclude(`${String(error)} ${yield* encodeJson(error)}`, "secret");
+    }),
+  );
+
+  it.effect("doesn't post again when a post timed out, since it may have gone through", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([hang]);
+
+      const fiber = yield* slack.client.postMessage(message).pipe(Effect.flip, Effect.forkChild);
+
+      yield* TestClock.adjust("5 minutes");
+      const { reason } = yield* Fiber.join(fiber);
+
+      assert.instanceOf(reason, Transport);
+      assert.strictEqual((yield* slack.requests).length, 1);
+    }),
+  );
+
+  it.effect("posts again when Slack answered that it's down, since nothing was posted", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([respond(503, "")]);
+
+      const fiber = yield* slack.client.postMessage(message).pipe(Effect.flip, Effect.forkChild);
+
+      yield* TestClock.adjust("1 minute");
+      const { reason } = yield* Fiber.join(fiber);
+
+      assert.instanceOf(reason, Unavailable);
+      assert.strictEqual((yield* slack.requests).length, 5);
+    }),
+  );
+
+  it.effect("doesn't attach a file again when completing the upload timed out", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([
+        slackOk({ upload_url: "https://files.slack.com/upload/v1/abc", file_id: "F123" }),
+        respond(200, "OK - 12"),
+        hang,
+      ]);
+
+      const fiber = yield* slack.client
+        .uploadFile({
+          channel: "C-OFFICE",
+          threadTs: "1700000000.000100",
+          filename: "transcript.txt",
+          title: "Transcript",
+          content: new TextEncoder().encode("hello world!"),
+        })
+        .pipe(Effect.flip, Effect.forkChild);
+
+      yield* TestClock.adjust("5 minutes");
+      const { reason } = yield* Fiber.join(fiber);
+
+      assert.instanceOf(reason, Transport);
+      assert.strictEqual((yield* slack.requests).length, 3);
     }),
   );
 });

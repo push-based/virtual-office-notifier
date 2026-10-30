@@ -18,7 +18,7 @@ Anyone in the office opens the Console and presses **Start**. Pressing it writes
 
 A recording stops when someone presses **Stop**, when the office empties, or after 4 hours, whichever comes first, paused or not: the 4 hours include pauses. If the bot restarts mid-recording and the office is still occupied, it carries on under the same recording, still paused if it was; otherwise the recording ends as `bot_restarted`.
 
-Once every clip of a stopped recording is transcribed, the transcript is built with office names and times in office time (UTC+2), the [banter](slack.md#banter) models write [the summary](#the-summary), and the summary is posted to the Slack channel with the full transcript attached in its thread. If nobody said anything, nothing is posted. If no model could write a summary, the post says so and the transcript is still attached.
+Once every clip of a stopped recording is transcribed, the transcript is built with office names and times in office time (UTC+2), the [banter](slack.md#banter) models write [the summary](#the-summary), and the summary is posted to the Slack channel with the full transcript attached in its thread. If nobody said anything, nothing is posted. If no model could write a summary, the post says so and the transcript is still attached. The post is stored as soon as it's in Slack, so if finishing fails after that, or the bot restarts, trying again edits that post instead of posting a second one.
 
 The summary's link in Slack is stored with the recording, from Slack's `chat.getPermalink`. At startup the bot also links any summary posted without one, and only logs a summary it can't link.
 

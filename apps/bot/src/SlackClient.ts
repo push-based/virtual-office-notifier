@@ -173,24 +173,32 @@ const checkResponse = <A extends { readonly ok: true }>(method: string, schema: 
   });
 };
 
-const retrySchedule = Schedule.exponential("1 second").pipe(
-  Schedule.jittered,
-  Schedule.setInputType<SlackError>(),
-  Schedule.modifyDelay(({ input, duration }) =>
-    Effect.succeed(Schema.is(RateLimited)(input.reason) ? input.reason.retryAfter : duration),
-  ),
-  Schedule.while(({ input }) => isRetryable(input.reason)),
-  Schedule.upTo({ times: 4 }),
-  Schedule.tap(({ input, attempt, duration }) =>
-    Effect.logInfo("Retrying Slack call").pipe(
-      Effect.annotateLogs({
-        reason: input.reason._tag,
-        attempt,
-        delayMs: Duration.toMillis(duration),
-      }),
+export const slackDidNotAct = (error: SlackError): boolean =>
+  Schema.is(RateLimited)(error.reason) || Schema.is(Unavailable)(error.reason);
+
+const retryWhile = (retryable: (error: SlackError) => boolean) =>
+  Schedule.exponential("1 second").pipe(
+    Schedule.jittered,
+    Schedule.setInputType<SlackError>(),
+    Schedule.modifyDelay(({ input, duration }) =>
+      Effect.succeed(Schema.is(RateLimited)(input.reason) ? input.reason.retryAfter : duration),
     ),
-  ),
-);
+    Schedule.while(({ input }) => retryable(input)),
+    Schedule.upTo({ times: 4 }),
+    Schedule.tap(({ input, attempt, duration }) =>
+      Effect.logInfo("Retrying Slack call").pipe(
+        Effect.annotateLogs({
+          reason: input.reason._tag,
+          attempt,
+          delayMs: Duration.toMillis(duration),
+        }),
+      ),
+    ),
+  );
+
+const retrySchedule = retryWhile((error) => isRetryable(error.reason));
+
+const notActedRetry = retryWhile(slackDidNotAct);
 
 export interface OutgoingMessage extends SlackMessage {
   readonly channel: string;
@@ -333,6 +341,7 @@ export class SlackClient extends Context.Service<
         request: HttpClientRequest.HttpClientRequest,
         token: Redacted.Redacted<string>,
         schema: SlackReply<A>,
+        retry: typeof retrySchedule = retrySchedule,
       ) =>
         request.pipe(
           HttpClientRequest.bearerToken(Redacted.value(token)),
@@ -343,7 +352,7 @@ export class SlackClient extends Context.Service<
             TimeoutError: () => Effect.fail(transportError("Timed out after 10 seconds")),
           }),
           Effect.flatMap(checkResponse(method, schema)),
-          Effect.retry(retrySchedule),
+          Effect.retry(retry),
           Effect.withSpan(`SlackClient.${method}`),
         );
 
@@ -351,6 +360,7 @@ export class SlackClient extends Context.Service<
         method: string,
         body: WriteBody,
         schema: SlackReply<A>,
+        retry: typeof retrySchedule = retrySchedule,
       ) =>
         send(
           method,
@@ -359,6 +369,7 @@ export class SlackClient extends Context.Service<
           ),
           botToken,
           schema,
+          retry,
         );
 
       const read = <A extends { readonly ok: true }>(
@@ -376,7 +387,7 @@ export class SlackClient extends Context.Service<
         );
 
       const postMessage = (message: OutgoingMessage) =>
-        write("chat.postMessage", postBody(message), Posted).pipe(
+        write("chat.postMessage", postBody(message), Posted, notActedRetry).pipe(
           Effect.map(({ channel, ts }): PostedMessage => ({ channel, ts })),
         );
 
@@ -434,6 +445,7 @@ export class SlackClient extends Context.Service<
             thread_ts: upload.threadTs,
           },
           Nothing,
+          notActedRetry,
         );
       });
 
