@@ -15,6 +15,7 @@ const anna: RunningRecording = {
   startedAt: "2026-10-27T12:00:00Z",
   startedByName: "Anna",
   endsAt: "2026-10-27T16:00:00Z",
+  pause: null,
 };
 
 const recording: RecordingStatus = { ...idle, recording: anna };
@@ -24,6 +25,19 @@ describe("describePresence", () => {
     expect(describePresence(recording)).toEqual({
       details: "Recording the office",
       state: "Started by Anna",
+      timestamps: { start: Date.parse("2026-10-27T12:00:00Z") },
+    });
+  });
+
+  it("says who paused the recording while it's paused", () => {
+    expect(
+      describePresence({
+        ...idle,
+        recording: { ...anna, pause: { since: "2026-10-27T12:20:00Z", byName: "Ben" } },
+      }),
+    ).toEqual({
+      details: "Recording paused",
+      state: "Paused by Ben",
       timestamps: { start: Date.parse("2026-10-27T12:00:00Z") },
     });
   });
@@ -67,5 +81,14 @@ describe("samePresence", () => {
 
   it("tells a different phase apart", () => {
     expect(samePresence(describePresence(recording), describePresence(idle))).toBe(false);
+  });
+
+  it("tells a pause apart from the recording running", () => {
+    const paused: RecordingStatus = {
+      ...recording,
+      recording: { ...anna, pause: { since: "2026-10-27T12:20:00Z", byName: "Anna" } },
+    };
+
+    expect(samePresence(describePresence(recording), describePresence(paused))).toBe(false);
   });
 });

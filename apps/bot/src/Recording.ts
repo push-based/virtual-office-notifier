@@ -13,6 +13,10 @@ export const StopReason = Schema.Literals([
 
 export type StopReason = typeof StopReason.Type;
 
+export const ResumeReason = Schema.Literals(["requested", "bot_restarted"]);
+
+export type ResumeReason = typeof ResumeReason.Type;
+
 export const TranscriptionStatus = Schema.Literals(["pending", "done", "skipped", "failed"]);
 
 export type TranscriptionStatus = typeof TranscriptionStatus.Type;

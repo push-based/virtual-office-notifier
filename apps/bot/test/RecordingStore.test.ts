@@ -54,7 +54,12 @@ describe("RecordingStore", () => {
       const active = yield* store.activeRecording;
       assert.deepStrictEqual(
         active,
-        Option.some({ id: RECORDING, startedAt: minute(0), startedBy: "u1" }),
+        Option.some({
+          id: RECORDING,
+          startedAt: minute(0),
+          startedBy: "u1",
+          pause: Option.none(),
+        }),
       );
 
       const [member] = yield* sql`SELECT user_id, display_name FROM office.members`;
@@ -125,19 +130,71 @@ describe("RecordingStore", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("records a resume as an event", () =>
+  it.effect("records picking a recording back up after a restart as a resume by the bot", () =>
     Effect.gen(function* () {
       const store = yield* started;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* store.resumeRecording(RECORDING, minute(3));
+      yield* store.recoverRecording(RECORDING, minute(3));
 
-      const events = yield* sql`SELECT event, at FROM office.recording_events ORDER BY id`;
+      const events = yield* sql`SELECT event, reason, at FROM office.recording_events ORDER BY id`;
       assert.deepStrictEqual(events, [
-        { event: "started", at: DateTime.toDate(minute(0)) },
-        { event: "resumed", at: DateTime.toDate(minute(3)) },
+        { event: "started", reason: null, at: DateTime.toDate(minute(0)) },
+        { event: "resumed", reason: "bot_restarted", at: DateTime.toDate(minute(3)) },
       ]);
     }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("pauses and resumes a recording, with who did it and an event each", () =>
+    Effect.gen(function* () {
+      const store = yield* started;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* store.pauseRecording(RECORDING, minute(20), "u3", "Ben");
+
+      assert.deepStrictEqual(
+        Option.map(yield* store.activeRecording, ({ pause }) => pause),
+        Option.some(Option.some({ pausedAt: minute(20), pausedBy: "u3" })),
+      );
+
+      yield* store.resumeRecording(RECORDING, minute(35), "u1", "Ada");
+
+      assert.deepStrictEqual(
+        Option.map(yield* store.activeRecording, ({ pause }) => pause),
+        Option.some(Option.none()),
+      );
+
+      const events =
+        yield* sql`SELECT event, reason, user_id FROM office.recording_events ORDER BY id`;
+
+      assert.deepStrictEqual(events, [
+        { event: "started", reason: null, userId: "u1" },
+        { event: "paused", reason: null, userId: "u3" },
+        { event: "resumed", reason: "requested", userId: "u1" },
+      ]);
+
+      const members = yield* sql`SELECT user_id FROM office.members ORDER BY user_id`;
+      assert.deepStrictEqual(members, [{ userId: "u1" }, { userId: "u3" }]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "lists each pause until someone resumed or stopped it, skipping restarts in between",
+    () =>
+      Effect.gen(function* () {
+        const store = yield* started;
+
+        yield* store.pauseRecording(RECORDING, minute(20), "u3", "Ben");
+        yield* store.recoverRecording(RECORDING, minute(25));
+        yield* store.resumeRecording(RECORDING, minute(35), "u1", "Ada");
+        yield* store.pauseRecording(RECORDING, minute(50), "u1", "Ada");
+        yield* store.stopRecording(RECORDING, minute(60), "office_emptied", null);
+
+        assert.deepStrictEqual(yield* store.pausesOf(RECORDING), [
+          { pausedAt: minute(20), resumedAt: minute(35), who: "Ben" },
+          { pausedAt: minute(50), resumedAt: minute(60), who: "Ada" },
+        ]);
+      }).pipe(Effect.provide(TestLayer)),
   );
 
   it.effect("stores clips with their member and queues the pending ones in order", () =>

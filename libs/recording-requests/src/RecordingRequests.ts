@@ -40,6 +40,8 @@ export interface RequestHandler<E, R> {
   readonly situation: Effect.Effect<Situation, E, R>;
   start(request: RecordingRequest): Effect.Effect<Change<E, R>, E, R>;
   stop(request: RecordingRequest, recording: ActiveRecording): Effect.Effect<Change<E, R>, E, R>;
+  pause(request: RecordingRequest, recording: ActiveRecording): Effect.Effect<Change<E, R>, E, R>;
+  resume(request: RecordingRequest, recording: ActiveRecording): Effect.Effect<Change<E, R>, E, R>;
 }
 
 export interface StatusUpdate {
@@ -52,7 +54,7 @@ const SubmittedRow = Schema.Union([
   Schema.Struct({ id: RowId, outcome: Schema.Null, reason: Schema.Null }),
   Schema.Struct({
     id: RowId,
-    outcome: Schema.Literals(["started", "stopped"]),
+    outcome: Schema.Literals(["started", "stopped", "paused", "resumed"]),
     reason: Schema.Null,
   }),
   Schema.Struct({ id: RowId, outcome: Schema.Literal("ignored"), reason: IgnoreReason }),
@@ -88,6 +90,9 @@ const decodeStatus = Schema.decodeUnknownEffect(
       startedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
       startedBy: Schema.NullOr(Schema.String),
       startedByName: Schema.NullOr(Schema.String),
+      pausedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
+      pausedBy: Schema.NullOr(Schema.String),
+      pausedByName: Schema.NullOr(Schema.String),
     }),
   ),
 );
@@ -165,16 +170,23 @@ export class RecordingRequests extends Context.Service<
         const rows = yield* onceReady(
           sql`
             SELECT s.bot_in_office, s.occupants, s.updated_at, r.id AS recording_id, r.started_at, r.started_by,
-                   coalesce(m.real_name, m.display_name) AS started_by_name
+                   coalesce(m.real_name, m.display_name) AS started_by_name,
+                   r.paused_at, r.paused_by, coalesce(p.real_name, p.display_name) AS paused_by_name
             FROM office.recording_status s
             LEFT JOIN office.recordings r ON r.id = s.recording_id AND r.stopped_at IS NULL
             LEFT JOIN office.members m ON m.user_id = r.started_by
+            LEFT JOIN office.members p ON p.user_id = r.paused_by
           `.pipe(Effect.flatMap(decodeStatus)),
         );
 
         const [row] = rows;
 
         if (row === undefined) return yield* unavailable("The recording status row is missing");
+
+        const pause =
+          row.pausedAt === null || row.pausedBy === null
+            ? null
+            : { since: row.pausedAt, byName: row.pausedByName ?? row.pausedBy };
 
         const recording =
           row.recordingId === null || row.startedAt === null || row.startedBy === null
@@ -183,11 +195,8 @@ export class RecordingRequests extends Context.Service<
                 id: row.recordingId,
                 startedAt: row.startedAt,
                 startedByName: row.startedByName ?? row.startedBy,
-                endsAt: endsAt({
-                  id: row.recordingId,
-                  startedAt: row.startedAt,
-                  startedBy: row.startedBy,
-                }),
+                endsAt: endsAt(row.startedAt),
+                pause,
               };
 
         const current: RecordingStatus = {
@@ -258,6 +267,10 @@ export class RecordingRequests extends Context.Service<
                 Start: () => act(sql, request, "started", handler.start(request)),
                 Stop: ({ recording }) =>
                   act(sql, request, "stopped", handler.stop(request, recording)),
+                Pause: ({ recording }) =>
+                  act(sql, request, "paused", handler.pause(request, recording)),
+                Resume: ({ recording }) =>
+                  act(sql, request, "resumed", handler.resume(request, recording)),
                 Ignore: ({ reason }) =>
                   onceReady(resolve(sql, request, "ignored", reason, null)).pipe(
                     Effect.andThen(
