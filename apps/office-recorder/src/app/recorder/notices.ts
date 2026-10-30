@@ -12,6 +12,10 @@ export const outcomeNotice = (result: HandledRequest | null): Notice => {
         kind: "info",
         text: "Recording stopped. The summary lands in Slack once it's transcribed.",
       };
+    case "paused":
+      return { kind: "info", text: "Recording paused. Nothing is captured until it's resumed." };
+    case "resumed":
+      return { kind: "info", text: "Recording resumed." };
     case "ignored":
       return { kind: "error", text: result.explanation };
   }

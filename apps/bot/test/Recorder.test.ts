@@ -16,12 +16,12 @@ import {
 import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
-import { RECORDING_LIMIT } from "recording-requests/RecordingRequest";
+import { RECORDING_LIMIT, type RequestAction } from "recording-requests/RecordingRequest";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
 import { ClipArchive } from "../src/ClipArchive.ts";
 import { columnNaming, Database } from "../src/Database.ts";
-import { DiscordGateway } from "../src/DiscordGateway.ts";
+import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import { FINISH_POLL, POLL_INTERVAL, Recorder, STATUS_INTERVAL } from "../src/Recorder.ts";
 import { RecordingStore, type StoreUnavailable } from "../src/RecordingStore.ts";
@@ -82,7 +82,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
   const present = options.present ?? [];
   const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
   const heard = yield* Queue.unbounded<Heard, Cause.Done | CaptureError>();
-  const recordings = yield* Queue.unbounded<boolean>();
+  const recordings = yield* Queue.unbounded<RecordingMode>();
   const slack = yield* makeFakeSlackClient();
   const history = yield* makeFakeSlackHistory();
 
@@ -143,7 +143,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
 
   const fiber = yield* recorder.run.pipe(withEnv(env), Effect.forkScoped);
 
-  const request = (requestedBy: string, action: "start" | "stop") =>
+  const request = (requestedBy: string, action: RequestAction) =>
     requests
       .submit({ id: requestedBy, name: String.toUpperCase(requestedBy) }, action)
       .pipe(Effect.asVoid);
@@ -192,6 +192,10 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     SELECT event, reason FROM office.recording_events ORDER BY id
   `;
 
+  const pauseRows = sql<{ readonly pausedAt: Date | null; readonly pausedBy: string | null }>`
+    SELECT paused_at, paused_by FROM office.recordings ORDER BY started_at
+  `;
+
   const statusRows = sql<{
     readonly recordingId: string | null;
     readonly botInOffice: boolean;
@@ -209,6 +213,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     clipRows,
     requestRows,
     eventRows,
+    pauseRows,
     statusRows,
     offer: (update: VoiceStateUpdate) => Queue.offer(updates, update),
     speak: (spoken: Clip) => Queue.offer(heard, Heard.Spoke({ clip: spoken })),
@@ -249,7 +254,7 @@ describe("Recorder", () => {
         yield* h.tick;
         yield* recordingStarted(h);
 
-        assert.deepStrictEqual(yield* h.recordings, [true]);
+        assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
 
         yield* h.speak(clip("u1", 2));
         yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
@@ -258,7 +263,7 @@ describe("Recorder", () => {
         yield* h.tick;
         yield* recordingStopped(h);
 
-        assert.deepStrictEqual(yield* h.recordings, [false]);
+        assert.deepStrictEqual(yield* h.recordings, ["Off"]);
 
         yield* TestClock.adjust(FINISH_POLL);
 
@@ -330,7 +335,7 @@ describe("Recorder", () => {
       assert.strictEqual(recording?.stopReason, "office_emptied");
       assert.isNull(recording?.summary);
       assert.deepStrictEqual(yield* h.posts, []);
-      assert.deepStrictEqual(yield* h.recordings, [true, false]);
+      assert.deepStrictEqual(yield* h.recordings, ["Capturing", "Off"]);
     }),
   );
 
@@ -361,13 +366,13 @@ describe("Recorder", () => {
       yield* h.eventually(h.eventRows, (rows) =>
         Array.some(rows, (row) => row.event === "resumed"),
       );
-      assert.deepStrictEqual(yield* h.recordings, [true]);
+      assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
 
       yield* h.tick;
 
       const [recording] = yield* recordingStopped(h);
       assert.strictEqual(recording?.stopReason, "time_limit");
-      assert.deepStrictEqual(yield* h.recordings, [false]);
+      assert.deepStrictEqual(yield* h.recordings, ["Off"]);
     }),
   );
 
@@ -419,6 +424,155 @@ describe("Recorder", () => {
       assert.strictEqual((yield* h.clipRows)[0]?.transcription, "pending");
       assert.deepStrictEqual(yield* h.posts, []);
     }),
+  );
+
+  it.effect(
+    "pauses, deafening the bot and capturing nothing, then resumes and marks the pause in the transcript",
+    () =>
+      Effect.gen(function* () {
+        const grace = update({ userId: "u2", displayName: "Grace" });
+        const h = yield* makeHarness({ present: [ada, grace] });
+
+        yield* h.request("u1", "start");
+        yield* h.tick;
+        yield* recordingStarted(h);
+        yield* h.speak({ ...clip("u1", 2), startedAt: yield* DateTime.now });
+        yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
+        assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
+
+        yield* TestClock.adjust("1 minute");
+        yield* h.request("u2", "pause");
+        yield* h.tick;
+        yield* h.eventually(h.pauseRows, (rows) => rows[0]?.pausedBy === "u2");
+        assert.deepStrictEqual(yield* h.recordings, ["Paused"]);
+
+        yield* h.request("u1", "pause");
+        yield* TestClock.adjust("5 minutes");
+        yield* h.request("u1", "resume");
+        yield* h.tick;
+        yield* h.eventually(h.pauseRows, (rows) => rows[0]?.pausedBy === null);
+        assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
+
+        yield* h.speak({ ...clip("u2", 2), startedAt: yield* DateTime.now });
+        yield* h.eventually(h.clipRows, (rows) => rows[1]?.transcription === "done");
+
+        yield* h.request("u2", "stop");
+        yield* h.tick;
+        yield* recordingStopped(h);
+        yield* TestClock.adjust(FINISH_POLL);
+
+        const [recording] = yield* recordingFinished(h);
+        const lines = String.split(recording?.transcript ?? "", "\n");
+        assert.match(lines[2] ?? "", /^02:00 \S+: hello world$/);
+        assert.match(lines[3] ?? "", /^02:01–02:06 Paused by \S+$/);
+        assert.match(lines[4] ?? "", /^02:06 \S+: hello world$/);
+
+        assert.deepStrictEqual(yield* h.requestRows, [
+          { outcome: "started", reason: null },
+          { outcome: "paused", reason: null },
+          { outcome: "ignored", reason: "already_paused" },
+          { outcome: "resumed", reason: null },
+          { outcome: "stopped", reason: null },
+        ]);
+        assert.deepStrictEqual(yield* h.eventRows, [
+          { event: "started", reason: null },
+          { event: "paused", reason: null },
+          { event: "resumed", reason: "requested" },
+          { event: "stopped", reason: "requested" },
+        ]);
+      }),
+  );
+
+  it.effect("stops a paused recording when the office empties", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada] });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.request("u1", "pause");
+      yield* h.tick;
+      yield* h.eventually(h.pauseRows, (rows) => rows[0]?.pausedBy === "u1");
+
+      yield* h.offer(leave());
+
+      const [recording] = yield* recordingStopped(h);
+      assert.strictEqual(recording?.stopReason, "office_emptied");
+      assert.deepStrictEqual(yield* h.recordings, ["Capturing", "Paused", "Off"]);
+    }),
+  );
+
+  it.effect("stops a paused recording at the time limit, since pauses count towards it", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({
+        present: [ada],
+        before: Effect.gen(function* () {
+          const store = yield* RecordingStore;
+          const now = yield* DateTime.now;
+
+          yield* store.startRecording({
+            id: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+            guildId: "guild",
+            channelId: OFFICE,
+            startedAt: DateTime.subtractDuration(
+              DateTime.addDuration(now, "1 second"),
+              RECORDING_LIMIT,
+            ),
+            startedBy: "u1",
+            startedByName: "Ada",
+          });
+          yield* store.pauseRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", now, "u1", "Ada");
+        }),
+      });
+
+      yield* h.eventually(h.eventRows, (rows) =>
+        Array.some(rows, (row) => row.event === "resumed"),
+      );
+      yield* h.tick;
+
+      const [recording] = yield* recordingStopped(h);
+      assert.strictEqual(recording?.stopReason, "time_limit");
+    }),
+  );
+
+  it.effect(
+    "comes back paused after a restart, deafened and capturing nothing until someone resumes",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeHarness({
+          present: [ada],
+          before: Effect.gen(function* () {
+            const store = yield* RecordingStore;
+            const now = yield* DateTime.now;
+
+            yield* store.startRecording({
+              id: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+              guildId: "guild",
+              channelId: OFFICE,
+              startedAt: now,
+              startedBy: "u1",
+              startedByName: "Ada",
+            });
+            yield* store.pauseRecording("6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10", now, "u1", "Ada");
+          }),
+        });
+
+        yield* h.eventually(h.eventRows, (rows) =>
+          Array.some(rows, (row) => row.event === "resumed"),
+        );
+        assert.deepStrictEqual(yield* h.recordings, ["Paused"]);
+        assert.deepStrictEqual(yield* h.eventRows, [
+          { event: "started", reason: null },
+          { event: "paused", reason: null },
+          { event: "resumed", reason: "bot_restarted" },
+        ]);
+        assert.strictEqual((yield* h.pauseRows)[0]?.pausedBy, "u1");
+
+        yield* h.request("u1", "resume");
+        yield* h.tick;
+        yield* h.eventually(h.pauseRows, (rows) => rows[0]?.pausedBy === null);
+        assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
+      }),
   );
 
   it.effect("keeps the status row current for the Activity", () =>
@@ -493,6 +647,35 @@ describe("Recorder", () => {
 
         yield* Fiber.interrupt(h.fiber);
       }),
+  );
+
+  it.effect("shows nobody speaking while the recording is paused", () =>
+    Effect.gen(function* () {
+      const h = yield* makeHarness({ present: [ada] });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.hear(Heard.StartedSpeaking({ userId: "u1" }));
+      yield* h.settle;
+      yield* TestClock.adjust(STATUS_INTERVAL);
+      yield* h.eventually(h.statusRows, (rows) => rows[0]?.occupants[0]?.speaking === true);
+
+      yield* h.request("u1", "pause");
+      yield* h.tick;
+      yield* h.eventually(h.pauseRows, (rows) => rows[0]?.pausedBy === "u1");
+      yield* TestClock.adjust(STATUS_INTERVAL);
+
+      const [paused] = yield* h.eventually(
+        h.statusRows,
+        (rows) => rows[0]?.occupants[0]?.speaking === false,
+      );
+
+      assert.isNotNull(paused?.recordingId);
+      assert.isFalse(paused?.occupants[0]?.speaking);
+
+      yield* Fiber.interrupt(h.fiber);
+    }),
   );
 
   it.effect("shows nobody speaking once the recording stops", () =>

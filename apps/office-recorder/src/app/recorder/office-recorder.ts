@@ -1,5 +1,6 @@
 import { Component, type OnInit, computed, inject } from "@angular/core";
 import {
+  PbButton,
   PbCard,
   PbDivider,
   PbEyebrow,
@@ -17,6 +18,7 @@ import { OfficeStore } from "./office-store";
 @Component({
   selector: "app-office-recorder",
   imports: [
+    PbButton,
     PbCard,
     PbDivider,
     PbEyebrow,
@@ -36,12 +38,27 @@ import { OfficeStore } from "./office-store";
         [description]="status.description"
         [live]="status.live"
       />
-      <pb-record-button
-        [recording]="store.recording()"
-        [busy]="store.busy()"
-        [disabled]="!store.canPress()"
-        (pressed)="store.press()"
-      />
+      <div class="controls">
+        <pb-record-button
+          [recording]="store.recording()"
+          [busy]="store.busy()"
+          [disabled]="!store.canPress()"
+          (pressed)="store.press()"
+        />
+        @if (store.recording()) {
+          <button
+            pbButton
+            type="button"
+            variant="ghost"
+            size="lg"
+            [disabled]="!store.canPress()"
+            [attr.aria-busy]="store.busy()"
+            (click)="store.pressPause()"
+          >
+            {{ store.paused() ? "Resume" : "Pause" }}
+          </button>
+        }
+      </div>
       <pb-notice-region>
         @if (store.notice(); as notice) {
           <pb-notice [kind]="notice.kind">{{ notice.text }}</pb-notice>
@@ -58,6 +75,15 @@ import { OfficeStore } from "./office-store";
       display: block;
       width: 100%;
       max-width: var(--space-96);
+    }
+
+    .controls {
+      display: flex;
+      gap: var(--space-3);
+    }
+
+    pb-record-button {
+      flex: 1;
     }
   `,
 })

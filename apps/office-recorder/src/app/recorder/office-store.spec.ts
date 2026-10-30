@@ -22,9 +22,15 @@ const chris: RunningRecording = {
   startedAt: "2026-10-27T12:00:00Z",
   startedByName: "Chris",
   endsAt: "2026-10-27T16:00:00Z",
+  pause: null,
 };
 
 const recording: RecordingStatus = { ...idle, recording: chris };
+
+const paused: RecordingStatus = {
+  ...idle,
+  recording: { ...chris, pause: { since: "2026-10-27T12:20:00Z", byName: "Ben" } },
+};
 
 const pending: SubmittedRequest = { id: 7, outcome: null };
 
@@ -226,6 +232,57 @@ describe("OfficeStore", () => {
     await vi.advanceTimersByTimeAsync(timing.requestPollMs);
 
     expect(api.submit).toHaveBeenCalledWith("stop");
+  });
+
+  it("asks to pause a running recording, and to resume a paused one", async () => {
+    const api = fakeApi();
+    api.status.mockReturnValue(of(recording));
+    api.find.mockReturnValue(of({ id: 7, outcome: "paused" }));
+    const { store, timing } = await started(api);
+
+    expect(store.paused()).toBe(false);
+
+    store.pressPause();
+    await vi.advanceTimersByTimeAsync(timing.requestPollMs);
+
+    expect(api.submit).toHaveBeenLastCalledWith("pause");
+    expect(store.notice()?.text).toBe("Recording paused. Nothing is captured until it's resumed.");
+
+    api.status.mockReturnValue(of(paused));
+    api.find.mockReturnValue(of({ id: 7, outcome: "resumed" }));
+    await vi.advanceTimersByTimeAsync(timing.statePollMs);
+
+    expect(store.phase()).toEqual({
+      kind: "paused",
+      recording: paused.recording,
+      pause: paused.recording?.pause,
+    });
+    expect(store.paused()).toBe(true);
+    expect(store.recording()).toBe(true);
+
+    store.pressPause();
+    await vi.advanceTimersByTimeAsync(timing.requestPollMs);
+
+    expect(api.submit).toHaveBeenLastCalledWith("resume");
+  });
+
+  it("stops a paused recording", async () => {
+    const api = fakeApi();
+    api.status.mockReturnValue(of(paused));
+    const { store } = await started(api);
+
+    store.press();
+
+    expect(api.submit).toHaveBeenCalledWith("stop");
+  });
+
+  it("has nothing to pause while idle", async () => {
+    const api = fakeApi();
+    const { store } = await started(api);
+
+    store.pressPause();
+
+    expect(api.submit).not.toHaveBeenCalled();
   });
 
   it("ignores a second press while the first is in flight", async () => {

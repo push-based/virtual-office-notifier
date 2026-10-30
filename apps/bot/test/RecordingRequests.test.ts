@@ -40,6 +40,7 @@ const recordingBy = (startedBy: string): ActiveRecording => ({
   id: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
   startedAt: DateTime.makeUnsafe(0),
   startedBy,
+  pause: Option.none(),
 });
 
 interface Office {
@@ -83,6 +84,34 @@ const officeHandler = Effect.fnUntraced(function* (office: Office) {
           Effect.as({
             recordingId: recording.id,
             afterCommit: Effect.sync(() => committed.push(`stopped ${recording.id}`)),
+          }),
+        ),
+    pause: (request, recording) =>
+      store
+        .pauseRecording(
+          recording.id,
+          DateTime.makeUnsafe(30_000),
+          request.requestedBy,
+          request.requestedByName,
+        )
+        .pipe(
+          Effect.as({
+            recordingId: recording.id,
+            afterCommit: Effect.sync(() => committed.push(`paused ${recording.id}`)),
+          }),
+        ),
+    resume: (request, recording) =>
+      store
+        .resumeRecording(
+          recording.id,
+          DateTime.makeUnsafe(45_000),
+          request.requestedBy,
+          request.requestedByName,
+        )
+        .pipe(
+          Effect.as({
+            recordingId: recording.id,
+            afterCommit: Effect.sync(() => committed.push(`resumed ${recording.id}`)),
           }),
         ),
   };
@@ -136,6 +165,83 @@ describe("RecordingRequests", () => {
         Option.some({ id: submitted.id, outcome: "stopped" as const }),
       );
       assert.deepStrictEqual(stopping.committed, ["stopped 6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10"]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("pauses and resumes the running recording for anyone in the office", () =>
+    Effect.gen(function* () {
+      const requests = yield* RecordingRequests;
+      const starting = yield* officeHandler({ occupants: ["u1", "u2"] });
+
+      yield* requests.submit(ada, "start");
+      yield* requests.handlePending(starting.handler);
+
+      const pausing = yield* officeHandler({ occupants: ["u1", "u2"], active: recordingBy("u1") });
+      const pause = yield* requests.submit(grace, "pause");
+      yield* requests.handlePending(pausing.handler);
+
+      assert.deepStrictEqual(
+        yield* requests.find(grace, pause.id),
+        Option.some({ id: pause.id, outcome: "paused" as const }),
+      );
+      assert.deepStrictEqual(pausing.committed, ["paused 6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10"]);
+
+      const resuming = yield* officeHandler({
+        occupants: ["u1", "u2"],
+        active: {
+          ...recordingBy("u1"),
+          pause: Option.some({ pausedAt: DateTime.makeUnsafe(30_000), pausedBy: "u2" }),
+        },
+      });
+
+      const resume = yield* requests.submit(ada, "resume");
+      yield* requests.handlePending(resuming.handler);
+
+      assert.deepStrictEqual(
+        yield* requests.find(ada, resume.id),
+        Option.some({ id: resume.id, outcome: "resumed" as const }),
+      );
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("ignores a second pause and a resume of a running recording, and says why", () =>
+    Effect.gen(function* () {
+      const requests = yield* RecordingRequests;
+
+      const running = yield* officeHandler({ occupants: ["u1"], active: recordingBy("u1") });
+      const resume = yield* requests.submit(ada, "resume");
+      yield* requests.handlePending(running.handler);
+
+      const paused = yield* officeHandler({
+        occupants: ["u1"],
+        active: {
+          ...recordingBy("u1"),
+          pause: Option.some({ pausedAt: DateTime.makeUnsafe(30_000), pausedBy: "u1" }),
+        },
+      });
+
+      const pause = yield* requests.submit(ada, "pause");
+      yield* requests.handlePending(paused.handler);
+
+      assert.deepStrictEqual(
+        yield* requests.find(ada, resume.id),
+        Option.some({
+          id: resume.id,
+          outcome: "ignored" as const,
+          reason: "not_paused" as const,
+          explanation: "The recording isn't paused.",
+        }),
+      );
+      assert.deepStrictEqual(
+        yield* requests.find(ada, pause.id),
+        Option.some({
+          id: pause.id,
+          outcome: "ignored" as const,
+          reason: "already_paused" as const,
+          explanation: "Someone already paused the recording.",
+        }),
+      );
+      assert.deepStrictEqual([...running.committed, ...paused.committed], []);
     }).pipe(Effect.provide(TestLayer)),
   );
 
@@ -227,6 +333,23 @@ describe("RecordingRequests", () => {
       assert.strictEqual(
         status.recording && DateTime.formatIso(status.recording.endsAt),
         "1970-01-01T04:00:00.000Z",
+      );
+
+      assert.isNull(status.recording?.pause);
+
+      const store = yield* RecordingStore;
+      yield* store.pauseRecording(
+        "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+        DateTime.makeUnsafe(60_000),
+        "u2",
+        "Grace",
+      );
+
+      const paused = yield* requests.status;
+      assert.strictEqual(paused.recording?.pause?.byName, "Grace");
+      assert.strictEqual(
+        paused.recording?.pause && DateTime.formatIso(paused.recording.pause.since),
+        "1970-01-01T00:01:00.000Z",
       );
 
       yield* requests.publishStatus({ recordingId: null, botInOffice: false, occupants: [] });
