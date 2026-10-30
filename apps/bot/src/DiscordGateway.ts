@@ -432,7 +432,7 @@ export class DiscordGateway extends Context.Service<
               channel.permissionsFor(ready.user)?.has(PermissionFlagsBits.Connect) === true
                 ? Effect.void
                 : Effect.logWarning(
-                    "The bot can't connect to the office voice channel, so soundboard sounds and emoji reactions aren't recorded. Give it the Connect permission.",
+                    "The bot can't connect to the office voice channel, so soundboard sounds and emoji aren't recorded. Give it the Connect permission.",
                   ),
             ),
           ),
