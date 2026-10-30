@@ -8,9 +8,9 @@ import { banter } from "./Banter.ts";
 import { ClipArchive } from "./ClipArchive.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import { OfficeEvent } from "./OfficeEvent.ts";
-import { Recorder } from "./Recorder.ts";
+import { RecorderLayer } from "./Recorder.ts";
 import { reminders } from "./Reminder.ts";
-import { Responder } from "./Responder.ts";
+import { ResponderLayer } from "./Responder.ts";
 import { isRetryable, type SlackError } from "./SlackClient.ts";
 import { SlackNotifier } from "./SlackNotifier.ts";
 import { StorageLayer } from "./Storage.ts";
@@ -38,8 +38,6 @@ export const program = Effect.gen(function* () {
   const gateway = yield* DiscordGateway;
   const slack = yield* SlackNotifier;
   const recorder = yield* ActivityRecorder;
-  const responder = yield* Responder;
-  const voiceRecorder = yield* Recorder;
 
   yield* Effect.logInfo("Watching the virtual office");
 
@@ -79,16 +77,13 @@ export const program = Effect.gen(function* () {
 
   const followOccupancy = Stream.runForEach(gateway.botPresence, gateway.moveBot);
 
-  yield* responder.run.pipe(Effect.forkChild);
-  yield* voiceRecorder.run.pipe(Effect.forkChild);
-
   yield* Effect.all([announce, record, recordEffects, followOccupancy], {
     concurrency: "unbounded",
     discard: true,
   });
 });
 
-const RecorderLayer = Recorder.layer.pipe(
+const VoiceRecording = RecorderLayer.pipe(
   Layer.provide([
     VoiceCapture.layer,
     ClipArchive.layer,
@@ -101,7 +96,7 @@ const RecorderLayer = Recorder.layer.pipe(
 // Slack is built before Discord, so a missing Slack token fails before logging
 // in to Discord. Recording connects to the database in the background and
 // never fails startup.
-export const MainLayer = Layer.mergeAll(Responder.layer, RecorderLayer).pipe(
+export const MainLayer = Layer.mergeAll(ResponderLayer, VoiceRecording).pipe(
   Layer.provideMerge(DiscordGateway.layer),
   Layer.provideMerge(SlackNotifier.layer),
   Layer.provide(AiProviders.layer),

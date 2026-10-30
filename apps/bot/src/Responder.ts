@@ -1,7 +1,6 @@
 import {
   Array,
   Cause,
-  Context,
   DateTime,
   Duration,
   Effect,
@@ -497,35 +496,13 @@ export const respondToSlack = Effect.gen(function* () {
   });
 });
 
-export class Responder extends Context.Service<
-  Responder,
-  {
-    readonly run: Effect.Effect<void>;
-  }
->()("bot/Responder") {
-  static readonly layerNoDeps = Layer.effect(
-    Responder,
-    Effect.gen(function* () {
-      const context = yield* Effect.context<
-        SlackClient | SlackSocket | SlackHistory | ReplyDecider | ReplyWriter | OfficeHistory
-      >();
-
-      return Responder.of({
-        run: respondToSlack.pipe(
-          Effect.provideContext(context),
-          Effect.catchCause((cause) =>
-            Effect.logError("Stopped responding on Slack", cause).pipe(
-              Effect.andThen(ErrorReporter.report(cause)),
-            ),
-          ),
-        ),
-      });
-    }),
-  );
-
-  static readonly layer = Responder.layerNoDeps.pipe(
-    Layer.provide(Layer.mergeAll(SlackSocket.layer, ReplyDecider.layer, ReplyWriter.layer)),
-  );
-
-  static readonly layerNone = Layer.succeed(Responder, Responder.of({ run: Effect.void }));
-}
+export const ResponderLayer = Layer.effectDiscard(
+  respondToSlack.pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError("Stopped responding on Slack", cause).pipe(
+        Effect.andThen(ErrorReporter.report(cause)),
+      ),
+    ),
+    Effect.forkScoped,
+  ),
+).pipe(Layer.provide(Layer.mergeAll(SlackSocket.layer, ReplyDecider.layer, ReplyWriter.layer)));

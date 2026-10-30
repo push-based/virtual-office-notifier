@@ -20,8 +20,6 @@ import type { BotPresence } from "../src/BotPresence.ts";
 import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { OfficeHistory } from "../src/OfficeHistory.ts";
 import { MainLayer, program } from "../src/Program.ts";
-import { Recorder } from "../src/Recorder.ts";
-import { Responder } from "../src/Responder.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import type { VoiceEffect } from "../src/VoiceEffect.ts";
 import {
@@ -94,7 +92,7 @@ const runProgram = Effect.fnUntraced(function* (
   replies: ReadonlyArray<Reply> = [ok],
   present: ReadonlyArray<VoiceStateUpdate> = [],
   effects: ReadonlyArray<VoiceEffect> = [],
-  responder: Layer.Layer<Responder> = Responder.layerNone,
+  responder: Layer.Layer<never> = Layer.empty,
 ) {
   const queue = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
   const moves = yield* Queue.unbounded<BotPresence>();
@@ -132,7 +130,6 @@ const runProgram = Effect.fnUntraced(function* (
         recorder.layer,
         OfficeHistory.layerDisabled,
         responder,
-        Recorder.layerNone,
         Logger.layer([captureLogs]),
       ),
     ),
@@ -380,8 +377,6 @@ describe("recording", () => {
             slack.layer,
             recorder.layer,
             OfficeHistory.layerDisabled,
-            Responder.layerNone,
-            Recorder.layerNone,
           ),
         ),
         withEnv(env),
@@ -459,8 +454,6 @@ describe("daily reminder", () => {
             slack.layer,
             recorder.layer,
             OfficeHistory.layerDisabled,
-            Responder.layerNone,
-            Recorder.layerNone,
           ),
         ),
         withEnv(env),
@@ -490,11 +483,8 @@ describe("program and the Slack responder", () => {
     Effect.gen(function* () {
       const started = yield* Deferred.make<void>();
 
-      const responder = Layer.succeed(
-        Responder,
-        Responder.of({
-          run: Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
-        }),
+      const responder = Layer.effectDiscard(
+        Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never), Effect.forkScoped),
       );
 
       const { posted } = yield* runProgram([update()], [ok], [], [], responder);
