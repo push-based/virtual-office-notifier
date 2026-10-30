@@ -30,7 +30,7 @@ import { NO_VOICE_DETAILS } from "../src/OfficeEvent.ts";
 import { StorageLayer } from "../src/Storage.ts";
 import type { TimedVoiceEffect } from "../src/VoiceEffect.ts";
 import type { VoiceObservation } from "../src/VoiceObservation.ts";
-import { captureReports, withEnv } from "./fakes.ts";
+import { captureReports, pollUntil, withEnv } from "./fakes.ts";
 
 const observation = (userId: string): VoiceObservation => ({
   source: "update",
@@ -367,12 +367,14 @@ describe("StorageLayer", () => {
       ).pipe(Effect.scoped, withEnv(env), Effect.forkChild);
 
       // Shutting down waits up to 10 seconds for a database that never came up.
-      // The real connection attempt needs real time to fail, so the test clock
-      // moves on in steps until it's done.
-      while (building.pollUnsafe() === undefined) {
-        yield* TestClock.adjust("10 seconds");
-        yield* TestClock.withLive(Effect.sleep("10 millis"));
-      }
+      // The real connection attempt fails on its own, between turns of the
+      // event loop, so the test clock moves on a step each turn until it's done.
+      yield* pollUntil(
+        TestClock.adjust("10 seconds").pipe(
+          Effect.andThen(Effect.sync(() => building.pollUnsafe())),
+        ),
+        Predicate.isNotUndefined,
+      );
 
       yield* Fiber.join(building);
     }),

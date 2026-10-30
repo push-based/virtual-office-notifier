@@ -7,8 +7,10 @@ import {
   ErrorReporter,
   Layer,
   Option,
+  Queue,
   Random,
   Ref,
+  Schedule,
   Schema,
   String,
 } from "effect";
@@ -172,20 +174,40 @@ export const makeFakeSlack = Effect.fnUntraced(function* (
 export const makeFakeRecorder = Effect.fnUntraced(function* () {
   const recorded = yield* Ref.make<ReadonlyArray<VoiceObservation>>([]);
   const effects = yield* Ref.make<ReadonlyArray<TimedVoiceEffect>>([]);
+  const observed = yield* Queue.unbounded<VoiceObservation>();
 
   const layer = Layer.succeed(
     ActivityRecorder,
     ActivityRecorder.of({
-      record: (observation) => Ref.update(recorded, (all) => [...all, observation]),
+      record: (observation) =>
+        Ref.update(recorded, (all) => [...all, observation]).pipe(
+          Effect.andThen(Queue.offer(observed, observation)),
+          Effect.asVoid,
+        ),
       recordEffect: (effect) => Ref.update(effects, (all) => [...all, effect]),
     }),
   );
 
-  return { layer, recorded: Ref.get(recorded), recordedEffects: Ref.get(effects) };
+  return {
+    layer,
+    recorded: Ref.get(recorded),
+    recordedEffects: Ref.get(effects),
+    awaitRecorded: (count: number) => Queue.takeN(observed, count).pipe(Effect.asVoid),
+  };
 });
 
 export const withEnv = (env: Record<string, string>) =>
   Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env }));
+
+// Gives work running on other fibers, and in-process I/O such as PGlite, a turn
+// of the event loop between checks, so tests wait for what they're after
+// without sleeping on the wall clock. The bound turns a hang into a failure.
+const MAX_POLLS = 10_000;
+
+const everyTurn = Schedule.recurs(MAX_POLLS).pipe(Schedule.tap(() => Effect.yieldNow));
+
+export const pollUntil = <A, E, R>(poll: Effect.Effect<A, E, R>, done: (value: A) => boolean) =>
+  Effect.repeat(poll, { until: done, schedule: everyTurn });
 
 export interface Report {
   readonly name: string;

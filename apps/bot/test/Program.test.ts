@@ -392,9 +392,7 @@ describe("recording", () => {
       // The first post never answers, so the office events stall behind it.
       yield* Queue.offerAll(queue, [update(), leave(), update()]);
 
-      while ((yield* recorder.recorded).length < 3) {
-        yield* Effect.yieldNow;
-      }
+      yield* recorder.awaitRecorded(3);
 
       yield* Fiber.interrupt(fiber);
     }),
