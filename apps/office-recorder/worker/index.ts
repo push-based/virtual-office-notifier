@@ -6,7 +6,8 @@ import { Layer, Redacted } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { RecordingApi } from "recording-requests/RecordingApi";
-import { RecordingHandlers } from "recording-requests/RecordingHandlers";
+import { HistoryHandlers, RecordingHandlers } from "recording-requests/RecordingHandlers";
+import { RecordingHistory } from "recording-requests/RecordingHistory";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 import { SignedInLayer, SignInHandlers } from "recording-requests/SignInHandlers";
 import { columnNaming } from "recording-requests/SqlNaming";
@@ -42,6 +43,7 @@ const routes = (env: Env) =>
     Layer.provide([
       SignInHandlers.pipe(Layer.provide(DiscordOAuth.layer)),
       RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerPerCall(connectionTo(env)))),
+      HistoryHandlers.pipe(Layer.provide(RecordingHistory.layerPerCall(connectionTo(env)))),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),
