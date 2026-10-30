@@ -1,8 +1,21 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, ErrorReporter, Layer, Option, Schema, Tracer } from "effect";
+import {
+  Deferred,
+  Duration,
+  Effect,
+  ErrorReporter,
+  Fiber,
+  Layer,
+  Option,
+  Ref,
+  Schema,
+  Tracer,
+} from "effect";
 import { SqlClient } from "effect/sql";
+import { TestClock } from "effect/testing";
 
+import { connectedTo, QUERY_TIMEOUT } from "../src/Query.ts";
 import { RecordingRequests, type RequestHandler } from "../src/RecordingRequests.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
 
@@ -25,6 +38,40 @@ const emptyOffice: RequestHandler<never, never> = {
   pause: () => Effect.die("The office is empty"),
   resume: () => Effect.die("The office is empty"),
 };
+
+class CameraBroken extends Schema.TaggedError<CameraBroken, { readonly brand: unique symbol }>()(
+  "CameraBroken",
+  {},
+) {}
+
+const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
+
+const adaStarting = (
+  sql: SqlClient.SqlClient,
+  committed: Ref.Ref<boolean>,
+): RequestHandler<never, never> => ({
+  ...emptyOffice,
+  situation: Effect.succeed({ occupants: new Set([ada.id]), active: Option.none() }),
+  start: () =>
+    sql`INSERT INTO office.recordings (id, started_at, started_by) VALUES (${RECORDING}, now(), ${ada.id})`.pipe(
+      Effect.orDie,
+      Effect.as({ recordingId: RECORDING, afterCommit: Ref.set(committed, true) }),
+    ),
+});
+
+const stallingBeforeCommit = (
+  sql: SqlClient.SqlClient,
+  stalled: Deferred.Deferred<void>,
+): SqlClient.SqlClient =>
+  Object.assign(sql.bind(undefined), sql, {
+    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      sql.withTransaction(
+        effect.pipe(
+          Effect.andThen(Deferred.succeed(stalled, undefined)),
+          Effect.andThen(Effect.never),
+        ),
+      ),
+  });
 
 const createTables = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -202,5 +249,57 @@ describe("RecordingRequests.handlePending", () => {
       assert.isFalse(failure.unreadable);
       assert.strictEqual(failure[ErrorReporter.severity], "Warn");
     }),
+  );
+
+  it.effect("gives up on a transaction that doesn't commit in time and rolls it back", () =>
+    Effect.gen(function* () {
+      const sql = yield* createTables;
+      const stalled = yield* Deferred.make<void>();
+      const committed = yield* Ref.make(false);
+
+      const requests = RecordingRequests.makeWith(
+        Effect.void,
+        connectedTo(stallingBeforeCommit(sql, stalled)),
+      );
+
+      const submitted = yield* requests.submit(ada, "start");
+
+      const fiber = yield* requests
+        .handlePending(adaStarting(sql, committed))
+        .pipe(Effect.forkChild);
+
+      yield* Deferred.await(stalled);
+      yield* TestClock.adjust(Duration.sum(QUERY_TIMEOUT, Duration.millis(1)));
+
+      const failure = yield* Fiber.join(fiber).pipe(Effect.flip);
+      const found = yield* requests.find(ada, submitted.id);
+
+      assert.strictEqual(failure._tag, "RecordingUnavailable");
+      assert.strictEqual(failure.reason, "Timed out after 10 seconds");
+      assert.isFalse(failure.unreadable);
+      assert.isFalse(yield* Ref.get(committed));
+      assert.deepStrictEqual(yield* sql`SELECT id FROM office.recordings`, []);
+      assert.strictEqual(Option.getOrNull(found)?.outcome, null);
+    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
+  );
+
+  it.effect("passes the handler's own error through and leaves the request waiting", () =>
+    Effect.gen(function* () {
+      yield* createTables;
+      const requests = yield* RecordingRequests.make(Effect.void);
+
+      const broken: RequestHandler<CameraBroken, never> = {
+        ...emptyOffice,
+        situation: Effect.succeed({ occupants: new Set([ada.id]), active: Option.none() }),
+        start: () => Effect.fail(CameraBroken.make()),
+      };
+
+      const submitted = yield* requests.submit(ada, "start");
+      const failure = yield* requests.handlePending(broken).pipe(Effect.flip);
+      const found = yield* requests.find(ada, submitted.id);
+
+      assert.strictEqual(failure._tag, "CameraBroken");
+      assert.strictEqual(Option.getOrNull(found)?.outcome, null);
+    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
   );
 });

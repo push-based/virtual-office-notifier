@@ -1,8 +1,10 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Deferred, Duration, Effect, Fiber, Layer, Option, Ref, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { TestClock } from "effect/testing";
 
+import { connectedTo, QUERY_TIMEOUT } from "../src/Query.ts";
 import { type EditHandler, RecordingEdits } from "../src/RecordingEdits.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
 
@@ -75,6 +77,20 @@ const renaming = (sql: SqlClient.SqlClient): EditHandler<never, never> => ({
     ),
 });
 
+const stallingBeforeCommit = (
+  sql: SqlClient.SqlClient,
+  stalled: Deferred.Deferred<void>,
+): SqlClient.SqlClient =>
+  Object.assign(sql.bind(undefined), sql, {
+    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      sql.withTransaction(
+        effect.pipe(
+          Effect.andThen(Deferred.succeed(stalled, undefined)),
+          Effect.andThen(Effect.never),
+        ),
+      ),
+  });
+
 describe("RecordingEdits.layerPerCall", () => {
   it.effect("opens a connection for each call and closes it afterwards", () =>
     Effect.gen(function* () {
@@ -119,5 +135,45 @@ describe("RecordingEdits.layerPerCall", () => {
         assert.strictEqual(failure.reason, "Connection refused");
       }
     }),
+  );
+});
+
+describe("RecordingEdits.handlePending", () => {
+  it.effect("gives up on a transaction that doesn't commit in time and rolls it back", () =>
+    Effect.gen(function* () {
+      const sql = yield* createTables;
+      const stalled = yield* Deferred.make<void>();
+      const committed = yield* Ref.make(false);
+
+      const edits = RecordingEdits.makeWith(
+        Effect.void,
+        connectedTo(stallingBeforeCommit(sql, stalled)),
+      );
+
+      const renamingThenTelling: EditHandler<never, never> = {
+        apply: (edit) =>
+          renaming(sql)
+            .apply(edit)
+            .pipe(Effect.as({ afterCommit: Ref.set(committed, true) })),
+      };
+
+      const submitted = Option.getOrThrow(
+        yield* edits.submit(ada, RECORDING, { kind: "title", title: "Retro" }),
+      );
+
+      const fiber = yield* edits.handlePending(renamingThenTelling).pipe(Effect.forkChild);
+
+      yield* Deferred.await(stalled);
+      yield* TestClock.adjust(Duration.sum(QUERY_TIMEOUT, Duration.millis(1)));
+
+      const failure = yield* Fiber.join(fiber).pipe(Effect.flip);
+      const found = yield* edits.find(ada, submitted.id);
+
+      assert.strictEqual(failure._tag, "RecordingUnavailable");
+      assert.strictEqual(failure.reason, "Timed out after 10 seconds");
+      assert.isFalse(yield* Ref.get(committed));
+      assert.deepStrictEqual(yield* sql`SELECT title FROM office.recordings`, [{ title: null }]);
+      assert.strictEqual(Option.getOrNull(found)?.outcome, null);
+    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
   );
 });
