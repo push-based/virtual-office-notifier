@@ -1108,19 +1108,26 @@ export const startRecorder = Effect.gen(function* () {
       ),
     );
 
-    yield* Effect.forever(transcribeNext).pipe(Effect.forkScoped);
-    yield* publishStatuses.pipe(Effect.forkScoped);
-
     const follow = Stream.runForEach(gateway.botPresence, onPresence);
     const poll = Effect.schedule(tick, Schedule.spaced(POLL_INTERVAL));
 
-    yield* Effect.raceFirst(follow, poll);
+    yield* Effect.all(
+      [Effect.forever(transcribeNext), publishStatuses, Effect.raceFirst(follow, poll)],
+      { concurrency: "unbounded", discard: true },
+    );
   }, Effect.scoped);
 
   return yield* Option.match(gateway.office, {
     onNone: () => Effect.logInfo("No office voice channel, so recording is off"),
     onSome: runFor,
-  }).pipe(Effect.forkScoped);
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logError("Stopped recording the office", cause).pipe(
+        Effect.andThen(ErrorReporter.report(cause)),
+      ),
+    ),
+    Effect.forkScoped,
+  );
 });
 
 export const RecorderLayer = Layer.effectDiscard(startRecorder);
