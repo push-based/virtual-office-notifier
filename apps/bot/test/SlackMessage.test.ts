@@ -1,4 +1,4 @@
-import { DateTime, Duration, Option } from "effect";
+import { Array, DateTime, Duration, Option } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { OfficeEvent } from "../src/OfficeEvent.ts";
@@ -243,9 +243,10 @@ describe("formatMessage", () => {
     const count = reminderHeadlines.length;
 
     // Weekdays only, the way the reminder cron fires.
-    const weekdays = Array.from({ length: count + 1 }, (_, n) => Math.floor(n / 5) * 7 + (n % 5));
+    const weekdays = Array.makeBy(count + 1, (n) => Math.floor(n / 5) * 7 + (n % 5));
 
-    const texts = weekdays.map(
+    const texts = Array.map(
+      weekdays,
       (day) =>
         announce(OfficeEvent.Reminder({ ...office, at: DateTime.add(monday, { days: day }) }), 0)
           .text,

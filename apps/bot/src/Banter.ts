@@ -1,13 +1,15 @@
 import {
-  type Array,
+  Array,
   DateTime,
   Duration,
   Effect,
   Filter,
   identity,
   Option,
+  pipe,
   Random,
   Stream,
+  String,
 } from "effect";
 
 import {
@@ -96,7 +98,7 @@ const MONTH_NAMES = [
   "Dec",
 ];
 
-const twoDigits = (value: number): string => String(value).padStart(2, "0");
+const twoDigits = (value: number): string => pipe(`${value}`, String.padStart(2, "0"));
 
 export const officeClock = (at: DateTime.Utc): string => {
   const { weekDay, day, month, hour, minute } = DateTime.toParts(inOfficeTime(at));
@@ -107,7 +109,7 @@ export const officeClock = (at: DateTime.Utc): string => {
 const whoIsPresent = (present: ReadonlyArray<string>): string =>
   present.length === 0
     ? "Nobody's in the office right now."
-    : `In the office right now: ${present.join(", ")}.`;
+    : `In the office right now: ${Array.join(present, ", ")}.`;
 
 const activityHeading = (context: BanterContext, description: string): string =>
   context.olderEntriesLeftOut === 0
@@ -117,18 +119,22 @@ const activityHeading = (context: BanterContext, description: string): string =>
 export const banterLog = (context: BanterContext): string => {
   const { description } = periodRange(context.period, context.at);
 
-  return [
-    `It's ${officeClock(context.at)} (UTC+2).`,
-    whoIsPresent(context.present),
-    ...(context.activityOldestFirst.length === 0
-      ? [`Nothing happened in the office ${description}.`]
-      : [
-          activityHeading(context, description),
-          ...context.activityOldestFirst.map(
-            ({ at, who, event }) => `${officeClock(at)} ${who} ${event}`,
-          ),
-        ]),
-  ].join("\n");
+  return Array.join(
+    [
+      `It's ${officeClock(context.at)} (UTC+2).`,
+      whoIsPresent(context.present),
+      ...(context.activityOldestFirst.length === 0
+        ? [`Nothing happened in the office ${description}.`]
+        : [
+            activityHeading(context, description),
+            ...Array.map(
+              context.activityOldestFirst,
+              ({ at, who, event }) => `${officeClock(at)} ${who} ${event}`,
+            ),
+          ]),
+    ],
+    "\n",
+  );
 };
 
 const waitForNextChance = Random.nextIntBetween(

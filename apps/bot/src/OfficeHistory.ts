@@ -1,4 +1,4 @@
-import { Context, DateTime, Duration, Effect, Layer, Schema } from "effect";
+import { Array, Context, DateTime, Duration, Effect, Layer, pipe, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 
 import { Database, describeError } from "./Database.ts";
@@ -8,12 +8,12 @@ export const MAX_ACTIVITY_ENTRIES = 400;
 
 const READ_TIMEOUT = Duration.seconds(10);
 
-export class HistoryUnavailable extends Schema.TaggedError<HistoryUnavailable>()(
-  "HistoryUnavailable",
-  {
-    reason: Schema.String,
-  },
-) {}
+export class HistoryUnavailable extends Schema.TaggedError<
+  HistoryUnavailable,
+  { readonly brand: unique symbol }
+>()("HistoryUnavailable", {
+  reason: Schema.String,
+}) {}
 
 const decodeActivityRows = Schema.decodeUnknownEffect(
   Schema.Array(
@@ -31,7 +31,7 @@ export interface RecentActivity {
   readonly olderEntriesLeftOut: number;
 }
 
-const notRecording = () => Effect.fail(new HistoryUnavailable({ reason: "Nothing is recorded" }));
+const notRecording = () => Effect.fail(HistoryUnavailable.make({ reason: "Nothing is recorded" }));
 
 export class OfficeHistory extends Context.Service<
   OfficeHistory,
@@ -47,7 +47,7 @@ export class OfficeHistory extends Context.Service<
       period: BanterPeriod,
     ): Effect.Effect<void, HistoryUnavailable>;
   }
->()("virtual-office-notifier/OfficeHistory") {
+>()("bot/OfficeHistory") {
   static readonly layer = Layer.effect(
     OfficeHistory,
     Effect.gen(function* () {
@@ -57,11 +57,11 @@ export class OfficeHistory extends Context.Service<
       const onceReady = <A, E extends Error>(query: Effect.Effect<A, E>) =>
         database.ready.pipe(
           Effect.andThen(query),
-          Effect.mapError((error) => new HistoryUnavailable({ reason: describeError(error) })),
+          Effect.mapError((error) => HistoryUnavailable.make({ reason: describeError(error) })),
           Effect.timeoutOrElse({
             duration: READ_TIMEOUT,
             orElse: () =>
-              Effect.fail(new HistoryUnavailable({ reason: "Timed out after 10 seconds" })),
+              Effect.fail(HistoryUnavailable.make({ reason: "Timed out after 10 seconds" })),
           }),
         );
 
@@ -84,9 +84,11 @@ export class OfficeHistory extends Context.Service<
         );
 
         return {
-          entriesOldestFirst: newestFirst
-            .map(({ observedAt, who, event }) => ({ at: observedAt, who, event }))
-            .reverse(),
+          entriesOldestFirst: pipe(
+            newestFirst,
+            Array.map(({ observedAt, who, event }) => ({ at: observedAt, who, event })),
+            Array.reverse,
+          ),
           olderEntriesLeftOut: (newestFirst[0]?.total ?? 0) - newestFirst.length,
         };
       });
@@ -104,7 +106,7 @@ export class OfficeHistory extends Context.Service<
           ORDER BY who
         `,
       ).pipe(
-        Effect.map((rows) => rows.map((row) => row.who)),
+        Effect.map((rows) => Array.map(rows, (row) => row.who)),
         Effect.withSpan("OfficeHistory.presentSinceBotStarted"),
       );
 

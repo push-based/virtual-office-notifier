@@ -1,6 +1,18 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { type Cause, DateTime, Effect, Fiber, Layer, Option, Queue } from "effect";
+import {
+  Array,
+  type Cause,
+  DateTime,
+  Effect,
+  Fiber,
+  Layer,
+  Option,
+  Queue,
+  Schema,
+  String,
+} from "effect";
+import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 import { RECORDING_LIMIT } from "recording-requests/RecordingRequest";
@@ -18,6 +30,8 @@ import { type CaptureError, type Clip, VoiceCapture } from "../src/VoiceCapture.
 import { makeFakeSlackClient, makeFakeSlackHistory, SLACK_ENV, withEnv } from "./fakes.ts";
 
 const OFFICE = "office";
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const env = {
   DISCORD_BOT_TOKEN: "discord-token",
@@ -48,7 +62,7 @@ const celt20ms = new Uint8Array([0b1111_1100, 1, 2, 3]);
 const clip = (userId: string, seconds: number): Clip => ({
   userId,
   startedAt: DateTime.nowUnsafe(),
-  packets: Array.from({ length: seconds * 50 }, () => celt20ms),
+  packets: Array.makeBy(seconds * 50, () => celt20ms),
 });
 
 interface HarnessOptions {
@@ -91,12 +105,13 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
       summaries,
       slack.layer,
       history.layer,
+      SecureRandom.layerWebCrypto,
     ]),
     Layer.provideMerge(
       DiscordGateway.layerTest({
         updates,
         present,
-        occupants: new Set(present.map((member) => member.userId)),
+        occupants: new Set(Array.map(present, (member) => member.userId)),
         recordings,
       }),
     ),
@@ -128,10 +143,10 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
 
   const request = (requestedBy: string, action: "start" | "stop") =>
     requests
-      .submit({ id: requestedBy, name: requestedBy.toUpperCase() }, action)
+      .submit({ id: requestedBy, name: String.toUpperCase(requestedBy) }, action)
       .pipe(Effect.asVoid);
 
-  const realSleep = Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 10)));
+  const realSleep = TestClock.withLive(Effect.sleep("10 millis"));
 
   const eventually = <A>(
     query: Effect.Effect<ReadonlyArray<A>, Error>,
@@ -251,7 +266,7 @@ describe("Recorder", () => {
 
         const [post] = yield* h.posts;
         assert.strictEqual(post?.channel, SLACK_ENV.SLACK_CHANNEL_ID);
-        assert.include(JSON.stringify(post?.blocks), "• They said hello");
+        assert.include(yield* encodeJson(post?.blocks), "• They said hello");
 
         const [upload] = yield* h.uploads;
         assert.strictEqual(upload?.threadTs, "900.0");
@@ -262,11 +277,11 @@ describe("Recorder", () => {
         assert.strictEqual(recorded?.model, "m");
 
         assert.deepStrictEqual(
-          (yield* h.requestRows).map(({ outcome }) => outcome),
+          Array.map(yield* h.requestRows, ({ outcome }) => outcome),
           ["started", "stopped"],
         );
         assert.deepStrictEqual(
-          (yield* h.eventRows).map(({ event }) => event),
+          Array.map(yield* h.eventRows, ({ event }) => event),
           ["started", "stopped"],
         );
       }),
@@ -281,7 +296,7 @@ describe("Recorder", () => {
       yield* h.tick;
 
       const requests = yield* h.eventually(h.requestRows, (rows) =>
-        rows.every((row) => row.outcome !== null),
+        Array.every(rows, (row) => row.outcome !== null),
       );
 
       assert.deepStrictEqual(requests, [
@@ -339,7 +354,9 @@ describe("Recorder", () => {
         }),
       });
 
-      yield* h.eventually(h.eventRows, (rows) => rows.some((row) => row.event === "resumed"));
+      yield* h.eventually(h.eventRows, (rows) =>
+        Array.some(rows, (row) => row.event === "resumed"),
+      );
       assert.deepStrictEqual(yield* h.recordings, [true]);
 
       yield* h.tick;
@@ -378,7 +395,7 @@ describe("Recorder", () => {
       const h = yield* makeHarness({
         present: [ada],
         transcribe: () =>
-          Effect.fail(new TranscriptionError({ failure: "DailyLimit", detail: "used up" })),
+          Effect.fail(TranscriptionError.make({ failure: "DailyLimit", detail: "used up" })),
       });
 
       yield* h.request("u1", "start");
@@ -405,11 +422,12 @@ describe("Recorder", () => {
       const h = yield* makeHarness({ present: [ada] });
 
       const [before] = yield* h.eventually(h.statusRows, (rows) => rows[0]?.botInOffice === true);
+      assert.isDefined(before);
       assert.deepStrictEqual(
-        before?.occupants.map(({ userId }) => userId),
+        Array.map(before.occupants, ({ userId }) => userId),
         ["u1"],
       );
-      assert.isNull(before?.recordingId);
+      assert.isNull(before.recordingId);
 
       yield* h.request("u1", "start");
       yield* h.tick;
@@ -427,8 +445,9 @@ describe("Recorder", () => {
         (rows) => (rows[0]?.occupants.length ?? 0) === 2,
       );
 
+      assert.isDefined(withGrace);
       assert.deepStrictEqual(
-        withGrace?.occupants.map(({ userId }) => userId),
+        Array.map(withGrace.occupants, ({ userId }) => userId),
         ["u1", "u2"],
       );
 

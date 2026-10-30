@@ -1,4 +1,5 @@
 import { Effect, Layer, Option, Redacted, Stream } from "effect";
+import { SecureRandom } from "effect/crypto";
 
 import { ActivityRecorder } from "./ActivityRecorder.ts";
 import { banter } from "./Banter.ts";
@@ -96,4 +97,5 @@ export const MainLayer = Layer.mergeAll(Responder.layer, RecorderLayer).pipe(
   Layer.provideMerge(DiscordGateway.layer),
   Layer.provideMerge(SlackNotifier.layer),
   Layer.provideMerge(StorageLayer),
+  Layer.provideMerge(SecureRandom.layerWebCrypto),
 );

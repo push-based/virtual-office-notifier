@@ -18,12 +18,12 @@ import { Socket } from "effect/socket";
 import { type SlackError, SlackClient } from "./SlackClient.ts";
 import { decodeEnvelope, type Envelope } from "./SlackEvent.ts";
 
-export class SlackSocketDropped extends Schema.TaggedError<SlackSocketDropped>()(
-  "SlackSocketDropped",
-  {
-    reason: Schema.String,
-  },
-) {
+export class SlackSocketDropped extends Schema.TaggedError<
+  SlackSocketDropped,
+  { readonly brand: unique symbol }
+>()("SlackSocketDropped", {
+  reason: Schema.String,
+}) {
   override get message(): string {
     return `Lost the Slack Socket Mode connection: ${this.reason}`;
   }
@@ -40,7 +40,7 @@ export class SlackSocketDropped extends Schema.TaggedError<SlackSocketDropped>()
 const MAX_RECONNECT_DELAY = Duration.minutes(5);
 
 const dropped = (error: Socket.SocketError) =>
-  new SlackSocketDropped({ reason: error.reason._tag });
+  SlackSocketDropped.make({ reason: error.reason._tag });
 
 const reconnectSchedule = Schedule.exponential("1 second").pipe(
   Schedule.setInputType<SlackError | SlackSocketDropped>(),
@@ -50,7 +50,7 @@ const reconnectSchedule = Schedule.exponential("1 second").pipe(
   Schedule.tap(({ input, attempt, duration }) =>
     Effect.logWarning("Lost the Slack connection, reconnecting").pipe(
       Effect.annotateLogs({
-        reason: input instanceof SlackSocketDropped ? input.reason : input.reason._tag,
+        reason: Schema.is(SlackSocketDropped)(input) ? input.reason : input.reason._tag,
         attempt,
         delayMs: Duration.toMillis(duration),
       }),
@@ -71,7 +71,7 @@ export class SlackSocket extends Context.Service<
   {
     readonly envelopes: Stream.Stream<Envelope>;
   }
->()("virtual-office-notifier/SlackSocket") {
+>()("bot/SlackSocket") {
   static readonly layerNoDeps = Layer.effect(
     SlackSocket,
     Effect.gen(function* () {

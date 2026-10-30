@@ -5,7 +5,19 @@ import {
   VoiceConnectionStatus,
 } from "@discordjs/voice";
 import { NodeHttpClient, NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Duration, Effect, FileSystem, Layer, Option, Path, Redacted, Schema } from "effect";
+import {
+  Clock,
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Path,
+  pipe,
+  Redacted,
+  Schema,
+  String,
+} from "effect";
 import { Client, Events, GatewayIntentBits } from "discord.js";
 import type { Buffer } from "node:buffer";
 
@@ -20,9 +32,12 @@ import { Transcriber } from "../src/Transcriber.ts";
 //
 //   node --env-file=.env scripts/try-recording.ts [--seconds 60] [--out recordings-check]
 
-class CheckFailed extends Schema.TaggedError<CheckFailed>()("CheckFailed", {
-  message: Schema.String,
-}) {}
+class CheckFailed extends Schema.TaggedError<CheckFailed, { readonly brand: unique symbol }>()(
+  "CheckFailed",
+  {
+    message: Schema.String,
+  },
+) {}
 
 const argument = (flag: string): string | undefined => {
   const index = process.argv.indexOf(flag);
@@ -31,6 +46,9 @@ const argument = (flag: string): string | undefined => {
 };
 
 const program = Effect.gen(function* () {
+  const effectContext = yield* Effect.context<never>();
+  const runInBackground = Effect.runForkWith(effectContext);
+
   const { botToken, officeChannelId } = yield* DiscordConfig;
   const { cloudflare } = yield* AiConfig;
   const { whisperModel, language } = yield* RecordingConfig;
@@ -57,7 +75,7 @@ const program = Effect.gen(function* () {
     client.once(Events.ClientReady, (ready) => resume(Effect.succeed(ready)));
     client
       .login(Redacted.value(botToken))
-      .catch((cause: Error) => resume(Effect.fail(new CheckFailed({ message: cause.message }))));
+      .catch((cause: Error) => resume(Effect.fail(CheckFailed.make({ message: cause.message }))));
   });
 
   yield* Effect.addFinalizer(() => Effect.promise(() => client.destroy()));
@@ -65,7 +83,7 @@ const program = Effect.gen(function* () {
   const channel = ready.channels.cache.get(officeChannelId);
 
   if (channel === undefined || !channel.isVoiceBased()) {
-    return yield* new CheckFailed({
+    return yield* CheckFailed.make({
       message: `Channel ${officeChannelId} isn't a voice channel the bot can see`,
     });
   }
@@ -84,9 +102,9 @@ const program = Effect.gen(function* () {
   });
 
   connection.on("debug", (message) => {
-    if (/dave|e2ee|mls/i.test(message)) console.log(`[voice] ${message}`);
+    if (/dave|e2ee|mls/i.test(message)) runInBackground(Effect.log(`[voice] ${message}`));
   });
-  connection.on("error", (error) => console.error("[voice] error", error));
+  connection.on("error", (error) => runInBackground(Effect.logError("[voice] error", error)));
 
   yield* Effect.addFinalizer(() =>
     Effect.sync(() => {
@@ -96,7 +114,8 @@ const program = Effect.gen(function* () {
 
   yield* Effect.tryPromise({
     try: () => entersState(connection, VoiceConnectionStatus.Ready, 20_000),
-    catch: (cause) => new CheckFailed({ message: `Couldn't connect to voice: ${String(cause)}` }),
+    catch: (cause) =>
+      CheckFailed.make({ message: `Couldn't connect to voice: ${globalThis.String(cause)}` }),
   });
 
   yield* Effect.log("Voice connection ready. Decryption failures would show up as warnings below.");
@@ -115,21 +134,29 @@ const program = Effect.gen(function* () {
     const packets: Array<Uint8Array> = [];
     const name = channel.guild.members.cache.get(userId)?.displayName ?? userId;
 
-    console.log(`[clip] ${name} started speaking`);
+    runInBackground(Effect.log(`[clip] ${name} started speaking`));
 
     stream.on("data", (packet: Buffer) => packets.push(new Uint8Array(packet)));
     stream.on("end", () => {
       const durationMs = opusPacketsDuration(packets);
       const ogg = oggOpusFile(packets);
-      const file = path.join(out, `${name.replaceAll(/[^\w-]/g, "_")}-${Date.now()}.ogg`);
 
       clips += 1;
-      console.log(
-        `[clip] ${name}: ${packets.length} packets, ${durationMs} ms, ${ogg.length} bytes -> ${file}`,
-      );
 
-      Effect.runPromise(fs.writeFile(file, ogg)).catch((error: Error) =>
-        console.error("[clip] write failed", error.message),
+      runInBackground(
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const fileName = pipe(name, String.replaceAll(/[^\w-]/g, "_"));
+          const file = path.join(out, `${fileName}-${now}.ogg`);
+
+          yield* Effect.log(
+            `[clip] ${name}: ${packets.length} packets, ${durationMs} ms, ${ogg.length} bytes -> ${file}`,
+          );
+
+          yield* fs
+            .writeFile(file, ogg)
+            .pipe(Effect.catch((error) => Effect.logError("[clip] write failed", error.message)));
+        }),
       );
 
       if (firstTranscribable === undefined && durationMs >= 1000) firstTranscribable = ogg;

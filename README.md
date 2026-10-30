@@ -501,6 +501,8 @@ The tests run the program against fakes for Discord, Slack and the AI models, so
 
 TypeScript is pinned to the exact version `@effect/tsgo` supports, so upgrade the two together. The `prepare` script patches it on install.
 
+Every Effect diagnostic is an error, so `typecheck` fails on any of them, including the rules that are only suggestions by default. Fix the code rather than silencing a rule. The root [`tsconfig.json`](tsconfig.json) lists the unstable Effect modules the app is allowed to use in `allowedUnstableApis`, so using a new one means adding it there.
+
 Vite, Vitest, Oxlint and Oxfmt come from Vite+. The catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml) points `vite` at Vite+'s core, and its overrides keep a single copy of Vite and Vitest across the workspace, which `@effect/vitest` needs to register its tests with the runner `vp test` starts. Upgrade them by bumping `vite-plus` and `vitest` there together.
 
 The Activity's page and the design system are compiled by [vite-plugin-ngp](https://push-based.github.io/vite-plugin-ngp/getting-started). The plugin only works with the Angular release its compiler was built from, so every `@angular/*` package is pinned to exactly that version in the `angular` catalog in [`pnpm-workspace.yaml`](pnpm-workspace.yaml), with the plugin and the TypeScript 6 that Angular's compiler needs. Upgrade them together there. The Activity's Worker is type-checked with the root's TypeScript 7 instead, from its own [`tsconfig.json`](apps/office-recorder/worker/tsconfig.json), and ngp only compiles the browser build, not the Worker.

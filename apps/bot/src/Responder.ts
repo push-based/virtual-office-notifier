@@ -1,4 +1,5 @@
 import {
+  Array,
   Cause,
   Context,
   DateTime,
@@ -7,11 +8,13 @@ import {
   ErrorReporter,
   Layer,
   Option,
+  pipe,
   Queue,
   Redacted,
   Ref,
   Schedule,
   Stream,
+  String,
 } from "effect";
 
 import { isBanterTime, periodRange, startOfOfficeDay } from "./Banter.ts";
@@ -73,7 +76,7 @@ const mailboxOf = ({ threadTs, isMention }: IncomingMessage): string =>
   isMention ? `${threadTs}/mention` : threadTs;
 
 const truncate = (text: string): string =>
-  text.length > MAX_MESSAGE_LENGTH ? `${text.slice(0, MAX_MESSAGE_LENGTH)}…` : text;
+  text.length > MAX_MESSAGE_LENGTH ? `${pipe(text, String.slice(0, MAX_MESSAGE_LENGTH))}…` : text;
 
 const isBefore = (ts: string, than: string): boolean => Number(ts) < Number(than);
 
@@ -202,7 +205,7 @@ export const respondToSlack = Effect.gen(function* () {
 
   const readThread = Effect.fnUntraced(function* (message: IncomingMessage) {
     const all = yield* slack.threadReplies(message.channel, message.threadTs);
-    const earlier = all.filter(({ ts }) => isBefore(ts, message.ts));
+    const earlier = Array.filter(all, ({ ts }) => isBefore(ts, message.ts));
     const [first, ...rest] = earlier;
 
     return first?.ts === message.threadTs
@@ -226,7 +229,7 @@ export const respondToSlack = Effect.gen(function* () {
 
   const messageLine = (message: IncomingMessage, who: string): ThreadLine => ({
     who,
-    text: truncate(message.text.replaceAll(`<@${botUserId}>`, "").trim()),
+    text: truncate(pipe(message.text, String.replaceAll(`<@${botUserId}>`, ""), String.trim)),
   });
 
   const reply = Effect.fnUntraced(function* (
@@ -331,7 +334,7 @@ export const respondToSlack = Effect.gen(function* () {
     if (Option.isSome(replyBlocked) && !canReact) return verdictOf("ignored", "daily_cap");
 
     const decided = yield* decider.decide(yield* clefState(message, who, settings), settings).pipe(
-      Effect.map(Option.some),
+      Effect.asSome,
       Effect.catchTag("ClefFailed", (error) =>
         Effect.logWarning("Clef couldn't decide, so ignoring the message").pipe(
           Effect.annotateLogs({ reason: error.reason }),
@@ -496,7 +499,7 @@ export class Responder extends Context.Service<
   {
     readonly run: Effect.Effect<void>;
   }
->()("virtual-office-notifier/Responder") {
+>()("bot/Responder") {
   static readonly layerNoDeps = Layer.effect(
     Responder,
     Effect.gen(function* () {

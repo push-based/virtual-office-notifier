@@ -1,6 +1,7 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  Array,
   Context,
   DateTime,
   Deferred,
@@ -9,12 +10,16 @@ import {
   Fiber,
   Layer,
   Logger,
+  pipe,
   Predicate,
   Queue,
   Ref,
   References,
+  Schema,
   Scope,
+  String,
 } from "effect";
+import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
@@ -59,13 +64,13 @@ const effect = (userId: string): TimedVoiceEffect => ({
   at: DateTime.makeUnsafe(0),
 });
 
-const outage = new ActivityLogError({ reason: new Outage({ message: "connection closed" }) });
+const outage = ActivityLogError.make({ reason: Outage.make({ message: "connection closed" }) });
 
-const badRow = new ActivityLogError({
-  reason: new BadRow({ message: "violates check constraint" }),
+const badRow = ActivityLogError.make({
+  reason: BadRow.make({ message: "violates check constraint" }),
 });
 
-const outages = (count: number) => Array.from({ length: count }, () => outage);
+const outages = (count: number) => Array.replicate(outage, count);
 
 // A fake ActivityLog that reports every call, in order, and fails the calls
 // it's told to, one failure per call.
@@ -96,7 +101,8 @@ const makeFakeLog = Effect.fnUntraced(function* (
     stopSession: () => call("stop"),
     record: (_session, _entry, { userId }) => call(`record ${userId}`),
     recordEffect: (_session, _entry, { userId }) => call(`effect ${userId}`),
-    reject: (payload) => call(payload.includes(`"userId":"u1"`) ? "reject u1" : "reject"),
+    reject: (payload) =>
+      call(pipe(payload, String.includes(`"userId":"u1"`)) ? "reject u1" : "reject"),
   });
 
   return { log, takeCall: Queue.take(calls), allCalls: Queue.clear(calls) };
@@ -116,7 +122,9 @@ const captureLogs = () => {
     const entry = annotations["entry"];
 
     messages.push({
-      message: String(Array.isArray(options.message) ? options.message[0] : options.message),
+      message: globalThis.String(
+        Array.isArray(options.message) ? options.message[0] : options.message,
+      ),
       entry: Predicate.isString(entry) ? entry : "",
     });
   });
@@ -124,8 +132,12 @@ const captureLogs = () => {
   return { messages, layer: Logger.layer([logger]) };
 };
 
+const decodeTagged = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ _tag: Schema.String })),
+);
+
 const messagesStartingWith = (messages: ReadonlyArray<LogEntry>, prefix: string) =>
-  messages.filter((log) => log.message.startsWith(prefix));
+  Array.filter(messages, (log) => pipe(log.message, String.startsWith(prefix)));
 
 // Builds the recorder in its own scope, so tests can shut it down.
 const startRecorder = Effect.fnUntraced(function* (
@@ -138,6 +150,7 @@ const startRecorder = Effect.fnUntraced(function* (
     ActivityRecorder.layerNoDeps.pipe(
       Layer.provide(Layer.succeed(ActivityLog, log)),
       Layer.provide(Layer.succeed(Database, Database.of({ ready }))),
+      Layer.provide(SecureRandom.layerWebCrypto),
     ),
     scope,
   );
@@ -275,7 +288,10 @@ describe("ActivityRecorder", () => {
             severity: "Error",
           },
         ]);
-        assert.notInclude(JSON.stringify(reports), "u1");
+        assert.notInclude(
+          yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(reports),
+          "u1",
+        );
       }),
   );
 
@@ -324,10 +340,10 @@ describe("ActivityRecorder", () => {
       yield* TestClock.adjust("10 seconds");
       yield* Fiber.join(stopping);
 
-      const unwritten = messagesStartingWith(
-        logs.messages,
-        "Couldn't record before shutting down",
-      ).map((log) => JSON.parse(log.entry)._tag);
+      const unwritten = yield* Effect.forEach(
+        messagesStartingWith(logs.messages, "Couldn't record before shutting down"),
+        (log) => decodeTagged(log.entry).pipe(Effect.map(({ _tag }) => _tag)),
+      );
 
       // The one being retried, then what was queued behind it.
       assert.deepStrictEqual(unwritten, ["Observed", "Observed", "SessionStopped"]);
@@ -346,11 +362,9 @@ describe("StorageLayer", () => {
     },
   ])("never fails startup or shutdown $case", ({ env }) =>
     Effect.gen(function* () {
-      const building = yield* Layer.build(StorageLayer).pipe(
-        Effect.scoped,
-        withEnv(env),
-        Effect.forkChild,
-      );
+      const building = yield* Layer.build(
+        StorageLayer.pipe(Layer.provide(SecureRandom.layerWebCrypto)),
+      ).pipe(Effect.scoped, withEnv(env), Effect.forkChild);
 
       // Shutting down waits up to 10 seconds for a database that never came up.
       // The real connection attempt needs real time to fail, so the test clock
@@ -371,6 +385,7 @@ describe("StorageLayer", () => {
       const context = yield* Layer.buildWithScope(
         ActivityRecorder.layerNoDeps.pipe(
           Layer.provide(Layer.provideMerge(ActivityLog.layer, Database.layerNoDeps())),
+          Layer.provide(SecureRandom.layerWebCrypto),
         ),
         scope,
       );

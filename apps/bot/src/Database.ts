@@ -1,5 +1,6 @@
 import { PgClient } from "@effect/sql-pg";
 import {
+  Array,
   Cause,
   Context,
   Deferred,
@@ -44,17 +45,17 @@ export const describeError = (error: Error): string => {
     if (messages.at(-1) !== cause.message) messages.push(cause.message);
   }
 
-  return messages.join(": ");
+  return Array.join(messages, ": ");
 };
 
 // Reported to Sentry on every retry, connecting or writing. Like the logs, it
 // only carries the messages, never the error objects.
-export class DatabaseUnavailable extends Schema.TaggedError<DatabaseUnavailable>()(
-  "DatabaseUnavailable",
-  {
-    reason: Schema.String,
-  },
-) {
+export class DatabaseUnavailable extends Schema.TaggedError<
+  DatabaseUnavailable,
+  { readonly brand: unique symbol }
+>()("DatabaseUnavailable", {
+  reason: Schema.String,
+}) {
   override get message(): string {
     return `Couldn't reach the database: ${this.reason}`;
   }
@@ -78,7 +79,9 @@ const retryLogged = reconnectSchedule.pipe(
         delayMs: Duration.toMillis(duration),
       }),
       Effect.andThen(
-        ErrorReporter.report(Cause.fail(new DatabaseUnavailable({ reason: describeError(input) }))),
+        ErrorReporter.report(
+          Cause.fail(DatabaseUnavailable.make({ reason: describeError(input) })),
+        ),
       ),
     ),
   ),
@@ -95,7 +98,7 @@ export class Database extends Context.Service<
     // until then, connecting is retried in the background.
     readonly ready: Effect.Effect<void>;
   }
->()("virtual-office-notifier/Database") {
+>()("bot/Database") {
   // Connecting happens in the background, so building this never waits on
   // the database, and a database that's down can't hold up the bot.
   static readonly layerNoDeps = (loader: Migrator.Loader = migrations) =>

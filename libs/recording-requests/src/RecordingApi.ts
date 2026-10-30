@@ -17,20 +17,18 @@ export interface Requester {
 }
 
 export class CurrentRequester extends Context.Service<CurrentRequester, Requester>()(
-  "recording-requests/CurrentRequester",
+  "recording-requests/RecordingApi/CurrentRequester",
 ) {}
 
-export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
-  "Unauthorized",
-  {},
-  { httpApiStatus: 401 },
-) {}
+export class Unauthorized extends Schema.TaggedError<
+  Unauthorized,
+  { readonly brand: unique symbol }
+>()("Unauthorized", {}, { httpApiStatus: 401 }) {}
 
-export class RequestNotFound extends Schema.TaggedError<RequestNotFound>()(
-  "RequestNotFound",
-  {},
-  { httpApiStatus: 404 },
-) {}
+export class RequestNotFound extends Schema.TaggedError<
+  RequestNotFound,
+  { readonly brand: unique symbol }
+>()("RequestNotFound", {}, { httpApiStatus: 404 }) {}
 
 export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()(
   "recording-requests/SignedIn",

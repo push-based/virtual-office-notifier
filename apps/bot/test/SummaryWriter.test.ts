@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Schema } from "effect";
+import { DateTime, Effect, Exit, pipe, Schema, String } from "effect";
 
 import type { ClipLine, RecordingDetails } from "../src/RecordingStore.ts";
 import {
@@ -36,7 +36,7 @@ const line = (overrides: Partial<ClipLine> = {}): ClipLine => ({
   ...overrides,
 });
 
-const decode = Schema.decodeUnknownSync(SummaryText);
+const decode = Schema.decodeUnknownEffect(SummaryText);
 
 describe("transcriptLines", () => {
   it("writes one line per clip with the office time and who spoke", () => {
@@ -61,7 +61,7 @@ describe("transcriptText", () => {
   it("starts with when the recording was and who started it", () => {
     const text = transcriptText(details, [line()]);
 
-    assert.deepStrictEqual(text.split("\n"), [
+    assert.deepStrictEqual(String.split(text, "\n"), [
       "Office recording from Fri 23 Oct 10:00 to 11:35 (UTC+2), 1h 35m, started by Ada.",
       "",
       "10:01 Ada: Hello everyone.",
@@ -86,17 +86,27 @@ describe("speakersOf and hasSpeech", () => {
 });
 
 describe("SummaryText", () => {
-  it("trims the reply and strips wrapping quotes", () => {
-    assert.strictEqual(decode('  "• Ada said hello"\n'), "• Ada said hello");
-  });
+  it.effect("trims the reply and strips wrapping quotes", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(yield* decode('  "• Ada said hello"\n'), "• Ada said hello");
+    }),
+  );
 
-  it("keeps line breaks between bullets", () => {
-    assert.strictEqual(decode("• One\n• Two"), "• One\n• Two");
-  });
+  it.effect("keeps line breaks between bullets", () =>
+    Effect.gen(function* () {
+      assert.strictEqual(yield* decode("• One\n• Two"), "• One\n• Two");
+    }),
+  );
 
-  it("refuses angle brackets and over-long replies", () => {
-    assert.throws(() => decode("• See <https://example.com>"));
-    assert.throws(() => decode("•".repeat(MAX_SUMMARY_LENGTH + 1)));
-    assert.throws(() => decode('""'));
-  });
+  it.effect("refuses angle brackets and over-long replies", () =>
+    Effect.gen(function* () {
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(decode("• See <https://example.com>"))));
+      assert.isTrue(
+        Exit.isFailure(
+          yield* Effect.exit(decode(pipe("•", String.repeat(MAX_SUMMARY_LENGTH + 1)))),
+        ),
+      );
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(decode('""'))));
+    }),
+  );
 });

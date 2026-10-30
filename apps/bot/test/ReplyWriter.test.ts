@@ -1,5 +1,17 @@
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option, Random, Ref, Schema, Stream } from "effect";
+import {
+  Array,
+  DateTime,
+  Effect,
+  Layer,
+  Option,
+  pipe,
+  Random,
+  Ref,
+  Schema,
+  Stream,
+  String,
+} from "effect";
 import { AiError, LanguageModel, Model, type Response } from "effect/ai";
 
 import { type ReplyContext, ReplyText, ReplyWriter } from "../src/ReplyWriter.ts";
@@ -10,7 +22,7 @@ type Reply = Effect.Effect<Array<Response.PartEncoded>, AiError.AiError>;
 const says = (text: string): Reply => Effect.succeed([{ type: "text", text }]);
 
 const modelDown: Reply = Effect.fail(
-  AiError.make({ module: "Test", method: "generateText", reason: new AiError.RateLimitError({}) }),
+  AiError.make({ module: "Test", method: "generateText", reason: AiError.RateLimitError.make({}) }),
 );
 
 const fakeModel = (
@@ -70,7 +82,7 @@ const makeWriter = Effect.fnUntraced(function* (
   const prompts = yield* Ref.make<ReadonlyArray<string>>([]);
 
   const models = (named: ReadonlyArray<readonly [string, Reply]>) =>
-    named.map(([name, reply]) => fakeModel(name, reply, calls, prompts));
+    Array.map(named, ([name, reply]) => fakeModel(name, reply, calls, prompts));
 
   const [firstOpenRouter, ...restOpenRouter] = models(openRouter);
   const [firstCloudflare, ...restCloudflare] = models(cloudflare);
@@ -104,8 +116,8 @@ describe("ReplyText", () => {
 
   it("rejects an empty or overlong message", () => {
     assert.isTrue(Option.isNone(decode("  ")));
-    assert.isTrue(Option.isNone(decode("ha".repeat(301))));
-    assert.isTrue(Option.isSome(decode("ha".repeat(300))));
+    assert.isTrue(Option.isNone(decode(pipe("ha", String.repeat(301)))));
+    assert.isTrue(Option.isSome(decode(pipe("ha", String.repeat(300)))));
   });
 });
 
@@ -176,7 +188,7 @@ describe("ReplyWriter", () => {
 
       assert.isTrue(Option.isNone(yield* writer.write(context).pipe(Effect.provide(layer))));
       assert.deepStrictEqual(
-        reports.map(({ name, severity }) => ({ name, severity })),
+        Array.map(reports, ({ name, severity }) => ({ name, severity })),
         [{ name: "NoAiReply", severity: "Warn" }],
       );
     }),

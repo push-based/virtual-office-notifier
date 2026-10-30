@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, type Duration, Effect, Fiber, Layer, Ref, Stream } from "effect";
+import { Array, DateTime, type Duration, Effect, Fiber, Layer, Ref, Stream } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
@@ -62,7 +62,10 @@ describe("periodRange", () => {
   it("starts this week today on a Monday", () => {
     const monday = officeTime("2026-09-28T10:00:00");
 
-    assert.strictEqual(iso(periodRange("ThisWeek", monday).from), iso(startOfOfficeDay(monday)));
+    assert.strictEqual(
+      iso(periodRange("ThisWeek", monday).from),
+      monday.pipe(startOfOfficeDay, iso),
+    );
   });
 });
 
@@ -81,24 +84,30 @@ describe("banterLog", () => {
   it("gives the model the time, who's in and every entry in office time", () => {
     assert.strictEqual(
       banterLog(context),
-      [
-        "It's Fri 2 Oct 14:05 (UTC+2).",
-        "In the office right now: Ada, Grace Hopper.",
-        "Here's everything that happened in the office today so far, with times in UTC+2:",
-        "Fri 2 Oct 08:47 Ada Joined",
-        "Fri 2 Oct 09:31 Grace Hopper CameraOn",
-      ].join("\n"),
+      Array.join(
+        [
+          "It's Fri 2 Oct 14:05 (UTC+2).",
+          "In the office right now: Ada, Grace Hopper.",
+          "Here's everything that happened in the office today so far, with times in UTC+2:",
+          "Fri 2 Oct 08:47 Ada Joined",
+          "Fri 2 Oct 09:31 Grace Hopper CameraOn",
+        ],
+        "\n",
+      ),
     );
   });
 
   it("says when the office is empty and nothing happened", () => {
     assert.strictEqual(
       banterLog({ ...context, period: "LastWeek", activityOldestFirst: [], present: [] }),
-      [
-        "It's Fri 2 Oct 14:05 (UTC+2).",
-        "Nobody's in the office right now.",
-        "Nothing happened in the office last week.",
-      ].join("\n"),
+      Array.join(
+        [
+          "It's Fri 2 Oct 14:05 (UTC+2).",
+          "Nobody's in the office right now.",
+          "Nothing happened in the office last week.",
+        ],
+        "\n",
+      ),
     );
   });
 
@@ -123,7 +132,7 @@ const makeFakeHistory = Effect.fnUntraced(function* ({
     ReadonlyArray<{ readonly at: DateTime.Utc; readonly period: BanterPeriod }>
   >([]);
 
-  const fail = Effect.fail(new HistoryUnavailable({ reason: "Database down" }));
+  const fail = Effect.fail(HistoryUnavailable.make({ reason: "Database down" }));
 
   const layer = Layer.succeed(
     OfficeHistory,
@@ -143,7 +152,8 @@ const makeFakeHistory = Effect.fnUntraced(function* ({
               Effect.map(
                 (recorded) =>
                   postsAlreadyToday +
-                  recorded.filter(({ at }) => DateTime.isGreaterThanOrEqualTo(at, from)).length,
+                  Array.filter(recorded, ({ at }) => DateTime.isGreaterThanOrEqualTo(at, from))
+                    .length,
               ),
             ),
       recordBanterPost: (at, period) =>
@@ -182,8 +192,11 @@ describe("banter", () => {
 
       assert.strictEqual(emitted.length, MAX_BANTER_PER_DAY);
       assert.deepStrictEqual(
-        posts.map(({ at }) => iso(at)),
-        ["07:00", "08:00", "09:00", "10:00", "11:00"].map((time) => `1970-01-01T${time}:00.000Z`),
+        Array.map(posts, ({ at }) => iso(at)),
+        Array.map(
+          ["07:00", "08:00", "09:00", "10:00", "11:00"],
+          (time) => `1970-01-01T${time}:00.000Z`,
+        ),
       );
     }),
   );

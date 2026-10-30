@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Fiber, Layer } from "effect";
+import { Effect, Fiber, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 
 import { type ClefState, judge, ReplyDecider } from "../src/ReplyDecider.ts";
@@ -14,6 +14,8 @@ import {
   respond,
   withEnv,
 } from "./fakes.ts";
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const CLOUDFLARE_ENV = { CLOUDFLARE_ACCOUNT_ID: "account-1", CLOUDFLARE_API_TOKEN: "cf-secret" };
 
@@ -111,7 +113,7 @@ describe("ReplyDecider", () => {
       assert.include(request?.url, "/ai/run/@cf/cloudflare/clef-flash");
 
       const body = requestJson(request!);
-      assert.strictEqual(JSON.stringify(decided.verdict.request), requestText(request!));
+      assert.strictEqual(yield* encodeJson(decided.verdict.request), requestText(request!));
       assert.deepNestedInclude(body, {
         "state.message": { who: "Ada", text: "haha Sam is a machine" },
       });

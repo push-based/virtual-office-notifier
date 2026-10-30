@@ -1,3 +1,5 @@
+import { Array } from "effect";
+
 export const OPUS_SAMPLE_RATE = 48_000;
 
 const CRC_TABLE = new Uint32Array(256);
@@ -129,8 +131,8 @@ const oggPage = ({
   first,
   last,
 }: PageInput): Uint8Array => {
-  const lacing = packets.flatMap(segmentsOf);
-  const bodyLength = packets.reduce((total, packet) => total + packet.length, 0);
+  const lacing = Array.flatMap(packets, segmentsOf);
+  const bodyLength = Array.reduce(packets, 0, (total, packet) => total + packet.length);
   const page = new Uint8Array(27 + lacing.length + bodyLength);
   const view = new DataView(page.buffer);
 
@@ -212,7 +214,7 @@ export const oggOpusFile = (
   const groups = groupIntoPages(packets);
   let granule = 0n;
 
-  groups.forEach((group, index) => {
+  Array.forEach(groups, (group, index) => {
     for (const packet of group) granule += BigInt(opusPacketSamples(packet));
 
     pages.push(
@@ -227,7 +229,7 @@ export const oggOpusFile = (
     );
   });
 
-  const file = new Uint8Array(pages.reduce((total, page) => total + page.length, 0));
+  const file = new Uint8Array(Array.reduce(pages, 0, (total, page) => total + page.length));
   let offset = 0;
 
   for (const page of pages) {

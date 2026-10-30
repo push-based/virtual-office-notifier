@@ -1,4 +1,4 @@
-import { Context, DateTime, Effect, Layer, Predicate, Schema } from "effect";
+import { Context, DateTime, Effect, Layer, pipe, Predicate, Schema, String } from "effect";
 import { SqlClient, type SqlError } from "effect/sql";
 
 import { describeError } from "./Database.ts";
@@ -6,16 +6,25 @@ import type { TimedVoiceEffect } from "./VoiceEffect.ts";
 import type { VoiceObservation } from "./VoiceObservation.ts";
 
 // The database is unreachable or misbehaving. Worth retrying the same write.
-export class Outage extends Schema.TaggedError<Outage>()("Outage", {
-  message: Schema.String,
-}) {}
+export class Outage extends Schema.TaggedError<Outage, { readonly brand: unique symbol }>()(
+  "Outage",
+  {
+    message: Schema.String,
+  },
+) {}
 
 // Postgres rejected the data itself. Retrying won't help.
-export class BadRow extends Schema.TaggedError<BadRow>()("BadRow", {
-  message: Schema.String,
-}) {}
+export class BadRow extends Schema.TaggedError<BadRow, { readonly brand: unique symbol }>()(
+  "BadRow",
+  {
+    message: Schema.String,
+  },
+) {}
 
-export class ActivityLogError extends Schema.TaggedError<ActivityLogError>()("ActivityLogError", {
+export class ActivityLogError extends Schema.TaggedError<
+  ActivityLogError,
+  { readonly brand: unique symbol }
+>()("ActivityLogError", {
   reason: Schema.Union([Outage, BadRow]),
 }) {}
 
@@ -33,10 +42,13 @@ const sqlStateOf = (error: SqlError.SqlError): string | undefined => {
 export const classify = (error: SqlError.SqlError): ActivityLogError => {
   const state = sqlStateOf(error);
   const message = describeError(error);
-  const badRow = state !== undefined && (state.startsWith("22") || state.startsWith("23"));
 
-  return new ActivityLogError({
-    reason: badRow ? new BadRow({ message }) : new Outage({ message }),
+  const badRow =
+    state !== undefined &&
+    (pipe(state, String.startsWith("22")) || pipe(state, String.startsWith("23")));
+
+  return ActivityLogError.make({
+    reason: badRow ? BadRow.make({ message }) : Outage.make({ message }),
   });
 };
 
@@ -132,7 +144,7 @@ export class ActivityLog extends Context.Service<
     // Sets aside something that could never be written, as JSON.
     reject(payload: string, error: string, at: DateTime.Utc): Effect.Effect<void, ActivityLogError>;
   }
->()("virtual-office-notifier/ActivityLog") {
+>()("bot/ActivityLog") {
   static readonly layer = Layer.effect(
     ActivityLog,
     Effect.gen(function* () {

@@ -1,4 +1,4 @@
-import { Data, Match, Option, Schema } from "effect";
+import { Data, Match, Option, pipe, Schema, String } from "effect";
 
 const AppMention = Schema.Struct({
   type: Schema.Literal("app_mention"),
@@ -90,7 +90,8 @@ export interface ActivityContext {
   readonly officeChannelId: string;
 }
 
-const mentions = (text: string, botUserId: string): boolean => text.includes(`<@${botUserId}>`);
+const mentions = (text: string, botUserId: string): boolean =>
+  pipe(text, String.includes(`<@${botUserId}>`));
 
 const mentionActivity = (
   event: typeof AppMention.Type,

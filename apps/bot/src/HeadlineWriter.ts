@@ -9,9 +9,11 @@ import {
   Layer,
   type LogLevel,
   type Option,
+  pipe,
   Random,
   Schema,
   SchemaTransformation,
+  String,
 } from "effect";
 
 import {
@@ -47,10 +49,7 @@ const Line = (minLength: number, maxLength: number, pattern: RegExp) =>
       ),
       SchemaTransformation.transform({
         decode: (line) =>
-          line
-            .trim()
-            .replace(/^["'“]+|["'”]+$/g, "")
-            .trim(),
+          pipe(line, String.trim, String.replace(/^["'“]+|["'”]+$/g, ""), String.trim),
         encode: identity,
       }),
     ),
@@ -63,8 +62,12 @@ const ReplyWith = (headline: ReturnType<typeof Line>) =>
       Schema.Array(Schema.String),
       SchemaTransformation.transform({
         decode: (text): ReadonlyArray<string> =>
-          text.split("\n").filter((line) => line.trim() !== ""),
-        encode: (lines) => lines.join("\n"),
+          pipe(
+            text,
+            String.split("\n"),
+            Array.filter((line) => String.trim(line) !== ""),
+          ),
+        encode: (lines) => Array.join(lines, "\n"),
       }),
     ),
     Schema.decodeTo(
@@ -81,7 +84,10 @@ export const BanterReply = ReplyWith(Line(10, 300, /^[^{}<>]+$/));
 
 // Reported once every model has failed, so a run of fixed headlines shows up
 // in Sentry. `reason` is why the last model failed.
-export class NoAiHeadline extends Schema.TaggedError<NoAiHeadline>()("NoAiHeadline", {
+export class NoAiHeadline extends Schema.TaggedError<
+  NoAiHeadline,
+  { readonly brand: unique symbol }
+>()("NoAiHeadline", {
   reason: Schema.String,
 }) {
   override get message(): string {
@@ -105,32 +111,38 @@ const announcement = (
   button: string,
   reply: typeof OpenedReply,
 ): HeadlineBrief => ({
-  prompt: [
-    "You write one-line Slack announcements for a team's virtual office, a Discord voice channel where people work alongside each other.",
-    task,
-    "Reply with exactly two lines and nothing else: no quotes, no labels, no explanation, no markdown.",
-    "Line 1 is the headline. Start it with a single fitting emoji and keep it under 120 characters.",
-    `Line 2 is the label for the button that joins the office. Make it 2 to 4 words that play off the headline, start it with an emoji, and keep it under 30 characters. It used to always say "${button}".`,
-    "Here are some past headlines. Match their tone, but write something new:",
-    ...examples,
-  ].join("\n"),
+  prompt: Array.join(
+    [
+      "You write one-line Slack announcements for a team's virtual office, a Discord voice channel where people work alongside each other.",
+      task,
+      "Reply with exactly two lines and nothing else: no quotes, no labels, no explanation, no markdown.",
+      "Line 1 is the headline. Start it with a single fitting emoji and keep it under 120 characters.",
+      `Line 2 is the label for the button that joins the office. Make it 2 to 4 words that play off the headline, start it with an emoji, and keep it under 30 characters. It used to always say "${button}".`,
+      "Here are some past headlines. Match their tone, but write something new:",
+      ...examples,
+    ],
+    "\n",
+  ),
   request: "Write today's headline.",
   reply,
 });
 
-const BANTER_PROMPT = [
-  "You write short, playful Slack messages for a team's virtual office, a Discord voice channel where people work alongside each other.",
-  "You'll get a log of what happened in the office. Read all of it, pick the single most striking thing in it and write a message about it. It could be an early bird, a night owl, a marathon session, a mute and unmute frenzy, everyone turning their cameras on at once, a rare camera appearance, a crowd, a lone regular, two people who keep turning up together, a soundboard spree, or an office nobody visited.",
-  "In the log, Joined and Left are arriving and leaving, AlreadyThere means they were in when the log started, Muted and Unmuted are their own microphone, Deafened means they turned their sound off, ServerMuted means a moderator muted them, CameraOn is their camera, StreamStarted is sharing their screen, PlayedSound is a soundboard sound followed by its name, and Reacted is an emoji they sent in the voice channel.",
-  "Get the facts right: only say what the log shows, with the right people, days, times and counts. If the log is from last week, say last week.",
-  "Name people when it makes the message better, exactly as they're written in the log. Refer to people by name or as they, never as he or she.",
-  "Tease gently and keep it warm: never be mean, and never shame anyone for being away, leaving early or how much they work.",
-  "Reply with exactly two lines and nothing else: no quotes, no labels, no explanation, no markdown.",
-  "Line 1 is the message. Start it with a single fitting emoji and keep it to one or two sentences, under 250 characters.",
-  "Line 2 is the label for the button that joins the office. Make it 2 to 4 words that play off the message, start it with an emoji, and keep it under 30 characters.",
-  "Here are some example messages. Match their tone, but don't reuse their jokes:",
-  ...banterExamples,
-].join("\n");
+const BANTER_PROMPT = Array.join(
+  [
+    "You write short, playful Slack messages for a team's virtual office, a Discord voice channel where people work alongside each other.",
+    "You'll get a log of what happened in the office. Read all of it, pick the single most striking thing in it and write a message about it. It could be an early bird, a night owl, a marathon session, a mute and unmute frenzy, everyone turning their cameras on at once, a rare camera appearance, a crowd, a lone regular, two people who keep turning up together, a soundboard spree, or an office nobody visited.",
+    "In the log, Joined and Left are arriving and leaving, AlreadyThere means they were in when the log started, Muted and Unmuted are their own microphone, Deafened means they turned their sound off, ServerMuted means a moderator muted them, CameraOn is their camera, StreamStarted is sharing their screen, PlayedSound is a soundboard sound followed by its name, and Reacted is an emoji they sent in the voice channel.",
+    "Get the facts right: only say what the log shows, with the right people, days, times and counts. If the log is from last week, say last week.",
+    "Name people when it makes the message better, exactly as they're written in the log. Refer to people by name or as they, never as he or she.",
+    "Tease gently and keep it warm: never be mean, and never shame anyone for being away, leaving early or how much they work.",
+    "Reply with exactly two lines and nothing else: no quotes, no labels, no explanation, no markdown.",
+    "Line 1 is the message. Start it with a single fitting emoji and keep it to one or two sentences, under 250 characters.",
+    "Line 2 is the label for the button that joins the office. Make it 2 to 4 words that play off the message, start it with an emoji, and keep it under 30 characters.",
+    "Here are some example messages. Match their tone, but don't reuse their jokes:",
+    ...banterExamples,
+  ],
+  "\n",
+);
 
 export const briefFor = OfficeEvent.$match({
   Opened: (): HeadlineBrief =>
@@ -167,7 +179,7 @@ export class HeadlineWriter extends Context.Service<
     // None means the fixed phrasings should be used.
     write(event: OfficeEvent): Effect.Effect<Option.Option<GeneratedHeadline>>;
   }
->()("virtual-office-notifier/HeadlineWriter") {
+>()("bot/HeadlineWriter") {
   // Either provider may go first, and its models are tried in turn until one
   // writes a usable headline.
   static readonly layerProviders = (providers: Providers, banterProviders: Providers = providers) =>
@@ -187,7 +199,7 @@ export class HeadlineWriter extends Context.Service<
             Effect.logWarning("No AI model could write a headline").pipe(
               Effect.andThen(
                 ErrorReporter.report(
-                  Cause.fail(new NoAiHeadline({ reason: failureReason(error) })),
+                  Cause.fail(NoAiHeadline.make({ reason: failureReason(error) })),
                 ),
               ),
             ),

@@ -51,7 +51,7 @@ export const StorageLayer = Layer.unwrap(
                   Effect.annotateLogs({ reason: describeError(error) }),
                   Effect.andThen(
                     ErrorReporter.report(
-                      Cause.fail(new RecordingDisabled({ reason: describeError(error) })),
+                      Cause.fail(RecordingDisabled.make({ reason: describeError(error) })),
                     ),
                   ),
                 ),

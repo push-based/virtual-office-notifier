@@ -1,5 +1,5 @@
 import { NodeHttpClient, NodeRuntime } from "@effect/platform-node";
-import { Config, Console, Effect, Option } from "effect";
+import { Array, Config, Console, Effect, Option } from "effect";
 
 import { DEFAULT_OPENROUTER_BANTER_MODELS } from "../src/Config.ts";
 import { openRouterProvider } from "../src/AiWriting.ts";
@@ -23,11 +23,11 @@ const callAi = process.argv.includes("--call-ai");
 const program = Effect.gen(function* () {
   const { apiKey, model, only } = yield* TryBanterConfig;
 
-  const scenarios = banterScenarios.filter((scenario) =>
+  const scenarios = Array.filter(banterScenarios, (scenario) =>
     Option.match(only, { onNone: () => true, onSome: (name) => scenario.name === name }),
   );
 
-  const events = scenarios.map(({ name, ...context }) => ({
+  const events = Array.map(scenarios, ({ name, ...context }) => ({
     name,
     event: OfficeEvent.Banter({ ...office, ...context }),
   }));

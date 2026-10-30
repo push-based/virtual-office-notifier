@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Redacted, Result, Schema } from "effect";
+import { Effect, Redacted, Result, Schema } from "effect";
 import { AiError, Decision, DecisionModel } from "effect/ai";
 
 import { CloudflareDecisionModel } from "../src/CloudflareDecisionModel.ts";
@@ -26,6 +26,8 @@ const clef = (answers: Record<string, Record<string, string | number | Record<st
     }),
   );
 
+const toJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
 const decide = Effect.fnUntraced(function* (reply: Reply) {
   const http = yield* makeFakeSlackHttp([reply]);
 
@@ -36,7 +38,7 @@ const decide = Effect.fnUntraced(function* (reply: Reply) {
   }).pipe(Effect.provide(http.layer));
 
   const response = yield* DecisionModel.decide(Moment, { input: { message: "haha" } }).pipe(
-    Effect.provide(Layer.succeed(DecisionModel.DecisionModel, model)),
+    Effect.provideService(DecisionModel.DecisionModel, model),
     Effect.result,
   );
 
@@ -127,7 +129,7 @@ describe("CloudflareDecisionModel", () => {
   it.effect("rejects a reply it can't read", () =>
     Effect.gen(function* () {
       const { response } = yield* decide(
-        respond(200, JSON.stringify({ result: { nonsense: true }, success: true })),
+        respond(200, yield* toJson({ result: { nonsense: true }, success: true })),
       );
 
       assert.isTrue(Result.isFailure(response));
@@ -141,7 +143,7 @@ describe("CloudflareDecisionModel", () => {
     "reports a rate limit with Cloudflare's body, so a spent daily allocation can be recognised",
     () =>
       Effect.gen(function* () {
-        const body = JSON.stringify({
+        const body = yield* toJson({
           success: false,
           errors: [{ code: 4006, message: "daily free allocation" }],
         });
@@ -153,7 +155,7 @@ describe("CloudflareDecisionModel", () => {
         if (Result.isFailure(response)) {
           assert.instanceOf(response.failure.reason, AiError.RateLimitError);
           assert.strictEqual(response.failure.reason.http?.body, body);
-          assert.notInclude(JSON.stringify(response.failure), "cf-secret");
+          assert.notInclude(yield* toJson(response.failure), "cf-secret");
         }
       }),
   );
@@ -161,7 +163,7 @@ describe("CloudflareDecisionModel", () => {
   it.effect("reports a bad token as an authentication error", () =>
     Effect.gen(function* () {
       const { response } = yield* decide(
-        respond(401, JSON.stringify({ success: false, errors: [] })),
+        respond(401, yield* toJson({ success: false, errors: [] })),
       );
 
       assert.isTrue(Result.isFailure(response));

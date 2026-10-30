@@ -1,4 +1,4 @@
-import { DateTime } from "effect";
+import { Array, DateTime, pipe, String } from "effect";
 
 import type { ActivityEntry, BanterContext } from "../src/OfficeEvent.ts";
 
@@ -9,14 +9,16 @@ export interface BanterScenario extends BanterContext {
 const officeTime = (day: string, time: string) => DateTime.makeUnsafe(`${day}T${time}:00+02:00`);
 
 const happenedOn = (day: string, lines: string): ReadonlyArray<ActivityEntry> =>
-  lines
-    .trim()
-    .split("\n")
-    .map((line) => {
-      const [time = "", who = "", ...event] = line.trim().split(/\s+/);
+  pipe(
+    lines,
+    String.trim,
+    String.split("\n"),
+    Array.map((line) => {
+      const [time, who = "", ...event] = String.split(String.trim(line), /\s+/);
 
-      return { at: officeTime(day, time), who, event: event.join(" ") };
-    });
+      return { at: officeTime(day, time), who, event: Array.join(event, " ") };
+    }),
+  );
 
 const MON = "2026-09-28";
 
@@ -30,33 +32,40 @@ const FRI = "2026-10-02";
 
 const NEXT_MON = "2026-10-05";
 
-const muteMarathon = Array.from({ length: 8 }, (_, index) => {
-  const minute = String(10 + index * 6).padStart(2, "0");
-  const later = String(12 + index * 6).padStart(2, "0");
+const muteMarathon = pipe(
+  Array.makeBy(8, (index) => {
+    const minute = pipe(`${10 + index * 6}`, String.padStart(2, "0"));
+    const later = pipe(`${12 + index * 6}`, String.padStart(2, "0"));
 
-  return `10:${minute} Linus Unmuted\n10:${later} Linus Muted`;
-}).join("\n");
+    return `10:${minute} Linus Unmuted\n10:${later} Linus Muted`;
+  }),
+  Array.join("\n"),
+);
 
-const loneWeek = [MON, TUE, WED, THU]
-  .flatMap((day) =>
+const loneWeek = pipe(
+  [MON, TUE, WED, THU],
+  Array.flatMap((day) =>
     happenedOn(
       day,
       "09:01 Margaret Joined\n12:30 Margaret Left\n13:15 Margaret Joined\n17:32 Margaret Left",
     ),
-  )
-  .concat(happenedOn(FRI, "08:58 Margaret Joined"));
-
-const earlyBirds = [
-  [MON, "07:12"],
-  [TUE, "07:05"],
-  [WED, "06:58"],
-  [THU, "07:20"],
-  [FRI, "07:01"],
-].flatMap(([day = MON, time = "07:00"]) =>
-  happenedOn(
-    day,
-    `${time} Ada Joined\n09:34 Grace Joined\n09:41 Alan Joined\n16:02 Ada Left\n17:45 Grace Left\n18:10 Alan Left`,
   ),
+  Array.appendAll(happenedOn(FRI, "08:58 Margaret Joined")),
+);
+
+const earlyBirds = Array.flatMap(
+  [
+    [MON, "07:12"],
+    [TUE, "07:05"],
+    [WED, "06:58"],
+    [THU, "07:20"],
+    [FRI, "07:01"],
+  ],
+  ([day = MON, time = "07:00"]) =>
+    happenedOn(
+      day,
+      `${time} Ada Joined\n09:34 Grace Joined\n09:41 Alan Joined\n16:02 Ada Left\n17:45 Grace Left\n18:10 Alan Left`,
+    ),
 );
 
 export const banterScenarios: ReadonlyArray<BanterScenario> = [

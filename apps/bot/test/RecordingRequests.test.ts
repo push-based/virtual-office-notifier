@@ -69,7 +69,7 @@ const officeHandler = Effect.fnUntraced(function* (office: Office) {
         });
 
         if (office.failStartAfterWriting === true)
-          return yield* new StoreUnavailable({ reason: "Lost the connection" });
+          return yield* StoreUnavailable.make({ reason: "Lost the connection" });
 
         return {
           recordingId: recording.id,
@@ -255,7 +255,7 @@ const SignedInTest = Layer.succeed(
     session: (httpEffect, { credential }) =>
       Redacted.value(credential) === "ada-session"
         ? Effect.provideService(httpEffect, CurrentRequester, ada)
-        : Effect.fail(new Unauthorized()),
+        : Effect.fail(Unauthorized.make()),
   }),
 );
 

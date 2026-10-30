@@ -1,8 +1,10 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer, Redacted, Schema } from "effect";
 
 import { Transcriber } from "../src/Transcriber.ts";
 import { makeFakeSlackHttp, type Reply, requestJson, respond } from "./fakes.ts";
+
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 const audio = new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0, 1, 2, 3]);
 
@@ -57,7 +59,7 @@ describe("Transcriber", () => {
       const { transcriber } = yield* makeTranscriber([
         respond(
           429,
-          JSON.stringify({ success: false, errors: [{ code: 4006, message: "Daily limit" }] }),
+          yield* encodeJson({ success: false, errors: [{ code: 4006, message: "Daily limit" }] }),
         ),
       ]);
 
@@ -83,7 +85,7 @@ describe("Transcriber", () => {
       const { transcriber } = yield* makeTranscriber([
         respond(
           400,
-          JSON.stringify({ success: false, errors: [{ code: 7000, message: "bad audio" }] }),
+          yield* encodeJson({ success: false, errors: [{ code: 7000, message: "bad audio" }] }),
         ),
       ]);
 

@@ -1,10 +1,24 @@
 import { NodeHttpClient } from "@effect/platform-node";
-import { Context, DateTime, Duration, Effect, Layer, Option, Ref, Schema } from "effect";
+import {
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  pipe,
+  Ref,
+  Schema,
+  String,
+} from "effect";
 import { HttpBody, HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 import { RecordingConfig } from "./Config.ts";
 
-export class ArchiveError extends Schema.TaggedError<ArchiveError>()("ArchiveError", {
+export class ArchiveError extends Schema.TaggedError<
+  ArchiveError,
+  { readonly brand: unique symbol }
+>()("ArchiveError", {
   reason: Schema.String,
 }) {}
 
@@ -31,9 +45,9 @@ export const objectPathOf = (
   userId: string,
   startedAt: DateTime.Utc,
 ): string =>
-  `recordings/${recordingId}/${userId}/${DateTime.formatIso(startedAt).replaceAll(":", "-")}.ogg`;
+  `recordings/${recordingId}/${userId}/${pipe(DateTime.formatIso(startedAt), String.replaceAll(":", "-"))}.ogg`;
 
-const archiveError = (reason: string) => new ArchiveError({ reason });
+const archiveError = (reason: string) => ArchiveError.make({ reason });
 
 const failed = (what: string) => (error: Error) => archiveError(`${what}: ${error.message}`);
 
@@ -44,7 +58,7 @@ export class ClipArchive extends Context.Service<
     upload(path: string, audio: Uint8Array): Effect.Effect<void, ArchiveError>;
     download(path: string): Effect.Effect<Uint8Array, ArchiveError>;
   }
->()("virtual-office-notifier/ClipArchive") {
+>()("bot/ClipArchive") {
   static readonly layerBucket = (bucket: string) =>
     Layer.effect(
       ClipArchive,
@@ -127,8 +141,10 @@ export class ClipArchive extends Context.Service<
 
         const readBody = (response: HttpClientResponse.HttpClientResponse) =>
           response.arrayBuffer.pipe(
-            Effect.map((buffer) => new Uint8Array(buffer)),
-            Effect.mapError(failed("Reading the clip failed")),
+            Effect.mapBoth({
+              onSuccess: (buffer) => new Uint8Array(buffer),
+              onFailure: failed("Reading the clip failed"),
+            }),
           );
 
         const download = Effect.fn("ClipArchive.download")((path: string) =>

@@ -7,8 +7,10 @@ import {
   Layer,
   Match,
   Option,
+  pipe,
   Redacted,
   Schema,
+  String,
 } from "effect";
 import {
   FetchHttpClient,
@@ -50,9 +52,12 @@ class Settings extends Context.Service<
     readonly clientSecret: Redacted.Redacted<string>;
     readonly sessionSecret: Redacted.Redacted<string>;
   }
->()("virtual-office-recorder/Settings") {}
+>()("office-recorder/worker/Settings") {}
 
-class DiscordRefused extends Schema.TaggedError<DiscordRefused>()("DiscordRefused", {
+class DiscordRefused extends Schema.TaggedError<
+  DiscordRefused,
+  { readonly brand: unique symbol }
+>()("DiscordRefused", {
   status: Schema.Finite,
 }) {}
 
@@ -77,48 +82,56 @@ const SessionPayload = Schema.Struct({
 
 const decodeSession = Schema.decodeUnknownOption(Schema.fromJsonString(SessionPayload));
 
+const encodeSession = Schema.encodeEffect(Schema.fromJsonString(SessionPayload));
+
 const encoder = new TextEncoder();
 
 const decoder = new TextDecoder();
 
 const base64url = (bytes: Uint8Array): string =>
-  btoa(globalThis.String.fromCharCode(...bytes))
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
-
-const fromBase64url = (text: string): Uint8Array =>
-  Uint8Array.from(atob(text.replaceAll("-", "+").replaceAll("_", "/")), (char) =>
-    char.charCodeAt(0),
+  pipe(
+    btoa(globalThis.String.fromCharCode(...bytes)),
+    String.replaceAll("+", "-"),
+    String.replaceAll("/", "_"),
+    String.replace(/=+$/, ""),
   );
 
-const hmac = (secret: string, message: string) =>
-  Effect.promise(async () => {
-    const key = await crypto.subtle.importKey(
+const fromBase64url = (text: string): Uint8Array =>
+  Uint8Array.from(
+    atob(pipe(text, String.replaceAll("-", "+"), String.replaceAll("_", "/"))),
+    (char) => Option.getOrElse(String.charCodeAt(char, 0), () => 0),
+  );
+
+const hmac = Effect.fnUntraced(function* (secret: string, message: string) {
+  const key = yield* Effect.promise(() =>
+    crypto.subtle.importKey(
       "raw",
       encoder.encode(secret),
       { name: "HMAC", hash: "SHA-256" },
       false,
       ["sign"],
-    );
+    ),
+  );
 
-    return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(message)));
-  });
+  const signature = yield* Effect.promise(() =>
+    crypto.subtle.sign("HMAC", key, encoder.encode(message)),
+  );
+
+  return new Uint8Array(signature);
+});
 
 const issueSession = Effect.fnUntraced(function* (user: SessionUser) {
   const { sessionSecret } = yield* Settings;
   const now = yield* DateTime.now;
 
-  const payload = base64url(
-    encoder.encode(
-      JSON.stringify({
-        sub: user.id,
-        name: user.name,
-        avatarUrl: user.avatarUrl,
-        exp: DateTime.toEpochMillis(DateTime.addDuration(now, SESSION_LIFETIME)),
-      }),
-    ),
-  );
+  const encoded = yield* encodeSession({
+    sub: user.id,
+    name: user.name,
+    avatarUrl: user.avatarUrl,
+    exp: DateTime.toEpochMillis(DateTime.addDuration(now, SESSION_LIFETIME)),
+  });
+
+  const payload = base64url(encoder.encode(encoded));
 
   const signature = yield* hmac(Redacted.value(sessionSecret), payload);
 
@@ -140,19 +153,19 @@ const requesterOf = Effect.fnUntraced(function* (
   sessionSecret: Redacted.Redacted<string>,
   session: string,
 ) {
-  const [payload, signature] = session.split(".");
+  const [payload, signature] = String.split(session, ".");
 
-  if (payload === undefined || signature === undefined) return yield* new Unauthorized();
+  if (payload === undefined || signature === undefined) return yield* Unauthorized.make();
 
   const expected = yield* hmac(Redacted.value(sessionSecret), payload);
 
-  if (!sameBytes(expected, fromBase64url(signature))) return yield* new Unauthorized();
+  if (!sameBytes(expected, fromBase64url(signature))) return yield* Unauthorized.make();
 
   const decoded = decodeSession(decoder.decode(fromBase64url(payload)));
   const now = yield* DateTime.now;
 
   if (Option.isNone(decoded) || decoded.value.exp < DateTime.toEpochMillis(now))
-    return yield* new Unauthorized();
+    return yield* Unauthorized.make();
 
   const requester: Requester = { id: decoded.value.sub, name: decoded.value.name };
 
@@ -201,17 +214,17 @@ const readDiscord = <A>(decode: (body: string) => Effect.Effect<A, Schema.Schema
 
     const response = yield* client
       .execute(request)
-      .pipe(Effect.mapError(() => new DiscordRefused({ status: 0 })));
+      .pipe(Effect.mapError(() => DiscordRefused.make({ status: 0 })));
 
     if (response.status < 200 || response.status >= 300)
-      return yield* new DiscordRefused({ status: response.status });
+      return yield* DiscordRefused.make({ status: response.status });
 
     const body = yield* response.text.pipe(
-      Effect.mapError(() => new DiscordRefused({ status: response.status })),
+      Effect.mapError(() => DiscordRefused.make({ status: response.status })),
     );
 
     return yield* decode(body).pipe(
-      Effect.mapError(() => new DiscordRefused({ status: response.status })),
+      Effect.mapError(() => DiscordRefused.make({ status: response.status })),
     );
   });
 
@@ -277,7 +290,7 @@ const recordingRequestsFor = (env: Env) => {
   ) =>
     Effect.gen(function* () {
       const connection = yield* Layer.build(connectionTo(env)).pipe(
-        Effect.mapError((error) => new RecordingUnavailable({ reason: error.message })),
+        Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
       );
 
       const requests = yield* RecordingRequests.make(Effect.void).pipe(

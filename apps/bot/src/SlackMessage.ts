@@ -1,11 +1,16 @@
-import { DateTime, Duration, Option } from "effect";
+import { Array, DateTime, Duration, Option, pipe, String } from "effect";
 
 import { OfficeEvent, type OfficeLocation, type SessionRecap } from "./OfficeEvent.ts";
 
 // Slack treats &, < and > as control characters in message text. Escaping them
 // stops a nickname like `<!channel>` from pinging everyone.
 export const escapeSlackText = (text: string): string =>
-  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  pipe(
+    text,
+    String.replaceAll("&", "&amp;"),
+    String.replaceAll("<", "&lt;"),
+    String.replaceAll(">", "&gt;"),
+  );
 
 const joinLink = (office: OfficeLocation): string =>
   `https://discord.com/channels/${office.guildId}/${office.channelId}`;
@@ -132,7 +137,7 @@ const people = (count: number): string => `${count} ${count === 1 ? "person" : "
 
 // Renders in each reader's own time zone; the fallback is for clients that can't.
 const slackTime = (at: DateTime.Utc): string =>
-  `<!date^${DateTime.toEpochSeconds(at)}^{time}|${DateTime.formatIso(at).slice(11, 16)} UTC>`;
+  `<!date^${DateTime.toEpochSeconds(at)}^{time}|${pipe(DateTime.formatIso(at), String.slice(11, 16))} UTC>`;
 
 const mrkdwn = (text: string): Mrkdwn => ({ type: "mrkdwn", text });
 
@@ -162,7 +167,7 @@ const joinButton = (office: OfficeLocation, label: string): ActionsBlock => ({
 
 const context = (...texts: ReadonlyArray<string>): ContextBlock => ({
   type: "context",
-  elements: texts.map(mrkdwn),
+  elements: Array.map(texts, mrkdwn),
 });
 
 const recapFields = (recap: SessionRecap): SectionBlock => ({
@@ -182,6 +187,8 @@ export interface GeneratedHeadline {
   readonly model: string;
 }
 
+const asLiteralReplacement = String.replaceAll("$", "$$$$");
+
 // The model's output isn't trusted, so it's escaped; the name already is.
 const headlineText = (
   generated: Option.Option<GeneratedHeadline>,
@@ -190,7 +197,8 @@ const headlineText = (
 ): string =>
   Option.match(generated, {
     onNone: fixed,
-    onSome: ({ template }) => escapeSlackText(template).replace(NAME_PLACEHOLDER, () => name),
+    onSome: ({ template }) =>
+      pipe(escapeSlackText(template), String.replace(NAME_PLACEHOLDER, asLiteralReplacement(name))),
   });
 
 const buttonLabel = (generated: Option.Option<GeneratedHeadline>, fixed: string): string =>
@@ -230,7 +238,7 @@ const NO_SUMMARY =
   "No AI model could write a summary this time. The full transcript is in the thread.";
 
 const slackDate = (at: DateTime.Utc): string =>
-  `<!date^${DateTime.toEpochSeconds(at)}^{date_short} {time}|${DateTime.formatIso(at).slice(0, 16).replace("T", " ")} UTC>`;
+  `<!date^${DateTime.toEpochSeconds(at)}^{date_short} {time}|${pipe(DateTime.formatIso(at), String.slice(0, 16), String.replace("T", " "))} UTC>`;
 
 export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
   const duration = formatDuration(DateTime.distance(recording.startedAt, recording.stoppedAt));
@@ -251,7 +259,7 @@ export const summaryMessage = (recording: RecordingSummary): SlackMessage => {
         fields: [
           mrkdwn(`*Started by*\n${escapeSlackText(recording.startedByName)}`),
           mrkdwn(
-            `*Who spoke*\n${recording.speakers.length === 0 ? "Nobody" : recording.speakers.map(escapeSlackText).join(", ")}`,
+            `*Who spoke*\n${recording.speakers.length === 0 ? "Nobody" : pipe(recording.speakers, Array.map(escapeSlackText), Array.join(", "))}`,
           ),
         ],
       },

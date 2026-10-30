@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Array, Effect } from "effect";
 import { Migrator, SqlClient } from "effect/sql";
 
 // Each flag turns into a pair of events in the voice_activity view.
@@ -13,7 +13,7 @@ const FLAG_EVENTS = [
 
 // A flag that's on as someone arrives counts as switched on, so the events
 // alone say what state anyone was in. Leaving only says `Left`.
-const flagEvents = FLAG_EVENTS.flatMap(([column, on, off]) => [
+const flagEvents = Array.flatMap(FLAG_EVENTS, ([column, on, off]) => [
   `(CASE WHEN place.is_in AND s.new_${column} IS TRUE AND NOT (place.was_in AND s.old_${column} IS TRUE) THEN '${on}' END)`,
   `(CASE WHEN place.was_in AND place.is_in AND s.old_${column} IS TRUE AND s.new_${column} IS FALSE THEN '${off}' END)`,
 ]);
@@ -43,7 +43,7 @@ const voiceActivityView = `
         WHEN s.source = 'startup' THEN 'AlreadyThere'
         WHEN NOT place.was_in AND place.is_in THEN 'Joined'
       END),
-      ${flagEvents.join(",\n      ")},
+      ${Array.join(flagEvents, ",\n      ")},
       (CASE WHEN place.was_in AND NOT place.is_in THEN 'Left' END)
   ) AS e(event)
   WHERE e.event IS NOT NULL

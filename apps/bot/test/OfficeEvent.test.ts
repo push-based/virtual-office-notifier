@@ -1,4 +1,4 @@
-import { DateTime, Duration, Option } from "effect";
+import { Array, DateTime, Duration, Option } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -114,13 +114,14 @@ describe("trackOccupancy", () => {
 
   // Runs a sequence of updates from an empty office and collects every event.
   const run = (updates: ReadonlyArray<TimedVoiceStateUpdate>, start: OfficeSession = empty) =>
-    updates.reduce<[OfficeSession, Array<OfficeEvent>]>(
+    Array.reduce<TimedVoiceStateUpdate, [OfficeSession, Array<OfficeEvent>]>(
+      updates,
+      [start, []],
       ([session, events], next) => {
         const [after, emitted] = step(session, next);
 
         return [after, [...events, ...emitted]];
       },
-      [start, []],
     );
 
   it("opens the office when the first person joins", () => {

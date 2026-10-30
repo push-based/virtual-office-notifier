@@ -8,6 +8,7 @@ import {
   Layer,
   type LogLevel,
   Option,
+  Record,
   type Redacted,
   Schema,
 } from "effect";
@@ -48,14 +49,17 @@ const engagement = (reactionEmoji: Array.NonEmptyReadonlyArray<string>) =>
       }),
       reaction: Decision.classify({
         instructions: "Pick the emoji reaction that fits the new message best.",
-        criteria: Object.fromEntries(reactionEmoji.map((emoji) => [emoji, null])),
+        criteria: Record.fromIterableWith(reactionEmoji, (emoji) => [emoji, null]),
       }),
     },
   });
 
-export class ClefFailed extends Schema.TaggedError<ClefFailed>()("ClefFailed", {
-  reason: Schema.String,
-}) {
+export class ClefFailed extends Schema.TaggedError<ClefFailed, { readonly brand: unique symbol }>()(
+  "ClefFailed",
+  {
+    reason: Schema.String,
+  },
+) {
   override get message(): string {
     return `Clef couldn't decide whether to answer: ${this.reason}`;
   }
@@ -100,7 +104,7 @@ export class ReplyDecider extends Context.Service<
   {
     decide(state: ClefState, settings: ResponderSettings): Effect.Effect<Decided, ClefFailed>;
   }
->()("virtual-office-notifier/ReplyDecider") {
+>()("bot/ReplyDecider") {
   static readonly layerNoDeps = Layer.effect(
     ReplyDecider,
     Effect.gen(function* () {
@@ -155,13 +159,13 @@ export class ReplyDecider extends Context.Service<
       const decide = Effect.fn("ReplyDecider.decide")(
         (state: ClefState, settings: ResponderSettings) =>
           Option.match(credentials, {
-            onNone: () => Effect.fail(new ClefFailed({ reason: "NotConfigured" })),
+            onNone: () => Effect.fail(ClefFailed.make({ reason: "NotConfigured" })),
             onSome: (configured) =>
               decideWith(configured, state, settings).pipe(
                 Effect.catchTags({
-                  AiError: (error) => Effect.fail(new ClefFailed({ reason: error.reason._tag })),
-                  TimeoutError: () => Effect.fail(new ClefFailed({ reason: "Timeout" })),
-                  SchemaError: () => Effect.fail(new ClefFailed({ reason: "InvalidState" })),
+                  AiError: (error) => Effect.fail(ClefFailed.make({ reason: error.reason._tag })),
+                  TimeoutError: () => Effect.fail(ClefFailed.make({ reason: "Timeout" })),
+                  SchemaError: () => Effect.fail(ClefFailed.make({ reason: "InvalidState" })),
                 }),
               ),
           }),

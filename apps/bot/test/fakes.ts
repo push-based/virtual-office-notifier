@@ -1,4 +1,5 @@
 import {
+  Array,
   ConfigProvider,
   DateTime,
   Duration,
@@ -8,7 +9,7 @@ import {
   Option,
   Random,
   Ref,
-  type Schema,
+  Schema,
 } from "effect";
 import {
   HttpBody,
@@ -116,6 +117,12 @@ export const makeFakeSlackHttp = Effect.fnUntraced(function* (replies: ReadonlyA
   return { layer: Layer.succeed(HttpClient.HttpClient, client), requests: Ref.get(requests) };
 });
 
+const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
+
+const decodePostText = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Struct({ text: Schema.String })),
+);
+
 const isPost = (request: HttpClientRequest.HttpClientRequest): boolean =>
   request.url === "https://slack.com/api/chat.postMessage";
 
@@ -134,17 +141,27 @@ export const makeFakeSlack = Effect.fnUntraced(function* (
     Layer.provide(history ?? fakeHistory.layer),
   );
 
-  const posts = http.requests.pipe(Effect.map((sent) => sent.filter(isPost)));
+  const posts = http.requests.pipe(Effect.map((sent) => Array.filter(sent, isPost)));
 
   return {
     layer,
     requests: http.requests,
     recordedPosts: fakeHistory.posts,
     postedTexts: posts.pipe(
-      Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request)).text)),
+      Effect.flatMap((sent) =>
+        Effect.forEach(sent, (request) =>
+          request.pipe(
+            requestText,
+            decodePostText,
+            Effect.map(({ text }) => text),
+          ),
+        ),
+      ),
     ),
     postedBodies: posts.pipe(
-      Effect.map((sent) => sent.map((request) => JSON.parse(requestText(request)))),
+      Effect.flatMap((sent) =>
+        Effect.forEach(sent, (request) => request.pipe(requestText, decodeJson)),
+      ),
     ),
   };
 });
@@ -215,7 +232,7 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
   const members = options.members ?? new Map<string, LinkedMember>();
 
   const replies = Ref.get(posts).pipe(
-    Effect.map((all) => all.filter((post) => post.kind === "Reply")),
+    Effect.map((all) => Array.filter(all, (post) => post.kind === "Reply")),
   );
 
   const layer = Layer.succeed(
@@ -224,7 +241,7 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
       settings: Ref.get(settings).pipe(
         Effect.flatMap(
           Option.match({
-            onNone: () => Effect.fail(new HistoryUnavailable({ reason: "No settings" })),
+            onNone: () => Effect.fail(HistoryUnavailable.make({ reason: "No settings" })),
             onSome: Effect.succeed,
           }),
         ),
@@ -238,14 +255,16 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
         replies.pipe(
           Effect.map(
             (all) =>
-              all.filter((post) => DateTime.isGreaterThanOrEqualTo(post.postedAt, from)).length,
+              Array.filter(all, (post) => DateTime.isGreaterThanOrEqualTo(post.postedAt, from))
+                .length,
           ),
         ),
       reactionsSince: (from) =>
         Ref.get(decisions).pipe(
           Effect.map(
             (all) =>
-              all.filter(
+              Array.filter(
+                all,
                 (decision) =>
                   decision.outcome === "reacted" &&
                   DateTime.isGreaterThanOrEqualTo(decision.decidedAt, from),
@@ -256,7 +275,8 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
         replies.pipe(
           Effect.map(
             (all) =>
-              all.filter((post) => post.channel === channel && post.threadTs === threadTs).length,
+              Array.filter(all, (post) => post.channel === channel && post.threadTs === threadTs)
+                .length,
           ),
         ),
       linkMember: (slackUserId) => Effect.succeed(Option.fromUndefinedOr(members.get(slackUserId))),
@@ -308,7 +328,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
           ),
           Effect.map(({ ts }) => ({ channel: message.channel, ts })),
         )
-      : Effect.fail(new SlackError({ reason: options.postFailure }));
+      : Effect.fail(SlackError.make({ reason: options.postFailure }));
 
   const layer = Layer.succeed(
     SlackClient,

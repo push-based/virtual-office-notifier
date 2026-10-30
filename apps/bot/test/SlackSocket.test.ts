@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Option, Queue, Stream } from "effect";
+import { Array, Effect, Layer, Option, pipe, Queue, Schema, Stream, String } from "effect";
 import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 
@@ -9,6 +9,8 @@ import { SlackSocket } from "../src/SlackSocket.ts";
 import { makeFakeSlackHttp, type Reply, SLACK_ENV, slackError, slackOk, withEnv } from "./fakes.ts";
 
 type Listener = (event: Socket.WebSocketEvent) => void;
+
+const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 class FakeWebSocket implements Socket.WebSocketLike {
   readyState = 1;
@@ -24,12 +26,13 @@ class FakeWebSocket implements Socket.WebSocketLike {
   }
 
   addEventListener(type: string, listener: Listener, options?: { readonly once?: boolean }): void {
-    const wrapped: Listener = options?.once
-      ? (event) => {
-          this.removeEventListener(type, wrapped);
-          listener(event);
-        }
-      : listener;
+    const wrapped: Listener =
+      options?.once === true
+        ? (event) => {
+            this.removeEventListener(type, wrapped);
+            listener(event);
+          }
+        : listener;
 
     this.listeners.set(type, new Set([...(this.listeners.get(type) ?? []), wrapped]));
   }
@@ -39,7 +42,7 @@ class FakeWebSocket implements Socket.WebSocketLike {
   }
 
   send(data: string | Uint8Array<ArrayBuffer>): void {
-    this.sent.push(String(data));
+    this.sent.push(globalThis.String(data));
   }
 
   close(code = 1000): void {
@@ -116,7 +119,10 @@ const connect = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>) {
     received: Queue.clear(received),
     connectionsOpened: http.requests.pipe(
       Effect.map(
-        (sent) => sent.filter((request) => request.url.endsWith("apps.connections.open")).length,
+        (sent) =>
+          Array.filter(sent, (request) =>
+            pipe(request.url, String.endsWith("apps.connections.open")),
+          ).length,
       ),
     ),
   };
@@ -140,10 +146,9 @@ describe("SlackSocket", () => {
       socket.receive(eventEnvelope("env-1"));
       yield* settle;
 
-      assert.deepStrictEqual(
-        socket.sent.map((sent) => JSON.parse(sent)),
-        [{ envelope_id: "env-1" }],
-      );
+      assert.deepStrictEqual(yield* Effect.forEach(socket.sent, (sent) => decodeJson(sent)), [
+        { envelope_id: "env-1" },
+      ]);
 
       const [envelope] = yield* slack.received;
       assert.deepStrictEqual(envelope?.envelopeId, Option.some("env-1"));
@@ -159,10 +164,9 @@ describe("SlackSocket", () => {
       socket.receive(eventEnvelope("env-1", 1));
       yield* settle;
 
-      assert.deepStrictEqual(
-        socket.sent.map((sent) => JSON.parse(sent)),
-        [{ envelope_id: "env-1" }],
-      );
+      assert.deepStrictEqual(yield* Effect.forEach(socket.sent, (sent) => decodeJson(sent)), [
+        { envelope_id: "env-1" },
+      ]);
       assert.deepStrictEqual(yield* slack.received, []);
     }),
   );

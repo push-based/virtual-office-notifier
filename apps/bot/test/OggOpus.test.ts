@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import { Array } from "effect";
 
 import {
   oggChecksum,
@@ -30,9 +31,10 @@ const pageHeaders = (file: Uint8Array) => {
 
     const segments = file[offset + 26] ?? 0;
 
-    const body = Array.from(file.subarray(offset + 27, offset + 27 + segments)).reduce(
-      (total, lace) => total + lace,
+    const body = Array.reduce(
+      file.subarray(offset + 27, offset + 27 + segments),
       0,
+      (total, lace) => total + lace,
     );
 
     headers.push({
@@ -109,7 +111,7 @@ describe("oggOpusFile", () => {
     assert.strictEqual(pages[2]?.granule, 1920n);
     assert.strictEqual(pages[2]?.segments, 2);
     assert.deepStrictEqual(
-      pages.map((page) => page.sequence),
+      Array.map(pages, (page) => page.sequence),
       [0, 1, 2],
     );
   });
@@ -125,15 +127,15 @@ describe("oggOpusFile", () => {
   });
 
   it("splits long recordings into pages of at most 50 packets", () => {
-    const packets = Array.from({ length: 120 }, () => celt20ms());
+    const packets = Array.makeBy(120, () => celt20ms());
     const pages = pageHeaders(oggOpusFile(packets));
 
     assert.deepStrictEqual(
-      pages.slice(2).map((page) => page.segments),
+      Array.map(pages.slice(2), (page) => page.segments),
       [50, 50, 20],
     );
     assert.deepStrictEqual(
-      pages.slice(2).map((page) => page.granule),
+      Array.map(pages.slice(2), (page) => page.granule),
       [48_000n, 96_000n, 115_200n],
     );
     assert.strictEqual(pages.at(-1)?.flags, 0x04);
@@ -164,9 +166,10 @@ describe("oggOpusFile", () => {
       const stored = view.getUint32(page.offset + 22, true);
       const segments = file[page.offset + 26] ?? 0;
 
-      const body = Array.from(file.subarray(page.offset + 27, page.offset + 27 + segments)).reduce(
-        (a, b) => a + b,
+      const body = Array.reduce(
+        file.subarray(page.offset + 27, page.offset + 27 + segments),
         0,
+        (a, b) => a + b,
       );
 
       const bytes = file.slice(page.offset, page.offset + 27 + segments + body);

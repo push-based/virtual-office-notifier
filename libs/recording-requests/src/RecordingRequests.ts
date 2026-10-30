@@ -19,12 +19,12 @@ import {
 
 const QUERY_TIMEOUT = Duration.seconds(10);
 
-export class RecordingUnavailable extends Schema.TaggedError<RecordingUnavailable>()(
-  "RecordingUnavailable",
-  {
-    reason: Schema.String,
-  },
-) {}
+export class RecordingUnavailable extends Schema.TaggedError<
+  RecordingUnavailable,
+  { readonly brand: unique symbol }
+>()("RecordingUnavailable", {
+  reason: Schema.String,
+}) {}
 
 export interface Situation {
   readonly occupants: ReadonlySet<string>;
@@ -92,7 +92,7 @@ const decodeStatus = Schema.decodeUnknownEffect(
   ),
 );
 
-const unavailable = (reason: string) => Effect.fail(new RecordingUnavailable({ reason }));
+const unavailable = (reason: string) => Effect.fail(RecordingUnavailable.make({ reason }));
 
 export class RecordingRequests extends Context.Service<
   RecordingRequests,
@@ -119,7 +119,7 @@ export class RecordingRequests extends Context.Service<
       const onceReady = <A, E extends Error, R>(query: Effect.Effect<A, E, R>) =>
         ready.pipe(
           Effect.andThen(query),
-          Effect.mapError((error) => new RecordingUnavailable({ reason: error.message })),
+          Effect.mapError((error) => RecordingUnavailable.make({ reason: error.message })),
           Effect.timeoutOrElse({
             duration: QUERY_TIMEOUT,
             orElse: () => unavailable("Timed out after 10 seconds"),

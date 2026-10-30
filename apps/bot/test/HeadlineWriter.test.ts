@@ -1,5 +1,17 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Array, Effect, Fiber, Layer, Option, Random, Ref, Schema, Stream } from "effect";
+import {
+  Array,
+  Effect,
+  Fiber,
+  Layer,
+  Option,
+  pipe,
+  Random,
+  Ref,
+  Schema,
+  Stream,
+  String,
+} from "effect";
 import { AiError, LanguageModel, Model, type Response } from "effect/ai";
 import { TestClock } from "effect/testing";
 
@@ -65,7 +77,7 @@ const modelDown: Reply = Effect.fail(
   AiError.make({
     module: "Test",
     method: "generateText",
-    reason: new AiError.RateLimitError({}),
+    reason: AiError.RateLimitError.make({}),
   }),
 );
 
@@ -73,7 +85,7 @@ const dailyLimitHit: Reply = Effect.fail(
   AiError.make({
     module: "Test",
     method: "generateText",
-    reason: new AiError.RateLimitError({
+    reason: AiError.RateLimitError.make({
       http: {
         body: JSON.stringify({
           error: {
@@ -91,7 +103,7 @@ const cloudflareAllocationSpent: Reply = Effect.fail(
   AiError.make({
     module: "Test",
     method: "generateText",
-    reason: new AiError.RateLimitError({
+    reason: AiError.RateLimitError.make({
       http: {
         body: JSON.stringify({
           success: false,
@@ -137,7 +149,9 @@ describe("OpenedReply", () => {
 
   it("rejects Slack link syntax and overlong lines", () => {
     assert.isTrue(Option.isNone(decode("🎉 {name} opened the office <!channel>\n🪑 Grab a seat")));
-    assert.isTrue(Option.isNone(decode(`🎉 {name} ${"very ".repeat(40)}open\n🪑 Grab a seat`)));
+    assert.isTrue(
+      Option.isNone(decode(`🎉 {name} ${pipe("very ", String.repeat(40))}open\n🪑 Grab a seat`)),
+    );
     assert.isTrue(
       Option.isNone(
         decode("🎉 {name} opened the office\n🪑 Grab a seat in the virtual office right now"),
@@ -179,7 +193,9 @@ describe("BanterReply", () => {
 
   it("rejects Slack link syntax and messages over 300 characters", () => {
     assert.isTrue(Option.isNone(decode("🎉 Big day in the office <!channel>\n🪑 Grab a seat")));
-    assert.isTrue(Option.isNone(decode(`🎉 ${"busy ".repeat(70)}office\n🪑 Grab a seat`)));
+    assert.isTrue(
+      Option.isNone(decode(`🎉 ${pipe("busy ", String.repeat(70))}office\n🪑 Grab a seat`)),
+    );
   });
 });
 
@@ -341,11 +357,11 @@ describe("HeadlineWriter", () => {
       );
 
       const perRun = Array.chunksOf(yield* calls, 5);
-      const firsts = perRun.map(Array.headNonEmpty);
+      const firsts = Array.map(perRun, Array.headNonEmpty);
 
       assert.strictEqual(perRun.length, runs);
-      assert.isTrue(perRun.every((tried) => new Set(tried).size === 5));
-      assert.isAbove(firsts.filter((model) => model === "model-1").length, runs / 2);
+      assert.isTrue(Array.every(perRun, (tried) => new Set(tried).size === 5));
+      assert.isAbove(Array.filter(firsts, (model) => model === "model-1").length, runs / 2);
       assert.includeMembers(firsts, ["model-2", "model-3", "model-4", "model-5"]);
     }),
   );
