@@ -13,9 +13,7 @@ import {
   Queue,
   Redacted,
   Ref,
-  Schedule,
   Schema,
-  Semaphore,
   Stream,
 } from "effect";
 import {

@@ -17,7 +17,6 @@ import {
 import { TestClock } from "effect/testing";
 
 import type { BotPresence } from "../src/BotPresence.ts";
-import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { OfficeHistory } from "../src/OfficeHistory.ts";
 import { MainLayer, program } from "../src/Program.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";

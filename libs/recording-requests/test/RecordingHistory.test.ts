@@ -7,6 +7,7 @@ import { stateOf } from "../src/Recording.ts";
 import { PAGE_SIZE, RecordingHistory } from "../src/RecordingHistory.ts";
 import { Occupant } from "../src/RecordingRequest.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
+import { migrated } from "./schema.ts";
 
 class ConnectionRefused extends Schema.TaggedError<
   ConnectionRefused,
@@ -24,70 +25,18 @@ const encodeOccupants = Schema.encodeEffect(Schema.fromJsonString(Schema.Array(O
 const createTables = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`CREATE SCHEMA office`;
-  yield* sql`
-    CREATE TABLE office.members (user_id text PRIMARY KEY, display_name text NOT NULL, real_name text)
-  `;
-  yield* sql`
-    CREATE TABLE office.recordings (
-      id uuid PRIMARY KEY,
-      started_at timestamptz NOT NULL,
-      started_by text NOT NULL,
-      stopped_at timestamptz,
-      stop_reason text,
-      stopped_by text,
-      transcript text,
-      summary text,
-      summary_model text,
-      slack_channel_id text,
-      slack_ts text,
-      slack_permalink text,
-      finished_at timestamptz,
-      title text,
-      agenda text,
-      action_items_pulled_at timestamptz,
-      action_items_model text,
-      summary_style text NOT NULL DEFAULT 'brief',
-      summary_written_style text,
-      summary_rewrite_edit_id bigint
-    )
-  `;
-  yield* sql`
-    CREATE TABLE office.recording_action_items (
-      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-      recording_id uuid NOT NULL,
-      position integer NOT NULL,
-      text text NOT NULL,
-      owner text,
-      done boolean NOT NULL DEFAULT false,
-      pulled_at timestamptz NOT NULL DEFAULT now(),
-      replaced_at timestamptz
-    )
-  `;
-  yield* sql`
-    CREATE TABLE office.recording_clips (
-      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-      recording_id uuid NOT NULL,
-      user_id text NOT NULL,
-      started_at timestamptz NOT NULL,
-      transcription text NOT NULL DEFAULT 'pending',
-      transcript text
-    )
-  `;
-  yield* sql`
-    CREATE TABLE office.recording_status (
-      recording_id uuid,
-      bot_in_office boolean NOT NULL DEFAULT false,
-      occupants jsonb NOT NULL DEFAULT '[]'::jsonb,
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
-  yield* sql`INSERT INTO office.recording_status DEFAULT VALUES`;
+  yield* migrated;
   yield* sql`
     INSERT INTO office.members ${sql.insert([
-      { userId: "u1", displayName: "ada", realName: "Ada" },
-      { userId: "u2", displayName: "grace", realName: null },
-      { userId: "u3", displayName: "linus", realName: "Linus" },
+      { userId: "u1", displayName: "ada", realName: "Ada", firstSeenAt: at(0), lastSeenAt: at(0) },
+      { userId: "u2", displayName: "grace", realName: null, firstSeenAt: at(0), lastSeenAt: at(0) },
+      {
+        userId: "u3",
+        displayName: "linus",
+        realName: "Linus",
+        firstSeenAt: at(0),
+        lastSeenAt: at(0),
+      },
     ])}
   `;
 
@@ -117,7 +66,7 @@ interface RecordingRow {
 }
 
 const insertRecording = (sql: SqlClient.SqlClient, row: RecordingRow) =>
-  sql`INSERT INTO office.recordings ${sql.insert({ ...row })}`;
+  sql`INSERT INTO office.recordings ${sql.insert({ guildId: "guild", channelId: "office", ...row })}`;
 
 const insertClip = (
   sql: SqlClient.SqlClient,
@@ -128,7 +77,7 @@ const insertClip = (
   transcript: string | null,
 ) =>
   sql`
-    INSERT INTO office.recording_clips ${sql.insert({ recordingId, userId, startedAt, transcription, transcript })}
+    INSERT INTO office.recording_clips ${sql.insert({ recordingId, userId, startedAt, durationMs: 2000, bytes: 100, transcription, transcript })}
   `;
 
 const TestLayer = RecordingHistory.layer.pipe(Layer.provideMerge(PgliteClient.layer(columnNaming)));
@@ -171,12 +120,31 @@ const fourStates = Effect.gen(function* () {
     actionItemsModel: "model",
     summaryStyle: "detailed",
     summaryWrittenStyle: "brief",
-    summaryRewriteEditId: 7,
   });
   yield* sql`
+    WITH edit AS (
+      INSERT INTO office.recording_edits (recording_id, edited_by, edited_by_name, kind, change)
+      VALUES (${FINISHED}, 'u3', 'Linus', 'summary_style', '{"kind":"summary_style","style":"detailed"}'::jsonb)
+      RETURNING id
+    )
+    UPDATE office.recordings SET summary_rewrite_edit_id = (SELECT id FROM edit) WHERE id = ${FINISHED}
+  `;
+  yield* sql`
     INSERT INTO office.recording_action_items ${sql.insert([
-      { recordingId: FINISHED, position: 1, text: "ask IT about the VPN", owner: null },
-      { recordingId: FINISHED, position: 0, text: "write up the deploy checklist", owner: "u1" },
+      {
+        recordingId: FINISHED,
+        position: 1,
+        text: "ask IT about the VPN",
+        owner: null,
+        pulledAt: at(41),
+      },
+      {
+        recordingId: FINISHED,
+        position: 0,
+        text: "write up the deploy checklist",
+        owner: "u1",
+        pulledAt: at(41),
+      },
     ])}
   `;
   yield* sql`
@@ -185,6 +153,7 @@ const fourStates = Effect.gen(function* () {
       position: 2,
       text: "an earlier pull",
       owner: "u3",
+      pulledAt: at(40),
       replacedAt: at(42),
     })}
   `;
@@ -278,7 +247,12 @@ describe("RecordingHistory.page", () => {
       const sql = yield* createTables;
 
       for (const n of Array.range(1, PAGE_SIZE + 5)) {
-        yield* insertRecording(sql, { id: idFor(n), startedAt: at(n), startedBy: "u1" });
+        yield* insertRecording(sql, {
+          id: idFor(n),
+          startedAt: at(n),
+          startedBy: "u1",
+          stoppedAt: at(n),
+        });
       }
 
       const history = yield* RecordingHistory;
@@ -303,7 +277,12 @@ describe("RecordingHistory.page", () => {
       const sql = yield* createTables;
 
       for (const n of Array.range(1, PAGE_SIZE)) {
-        yield* insertRecording(sql, { id: idFor(n), startedAt: at(n), startedBy: "u1" });
+        yield* insertRecording(sql, {
+          id: idFor(n),
+          startedAt: at(n),
+          startedBy: "u1",
+          stoppedAt: at(n),
+        });
       }
 
       const page = yield* (yield* RecordingHistory).page(Option.none());

@@ -45,7 +45,7 @@ LIMIT 50;
 
 ## Migrations
 
-Nothing is ever deleted. Migrations live in [`apps/bot/src/migrations.ts`](../apps/bot/src/migrations.ts), bundled into the app. They run once each on the first successful connection, and only ever add: new tables, new columns and wider constraints, never a drop of data.
+Nothing is ever deleted. Migrations live in [`libs/recording-requests/src/migrations.ts`](../libs/recording-requests/src/migrations.ts), bundled into the app. They run once each on the first successful connection, and only ever add: new tables, new columns and wider constraints, never a drop of data.
 
 ## When the database is down
 

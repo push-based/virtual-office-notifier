@@ -18,6 +18,7 @@ import { TestClock } from "effect/testing";
 import { connectedTo, QUERY_TIMEOUT } from "../src/Query.ts";
 import { RecordingRequests, type RequestHandler } from "../src/RecordingRequests.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
+import { migrated } from "./schema.ts";
 
 class ConnectionRefused extends Schema.TaggedError<
   ConnectionRefused,
@@ -53,7 +54,10 @@ const adaStarting = (
   ...emptyOffice,
   situation: Effect.succeed({ occupants: new Set([ada.id]), active: Option.none() }),
   start: () =>
-    sql`INSERT INTO office.recordings (id, started_at, started_by) VALUES (${RECORDING}, now(), ${ada.id})`.pipe(
+    sql`
+      INSERT INTO office.recordings (id, guild_id, channel_id, started_at, started_by)
+      VALUES (${RECORDING}, 'guild', 'office', now(), ${ada.id})
+    `.pipe(
       Effect.orDie,
       Effect.as({ recordingId: RECORDING, afterCommit: Ref.set(committed, true) }),
     ),
@@ -76,42 +80,11 @@ const stallingBeforeCommit = (
 const createTables = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`CREATE SCHEMA office`;
+  yield* migrated;
   yield* sql`
-    CREATE TABLE office.members (user_id text PRIMARY KEY, display_name text NOT NULL, real_name text)
+    INSERT INTO office.members (user_id, display_name, first_seen_at, last_seen_at)
+    VALUES (${ada.id}, ${ada.name}, now(), now())
   `;
-  yield* sql`
-    CREATE TABLE office.recordings (
-      id uuid PRIMARY KEY, started_at timestamptz NOT NULL, started_by text NOT NULL, stopped_at timestamptz,
-      paused_at timestamptz, paused_by text, title text, agenda text,
-      summary_style text NOT NULL DEFAULT 'brief'
-    )
-  `;
-  yield* sql`
-    CREATE TABLE office.recording_requests (
-      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-      requested_at timestamptz NOT NULL DEFAULT now(),
-      requested_by text NOT NULL,
-      requested_by_name text NOT NULL,
-      action text NOT NULL,
-      handled_at timestamptz,
-      outcome text,
-      reason text,
-      recording_id uuid,
-      title text,
-      agenda text,
-      summary_style text
-    )
-  `;
-  yield* sql`
-    CREATE TABLE office.recording_status (
-      recording_id uuid,
-      bot_in_office boolean NOT NULL DEFAULT false,
-      occupants jsonb NOT NULL DEFAULT '[]'::jsonb,
-      updated_at timestamptz NOT NULL DEFAULT now()
-    )
-  `;
-  yield* sql`INSERT INTO office.recording_status DEFAULT VALUES`;
 
   return sql;
 });
@@ -222,6 +195,7 @@ describe("RecordingRequests.handlePending", () => {
       const sql = yield* createTables;
       const requests = yield* RecordingRequests.make(Effect.void);
 
+      yield* sql`ALTER TABLE office.recording_requests DROP CONSTRAINT recording_requests_action_check`;
       yield* sql`
         INSERT INTO office.recording_requests (requested_by, requested_by_name, action)
         VALUES ('u1', 'Ada', 'dance')
