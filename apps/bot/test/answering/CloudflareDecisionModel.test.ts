@@ -2,8 +2,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Redacted, Result, Schema } from "effect";
 import { AiError, Decision, DecisionModel } from "effect/ai";
 
-import { CloudflareDecisionModel } from "../src/CloudflareDecisionModel.ts";
-import { makeFakeSlackHttp, type Reply, requestJson, respond } from "./fakes.ts";
+import { CloudflareDecisionModel } from "../../src/answering/CloudflareDecisionModel.ts";
+import { makeFakeSlackHttp, type Reply, requestJson, respond } from "../fakes.ts";
 
 const Moment = Decision.make({
   input: Schema.Struct({ message: Schema.String }),

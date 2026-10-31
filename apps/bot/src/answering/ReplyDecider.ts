@@ -16,8 +16,8 @@ import { Decision, DecisionModel } from "effect/ai";
 import { HttpClient } from "effect/http";
 
 import { CloudflareDecisionModel, clefRequest } from "./CloudflareDecisionModel.ts";
-import { AiConfig } from "./Config.ts";
-import type { Action, ClefVerdict, DecisionReason, ResponderSettings } from "./SlackHistory.ts";
+import { AiConfig } from "../Config.ts";
+import type { Action, ClefVerdict, DecisionReason, ResponderSettings } from "../slack/index.ts";
 
 const CLEF_TIMEOUT = Duration.seconds(15);
 
@@ -104,7 +104,7 @@ export class ReplyDecider extends Context.Service<
   {
     decide(state: ClefState, settings: ResponderSettings): Effect.Effect<Decided, ClefFailed>;
   }
->()("bot/ReplyDecider") {
+>()("bot/answering/ReplyDecider") {
   static readonly layerNoDeps = Layer.effect(
     ReplyDecider,
     Effect.gen(function* () {

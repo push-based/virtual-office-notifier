@@ -78,36 +78,43 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 | [`VoiceObservation.ts`](../apps/bot/src/VoiceObservation.ts) | Decides which voice-state updates are worth recording.                                                                                                                         |
 | [`VoiceEffect.ts`](../apps/bot/src/VoiceEffect.ts)           | Soundboard sounds and emoji, and which ones are worth recording.                                                                                                               |
 
-**Posting to Slack**
+**Slack**, in [`apps/bot/src/slack/`](../apps/bot/src/slack): Slack itself, used by announcing, answering and recording through its `index.ts`.
 
-| Module                                                 | Responsibility                                                                                        |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| [`OfficeTime.ts`](../apps/bot/src/OfficeTime.ts)       | Office time: the UTC+2 zone, the office day and week, office hours and the office clock.              |
-| [`Reminder.ts`](../apps/bot/src/Reminder.ts)           | The weekday reminder schedule.                                                                        |
-| [`Banter.ts`](../apps/bot/src/Banter.ts)               | When to post banter, which stretch of activity it covers, and the log the AI model reads.             |
-| [`SlackMessage.ts`](../apps/bot/src/SlackMessage.ts)   | Builds the Block Kit message, including the fixed phrasings.                                          |
-| [`SlackNotifier.ts`](../apps/bot/src/SlackNotifier.ts) | Posts the announcements, reminders and banter.                                                        |
-| [`BotPosts.ts`](../apps/bot/src/BotPosts.ts)           | Every post the bot makes in Slack: posts it and records it, and a failed record never hides the post. |
-| [`SlackClient.ts`](../apps/bot/src/SlackClient.ts)     | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification. |
+| Module                                                     | Responsibility                                                                                        |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [`SlackClient.ts`](../apps/bot/src/slack/SlackClient.ts)   | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification. |
+| [`SlackSocket.ts`](../apps/bot/src/slack/SlackSocket.ts)   | The Socket Mode connection: acks every event at once, drops redeliveries and reconnects.              |
+| [`SlackEvent.ts`](../apps/bot/src/slack/SlackEvent.ts)     | Decodes Slack events and decides which ones the bot considers.                                        |
+| [`SlackMessage.ts`](../apps/bot/src/slack/SlackMessage.ts) | The Block Kit pieces every message is built from, and escaping text from outside.                     |
+| [`BotPosts.ts`](../apps/bot/src/slack/BotPosts.ts)         | Every post the bot makes in Slack: posts it and records it, and a failed record never hides the post. |
+| [`SlackHistory.ts`](../apps/bot/src/slack/SlackHistory.ts) | Reads the responder settings and keeps the Slack posts, messages, decisions and reactions.            |
 
-**Answering in Slack**
+**Announcing**, in [`apps/bot/src/announcing/`](../apps/bot/src/announcing): the announcements, the reminder and banter. Program uses its `index.ts`.
 
-| Module                                                                     | Responsibility                                                                                                 |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| [`SlackSocket.ts`](../apps/bot/src/SlackSocket.ts)                         | The Socket Mode connection: acks every event at once, drops redeliveries and reconnects.                       |
-| [`SlackEvent.ts`](../apps/bot/src/SlackEvent.ts)                           | Decodes Slack events and decides which ones the bot considers.                                                 |
-| [`Responder.ts`](../apps/bot/src/Responder.ts)                             | Waits for messages per thread, handles them one at a time, applies the limits, and replies, reacts or ignores. |
-| [`ReplyDecider.ts`](../apps/bot/src/ReplyDecider.ts)                       | Asks Clef whether to reply, react or ignore, and applies the confidence threshold.                             |
-| [`CloudflareDecisionModel.ts`](../apps/bot/src/CloudflareDecisionModel.ts) | An Effect `DecisionModel` for Clef on Workers AI.                                                              |
-| [`SlackHistory.ts`](../apps/bot/src/SlackHistory.ts)                       | Reads the responder settings and keeps the Slack posts, messages, decisions and reactions.                     |
+| Module                                                              | Responsibility                                                                            |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [`SlackNotifier.ts`](../apps/bot/src/announcing/SlackNotifier.ts)   | Posts the announcements, reminders and banter.                                            |
+| [`Announcement.ts`](../apps/bot/src/announcing/Announcement.ts)     | Builds each announcement, reminder and banter message, including the fixed phrasings.     |
+| [`HeadlineWriter.ts`](../apps/bot/src/announcing/HeadlineWriter.ts) | Asks the AI providers for a headline or banter and a button label, and checks the reply.  |
+| [`Reminder.ts`](../apps/bot/src/announcing/Reminder.ts)             | The weekday reminder schedule.                                                            |
+| [`Banter.ts`](../apps/bot/src/announcing/Banter.ts)                 | When to post banter, which stretch of activity it covers, and the log the AI model reads. |
+| [`OfficeTime.ts`](../apps/bot/src/OfficeTime.ts)                    | Office time: the UTC+2 zone, the office day and week, office hours and the office clock.  |
 
-**AI writing**
+**Answering in Slack**, in [`apps/bot/src/answering/`](../apps/bot/src/answering). Program uses its `index.ts`, which exports `ResponderLayer`.
+
+| Module                                                                               | Responsibility                                                                                                 |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| [`Responder.ts`](../apps/bot/src/answering/Responder.ts)                             | Waits for messages per thread, handles them one at a time, applies the limits, and replies, reacts or ignores. |
+| [`ReplyDecider.ts`](../apps/bot/src/answering/ReplyDecider.ts)                       | Asks Clef whether to reply, react or ignore, and applies the confidence threshold.                             |
+| [`CloudflareDecisionModel.ts`](../apps/bot/src/answering/CloudflareDecisionModel.ts) | An Effect `DecisionModel` for Clef on Workers AI.                                                              |
+| [`ReplyWriter.ts`](../apps/bot/src/answering/ReplyWriter.ts)                         | Asks the AI providers for a reply, and checks it.                                                              |
+| [`ReplyMessage.ts`](../apps/bot/src/answering/ReplyMessage.ts)                       | The reply's Slack message, crediting the model.                                                                |
+
+**AI writing**: the shared part. Each writer lives with what it writes for, in `announcing/`, `answering/` and `recording/`.
 
 | Module                                                               | Responsibility                                                                                                                                     |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`AiWriting.ts`](../apps/bot/src/AiWriting.ts)                       | The model fallback, timeouts and daily-limit handling shared by every writer.                                                                      |
-| [`HeadlineWriter.ts`](../apps/bot/src/HeadlineWriter.ts)             | Asks the AI providers for a headline or banter and a button label, and checks the reply.                                                           |
-| [`ReplyWriter.ts`](../apps/bot/src/ReplyWriter.ts)                   | Asks the AI providers for a reply, and checks it.                                                                                                  |
 | [`RecordingWriter.ts`](../apps/bot/src/recording/RecordingWriter.ts) | Takes a recording and asks the AI providers for its summary in its summary style, and for its action items with each owner matched to an attendee. |
 | [`SummaryWriter.ts`](../apps/bot/src/recording/SummaryWriter.ts)     | The transcript, the summary styles' instructions and the checks on a summary.                                                                      |
 | [`ActionItems.ts`](../apps/bot/src/recording/ActionItems.ts)         | The action items' instructions and reply format, and matching an owner's name to someone in the office.                                            |

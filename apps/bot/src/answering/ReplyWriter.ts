@@ -15,9 +15,9 @@ import {
   unquoted,
   writerLayer,
   writeWithProviders,
-} from "./AiWriting.ts";
-import { banterLog } from "./Banter.ts";
-import type { BanterContext } from "./OfficeEvent.ts";
+} from "../AiWriting.ts";
+import { banterLog } from "../announcing/index.ts";
+import type { BanterContext } from "../OfficeEvent.ts";
 
 export const MAX_REPLY_LENGTH = 600;
 
@@ -112,7 +112,7 @@ export class ReplyWriter extends Context.Service<
   {
     write(context: ReplyContext): Effect.Effect<Option.Option<WrittenReply>>;
   }
->()("bot/ReplyWriter") {
+>()("bot/answering/ReplyWriter") {
   static readonly layerProviders = (providers: Providers) =>
     Layer.succeed(
       ReplyWriter,

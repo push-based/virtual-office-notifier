@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Option } from "effect";
 
-import { decodeEnvelope, eligibleActivity, SlackActivity } from "../src/SlackEvent.ts";
+import { decodeEnvelope, eligibleActivity, SlackActivity } from "../../src/slack/SlackEvent.ts";
 
 const BOT = "UBOT";
 

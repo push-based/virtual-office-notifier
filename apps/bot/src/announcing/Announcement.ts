@@ -1,63 +1,20 @@
-import { Array, DateTime, Duration, Option, pipe, String } from "effect";
+import { DateTime, Option, pipe, String } from "effect";
 
-import { OfficeEvent, type OfficeLocation, type SessionRecap } from "./OfficeEvent.ts";
-
-// Slack treats &, < and > as control characters in message text. Escaping them
-// stops a nickname like `<!channel>` from pinging everyone.
-export const escapeSlackText = (text: string): string =>
-  pipe(
-    text,
-    String.replaceAll("&", "&amp;"),
-    String.replaceAll("<", "&lt;"),
-    String.replaceAll(">", "&gt;"),
-  );
+import { OfficeEvent, type OfficeLocation, type SessionRecap } from "../OfficeEvent.ts";
+import {
+  type ActionsBlock,
+  AI_DISCLAIMER,
+  context,
+  escapeSlackText,
+  formatDuration,
+  headline,
+  mrkdwn,
+  type SectionBlock,
+  type SlackMessage,
+} from "../slack/index.ts";
 
 const joinLink = (office: OfficeLocation): string =>
   `https://discord.com/channels/${office.guildId}/${office.channelId}`;
-
-// The subset of Slack's Block Kit these messages use.
-export interface Mrkdwn {
-  readonly type: "mrkdwn";
-  readonly text: string;
-}
-
-interface Image {
-  readonly type: "image";
-  readonly image_url: string;
-  readonly alt_text: string;
-}
-
-interface LinkButton {
-  readonly type: "button";
-  readonly text: { readonly type: "plain_text"; readonly text: string; readonly emoji: boolean };
-  readonly url: string;
-  readonly style: "primary";
-}
-
-export interface SectionBlock {
-  readonly type: "section";
-  readonly text?: Mrkdwn;
-  readonly fields?: ReadonlyArray<Mrkdwn>;
-  readonly accessory?: Image;
-}
-
-interface ActionsBlock {
-  readonly type: "actions";
-  readonly elements: ReadonlyArray<LinkButton>;
-}
-
-interface ContextBlock {
-  readonly type: "context";
-  readonly elements: ReadonlyArray<Mrkdwn>;
-}
-
-type Block = SectionBlock | ActionsBlock | ContextBlock;
-
-// `text` is what notifications and older clients show; `blocks` is the card.
-export interface SlackMessage {
-  readonly text: string;
-  readonly blocks: ReadonlyArray<Block>;
-}
 
 export type Variants = readonly [string, ...Array<string>];
 
@@ -120,38 +77,11 @@ export const weekdaysSinceEpoch = (at: DateTime.Utc): number => {
   return Math.floor(days / 7) * 5 + Math.min(days % 7, 5);
 };
 
-export const formatDuration = (duration: Duration.Duration): string => {
-  const totalMinutes = Math.floor(Duration.toMinutes(duration));
-
-  if (totalMinutes < 1) return "under a minute";
-
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours === 0) return `${minutes}m`;
-
-  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
-};
-
 const people = (count: number): string => `${count} ${count === 1 ? "person" : "people"}`;
 
 // Renders in each reader's own time zone; the fallback is for clients that can't.
 const slackTime = (at: DateTime.Utc): string =>
   `<!date^${DateTime.toEpochSeconds(at)}^{time}|${pipe(DateTime.formatIso(at), String.slice(11, 16))} UTC>`;
-
-export const mrkdwn = (text: string): Mrkdwn => ({ type: "mrkdwn", text });
-
-export const headline = (
-  text: string,
-  avatar: Option.Option<{ readonly url: string; readonly name: string }>,
-): SectionBlock => ({
-  type: "section",
-  text: mrkdwn(text),
-  ...Option.match(avatar, {
-    onNone: () => ({}),
-    onSome: ({ url, name }) => ({ accessory: { type: "image", image_url: url, alt_text: name } }),
-  }),
-});
 
 const joinButton = (office: OfficeLocation, label: string): ActionsBlock => ({
   type: "actions",
@@ -163,11 +93,6 @@ const joinButton = (office: OfficeLocation, label: string): ActionsBlock => ({
       style: "primary",
     },
   ],
-});
-
-export const context = (...texts: ReadonlyArray<string>): ContextBlock => ({
-  type: "context",
-  elements: Array.map(texts, mrkdwn),
 });
 
 const recapFields = (recap: SessionRecap): SectionBlock => ({
@@ -207,8 +132,6 @@ const buttonLabel = (generated: Option.Option<GeneratedHeadline>, fixed: string)
 const credit = (generated: Option.Option<GeneratedHeadline>): Option.Option<string> =>
   Option.map(generated, ({ model }) => `✨ Headline by ${escapeSlackText(model)}`);
 
-export const AI_DISCLAIMER = "🤖 AI is a hallucination machine.";
-
 const banterMessage = (
   office: OfficeLocation,
   { template, button, model }: GeneratedHeadline,
@@ -221,18 +144,6 @@ const banterMessage = (
       headline(text, Option.none()),
       joinButton(office, button),
       context(`✨ Banter by ${escapeSlackText(model)}`, AI_DISCLAIMER),
-    ],
-  };
-};
-
-export const replyMessage = (text: string, model: string): SlackMessage => {
-  const escaped = escapeSlackText(text);
-
-  return {
-    text: escaped,
-    blocks: [
-      headline(escaped, Option.none()),
-      context(`Reply by ${escapeSlackText(model)}`, AI_DISCLAIMER),
     ],
   };
 };

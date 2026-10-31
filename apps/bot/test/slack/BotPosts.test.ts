@@ -1,9 +1,13 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Array, Effect, Exit, Layer } from "effect";
 
-import { BotPosts } from "../src/BotPosts.ts";
-import { AccessRevoked } from "../src/SlackClient.ts";
-import { type FakeSlackClientOptions, makeFakeSlackClient, makeFakeSlackHistory } from "./fakes.ts";
+import { BotPosts } from "../../src/slack/BotPosts.ts";
+import { AccessRevoked } from "../../src/slack/SlackClient.ts";
+import {
+  type FakeSlackClientOptions,
+  makeFakeSlackClient,
+  makeFakeSlackHistory,
+} from "../fakes.ts";
 
 const message = { text: "Ada opened the office", blocks: [] };
 

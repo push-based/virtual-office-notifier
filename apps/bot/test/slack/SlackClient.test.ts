@@ -9,7 +9,7 @@ import {
   SlackClient,
   Transport,
   Unavailable,
-} from "../src/SlackClient.ts";
+} from "../../src/slack/SlackClient.ts";
 import {
   hang,
   makeFakeSlackHttp,
@@ -22,7 +22,7 @@ import {
   slackError,
   slackOk,
   withEnv,
-} from "./fakes.ts";
+} from "../fakes.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 

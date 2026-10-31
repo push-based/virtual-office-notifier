@@ -25,12 +25,12 @@ import {
 } from "effect/http";
 
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
-import { BotPosts } from "../src/BotPosts.ts";
+import { BotPosts } from "../src/slack/BotPosts.ts";
 import { DiscordGateway, type TestGateway } from "../src/DiscordGateway.ts";
-import { HeadlineWriter } from "../src/HeadlineWriter.ts";
+import { HeadlineWriter } from "../src/announcing/HeadlineWriter.ts";
 import { HistoryUnavailable } from "../src/OfficeHistory.ts";
 import { OfficeSeat } from "../src/OfficeSeat.ts";
-import type { SlackMessage } from "../src/SlackMessage.ts";
+import type { SlackMessage } from "../src/slack/SlackMessage.ts";
 import {
   type FileUpload,
   type OutgoingMessage,
@@ -39,7 +39,7 @@ import {
   type SlackErrorReason,
   type SlackProfile,
   type ThreadMessage,
-} from "../src/SlackClient.ts";
+} from "../src/slack/SlackClient.ts";
 import {
   type ConsideredMessage,
   type DecisionRecord,
@@ -48,8 +48,8 @@ import {
   type ResponderSettings,
   SlackHistory,
   type SlackPost,
-} from "../src/SlackHistory.ts";
-import { SlackNotifier } from "../src/SlackNotifier.ts";
+} from "../src/slack/SlackHistory.ts";
+import { SlackNotifier } from "../src/announcing/SlackNotifier.ts";
 import { OfficeEvent } from "../src/OfficeEvent.ts";
 import type { TimedVoiceEffect } from "../src/VoiceEffect.ts";
 import type { VoiceObservation } from "../src/VoiceObservation.ts";

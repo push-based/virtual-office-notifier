@@ -2,8 +2,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Effect, Option, pipe, Random, Ref, Schema, String } from "effect";
 import { AiError, type Response } from "effect/ai";
 
-import { type ReplyContext, ReplyText, ReplyWriter } from "../src/ReplyWriter.ts";
-import { captureReports, scriptedModel } from "./fakes.ts";
+import { type ReplyContext, ReplyText, ReplyWriter } from "../../src/answering/ReplyWriter.ts";
+import { captureReports, scriptedModel } from "../fakes.ts";
 
 type Reply = Effect.Effect<Array<Response.PartEncoded>, AiError.AiError>;
 

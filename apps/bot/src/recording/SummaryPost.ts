@@ -10,7 +10,7 @@ import {
   mrkdwn,
   type SectionBlock,
   type SlackMessage,
-} from "../SlackMessage.ts";
+} from "../slack/index.ts";
 import type { OfficeLocation } from "../OfficeEvent.ts";
 import { type ActionItemLine, ActionItemList } from "./ActionItems.ts";
 

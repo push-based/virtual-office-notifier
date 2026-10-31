@@ -17,7 +17,7 @@ export class BotPosts extends Context.Service<
       model: string | null,
     ): Effect.Effect<PostedMessage, SlackError>;
   }
->()("bot/BotPosts") {
+>()("bot/slack/BotPosts") {
   static readonly layer = Layer.effect(
     BotPosts,
     Effect.gen(function* () {

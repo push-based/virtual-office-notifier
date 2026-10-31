@@ -3,10 +3,10 @@ import { SqlClient, SqlSchema } from "effect/sql";
 import { guardQuery } from "recording-requests/Query";
 import { RowId } from "recording-requests/RecordingRequest";
 
-import type { ClefRequest } from "./CloudflareDecisionModel.ts";
+import type { ClefRequest } from "../answering/index.ts";
 
-import { Database, describeError } from "./Database.ts";
-import { HistoryUnavailable } from "./OfficeHistory.ts";
+import { Database, describeError } from "../Database.ts";
+import { HistoryUnavailable } from "../OfficeHistory.ts";
 
 export interface ResponderSettings {
   readonly enabled: boolean;
@@ -172,7 +172,7 @@ export class SlackHistory extends Context.Service<
       realName: string,
     ): Effect.Effect<Option.Option<LinkedMember>, HistoryUnavailable>;
   }
->()("bot/SlackHistory") {
+>()("bot/slack/SlackHistory") {
   static readonly layer = Layer.effect(
     SlackHistory,
     Effect.gen(function* () {

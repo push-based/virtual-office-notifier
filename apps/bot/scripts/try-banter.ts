@@ -3,9 +3,9 @@ import { Array, Config, Console, Effect, Option } from "effect";
 
 import { DEFAULT_OPENROUTER_BANTER_MODELS } from "../src/Config.ts";
 import { openRouterProvider } from "../src/AiWriting.ts";
-import { briefFor, HeadlineWriter } from "../src/HeadlineWriter.ts";
+import { briefFor, HeadlineWriter } from "../src/announcing/index.ts";
 import { OfficeEvent } from "../src/OfficeEvent.ts";
-import { AI_DISCLAIMER } from "../src/SlackMessage.ts";
+import { AI_DISCLAIMER } from "../src/slack/index.ts";
 import { banterScenarios } from "./banter-scenarios.ts";
 
 const office = { guildId: "guild", channelId: "office" };

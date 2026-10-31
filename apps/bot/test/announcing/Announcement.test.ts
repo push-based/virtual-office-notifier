@@ -1,14 +1,12 @@
 import { Array, DateTime, Duration, Option } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
-import { OfficeEvent } from "../src/OfficeEvent.ts";
+import { OfficeEvent } from "../../src/OfficeEvent.ts";
 import {
-  escapeSlackText,
-  formatDuration,
   formatMessage,
   reminderHeadlines,
   weekdaysSinceEpoch,
-} from "../src/SlackMessage.ts";
+} from "../../src/announcing/Announcement.ts";
 
 // 2026-09-25T14:05:00Z
 const at = DateTime.makeUnsafe(1_790_345_100_000);
@@ -32,32 +30,6 @@ const reminder = { ...office, at: monday };
 const JOIN_URL = "https://discord.com/channels/g1/c1";
 
 const TIME = "<!date^1790345100^{time}|14:05 UTC>";
-
-describe("escapeSlackText", () => {
-  it("escapes Slack control characters", () => {
-    expect(escapeSlackText("<!channel> & <@U123>")).toBe("&lt;!channel&gt; &amp; &lt;@U123&gt;");
-  });
-
-  it("does not double-escape an existing entity", () => {
-    expect(escapeSlackText("&lt;")).toBe("&amp;lt;");
-  });
-});
-
-describe("formatDuration", () => {
-  it("rounds anything short down to under a minute", () => {
-    expect(formatDuration(Duration.seconds(59))).toBe("under a minute");
-  });
-
-  it("shows minutes, hours, or both", () => {
-    expect(formatDuration(Duration.minutes(14))).toBe("14m");
-    expect(formatDuration(Duration.hours(2))).toBe("2h");
-    expect(formatDuration(Duration.minutes(134))).toBe("2h 14m");
-  });
-
-  it("counts past a day in hours", () => {
-    expect(formatDuration(Duration.hours(26))).toBe("26h");
-  });
-});
 
 const announce = (...args: Parameters<typeof formatMessage>) =>
   Option.getOrThrow(formatMessage(...args));

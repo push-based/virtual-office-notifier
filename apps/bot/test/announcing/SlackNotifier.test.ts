@@ -2,12 +2,12 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, Effect, Fiber, Layer, Option, Random, Schema } from "effect";
 import { TestClock } from "effect/testing";
 
-import { HeadlineWriter } from "../src/HeadlineWriter.ts";
-import { OfficeEvent } from "../src/OfficeEvent.ts";
-import { HistoryUnavailable } from "../src/OfficeHistory.ts";
-import { SlackHistory } from "../src/SlackHistory.ts";
-import { SlackNotifier } from "../src/SlackNotifier.ts";
-import { formatMessage } from "../src/SlackMessage.ts";
+import { HeadlineWriter } from "../../src/announcing/HeadlineWriter.ts";
+import { OfficeEvent } from "../../src/OfficeEvent.ts";
+import { HistoryUnavailable } from "../../src/OfficeHistory.ts";
+import { SlackHistory } from "../../src/slack/SlackHistory.ts";
+import { SlackNotifier } from "../../src/announcing/SlackNotifier.ts";
+import { formatMessage } from "../../src/announcing/Announcement.ts";
 import {
   firstVariant,
   makeFakeSlack,
@@ -19,7 +19,7 @@ import {
   SLACK_ENV,
   slackOk,
   withEnv,
-} from "./fakes.ts";
+} from "../fakes.ts";
 
 const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
 
