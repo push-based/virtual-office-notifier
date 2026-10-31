@@ -127,6 +127,7 @@ interface Setup {
   readonly write?: Effect.Effect<Option.Option<WrittenReply>> | undefined;
   readonly settings?: ResponderSettings | undefined;
   readonly members?: ReadonlyMap<string, LinkedMember> | undefined;
+  readonly postsUnavailable?: boolean | undefined;
   readonly slack?: FakeSlackClientOptions | undefined;
   readonly at?: DateTime.Utc | undefined;
 }
@@ -141,7 +142,12 @@ const start = Effect.fnUntraced(function* (setup: Setup = {}) {
     ...setup.slack,
   });
 
-  const history = yield* makeFakeSlackHistory({ settings: setup.settings, members: setup.members });
+  const history = yield* makeFakeSlackHistory({
+    settings: setup.settings,
+    members: setup.members,
+    postsUnavailable: setup.postsUnavailable,
+  });
+
   const clefStates = yield* Ref.make<ReadonlyArray<ClefState>>([]);
   const replyContexts = yield* Ref.make<ReadonlyArray<ReplyContext>>([]);
   const { reports, layer: reporting } = captureReports();
@@ -651,6 +657,17 @@ describe("respondToSlack", () => {
 
       assert.deepStrictEqual(yield* bot.outcomes, ["ignored:clef_failed"]);
       assert.deepStrictEqual(bot.reports, []);
+    }),
+  );
+
+  it.effect("still records the reply decision when the reply itself can't be recorded", () =>
+    Effect.gen(function* () {
+      const bot = yield* start({ decide: clefSays("reply"), postsUnavailable: true });
+
+      yield* bot.send(threadReply("200.0", "what do you think, bot?"));
+
+      assert.strictEqual((yield* bot.slack.posts).length, 1);
+      assert.deepStrictEqual(yield* bot.outcomes, ["replied:clef"]);
     }),
   );
 
