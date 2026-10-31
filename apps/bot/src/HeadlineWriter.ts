@@ -3,7 +3,6 @@ import {
   Context,
   Effect,
   ErrorReporter,
-  identity,
   Layer,
   type LogLevel,
   type Option,
@@ -17,6 +16,7 @@ import {
 import {
   type Brief,
   orReportedNone,
+  unquoted,
   type Providers,
   writerLayer,
   writeWithProviders,
@@ -45,11 +45,7 @@ const Line = (minLength: number, maxLength: number, pattern: RegExp) =>
         Schema.isMaxLength(maxLength),
         Schema.isPattern(pattern),
       ),
-      SchemaTransformation.transform({
-        decode: (line) =>
-          pipe(line, String.trim, String.replace(/^["'“]+|["'”]+$/g, ""), String.trim),
-        encode: identity,
-      }),
+      unquoted,
     ),
   );
 

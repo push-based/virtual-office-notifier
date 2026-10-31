@@ -1,21 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
-import {
-  Array,
-  DateTime,
-  Effect,
-  Layer,
-  Option,
-  pipe,
-  Random,
-  Ref,
-  Schema,
-  Stream,
-  String,
-} from "effect";
-import { AiError, LanguageModel, Model, type Response } from "effect/ai";
+import { Array, DateTime, Effect, Option, pipe, Random, Ref, Schema, String } from "effect";
+import { AiError, type Response } from "effect/ai";
 
 import { type ReplyContext, ReplyText, ReplyWriter } from "../src/ReplyWriter.ts";
-import { captureReports } from "./fakes.ts";
+import { captureReports, scriptedModel } from "./fakes.ts";
 
 type Reply = Effect.Effect<Array<Response.PartEncoded>, AiError.AiError>;
 
@@ -31,21 +19,10 @@ const fakeModel = (
   calls: Ref.Ref<ReadonlyArray<string>>,
   prompts: Ref.Ref<ReadonlyArray<string>>,
 ) =>
-  Model.make(
-    "test",
-    name,
-    Layer.effect(
-      LanguageModel.LanguageModel,
-      LanguageModel.make({
-        generateText: (options) =>
-          Ref.update(calls, (sent) => [...sent, name]).pipe(
-            Effect.andThen(
-              Ref.update(prompts, (sent) => [...sent, JSON.stringify(options.prompt)]),
-            ),
-            Effect.andThen(reply),
-          ),
-        streamText: () => Stream.empty,
-      }),
+  scriptedModel(name, (options) =>
+    Ref.update(calls, (sent) => [...sent, name]).pipe(
+      Effect.andThen(Ref.update(prompts, (sent) => [...sent, JSON.stringify(options.prompt)])),
+      Effect.andThen(reply),
     ),
   );
 

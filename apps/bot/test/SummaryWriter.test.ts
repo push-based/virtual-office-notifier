@@ -1,23 +1,8 @@
-import { OpenAiLanguageModel } from "@effect/ai-openai-compat";
 import { assert, describe, it } from "@effect/vitest";
-import {
-  Array,
-  DateTime,
-  Effect,
-  Exit,
-  Layer,
-  Option,
-  pipe,
-  Ref,
-  Schema,
-  Stream,
-  String,
-} from "effect";
-import { LanguageModel, Model } from "effect/ai";
+import { Array, DateTime, Effect, Exit, pipe, Schema, String } from "effect";
 
 import type { ClipLine, PauseLine, RecordingDetails } from "../src/RecordingStore.ts";
 import {
-  DETAILED_OUTPUT_TOKENS,
   DetailedSummaryText,
   hasSpeech,
   MAX_SUMMARY_LENGTH,
@@ -25,7 +10,6 @@ import {
   speakersOf,
   STYLE_BRIEFS,
   SummaryText,
-  SummaryWriter,
   summaryRequest,
   transcriptLines,
   transcriptText,
@@ -62,55 +46,6 @@ const line = (overrides: Partial<ClipLine> = {}): ClipLine => ({
 const decode = Schema.decodeUnknownEffect(SummaryText);
 
 const decodeDetailed = Schema.decodeUnknownEffect(DetailedSummaryText);
-
-interface ModelCall {
-  readonly system: string;
-  readonly maxOutputTokens: number | null;
-}
-
-const makeWriter = Effect.fnUntraced(function* (reply: string) {
-  const calls = yield* Ref.make<ReadonlyArray<ModelCall>>([]);
-
-  const model = Model.make(
-    "test",
-    "model-1",
-    Layer.effect(
-      LanguageModel.LanguageModel,
-      LanguageModel.make({
-        generateText: (options) =>
-          Effect.serviceOption(OpenAiLanguageModel.Config).pipe(
-            Effect.flatMap((config) =>
-              Ref.update(calls, (all) => [
-                ...all,
-                {
-                  system: Array.findFirst(
-                    options.prompt.content,
-                    (message) => message.role === "system",
-                  ).pipe(
-                    Option.map((message) => (message.role === "system" ? message.content : "")),
-                    Option.getOrElse(() => ""),
-                  ),
-                  maxOutputTokens: Option.getOrNull(
-                    Option.flatMap(config, (found) =>
-                      Option.fromUndefinedOr(found.max_output_tokens),
-                    ),
-                  ),
-                },
-              ]),
-            ),
-            Effect.as([{ type: "text" as const, text: reply }]),
-          ),
-        streamText: () => Stream.empty,
-      }),
-    ),
-  );
-
-  const writer = yield* Effect.service(SummaryWriter).pipe(
-    Effect.provide(SummaryWriter.layerProviders([[model]])),
-  );
-
-  return { writer, calls: Ref.get(calls) };
-});
 
 describe("transcriptLines", () => {
   it("writes one line per clip with the office time and who spoke", () => {
@@ -226,62 +161,6 @@ describe("speakersOf and hasSpeech", () => {
     assert.deepStrictEqual(speakersOf(lines), []);
     assert.isFalse(hasSpeech(lines));
   });
-});
-
-describe("SummaryWriter", () => {
-  it.effect("writes each style with its own instructions, and says which style it wrote", () =>
-    Effect.gen(function* () {
-      const { writer, calls } = yield* makeWriter("• Shipped it");
-
-      for (const style of ["brief", "detailed", "decisions"] as const) {
-        assert.deepStrictEqual(
-          yield* writer.write("transcript", style),
-          Option.some({ text: "• Shipped it", model: "model-1", style }),
-        );
-      }
-
-      const [brief, detailed, decisions] = yield* calls;
-
-      assert.include(brief?.system ?? "", "what was discussed and any decisions");
-      assert.include(brief?.system ?? "", "under 1,200 characters");
-      assert.include(detailed?.system ?? "", "grouped by topic");
-      assert.include(detailed?.system ?? "", "under 2,800 characters");
-      assert.include(decisions?.system ?? "", "Write only what was decided");
-      assert.include(decisions?.system ?? "", "under 1,200 characters");
-
-      for (const call of [brief, detailed, decisions])
-        assert.include(call?.system ?? "", "The agenda is what people meant to cover");
-    }),
-  );
-
-  it.effect("gives a Detailed summary room to answer, and the others the usual budget", () =>
-    Effect.gen(function* () {
-      const { writer, calls } = yield* makeWriter("• Shipped it");
-
-      yield* writer.write("transcript", "brief");
-      yield* writer.write("transcript", "detailed");
-      yield* writer.write("transcript", "decisions");
-
-      assert.deepStrictEqual(
-        Array.map(yield* calls, ({ maxOutputTokens }) => maxOutputTokens),
-        [null, DETAILED_OUTPUT_TOKENS, null],
-      );
-    }),
-  );
-
-  it.effect("checks each style's length: a Detailed summary may be longer than a Brief one", () =>
-    Effect.gen(function* () {
-      const long = pipe("•", String.repeat(MAX_SUMMARY_LENGTH + 1));
-      const { writer } = yield* makeWriter(long);
-
-      assert.deepStrictEqual(yield* writer.write("transcript", "brief"), Option.none());
-      assert.deepStrictEqual(yield* writer.write("transcript", "decisions"), Option.none());
-      assert.deepStrictEqual(
-        Option.map(yield* writer.write("transcript", "detailed"), ({ text }) => text),
-        Option.some(long),
-      );
-    }),
-  );
 });
 
 describe("DetailedSummaryText", () => {

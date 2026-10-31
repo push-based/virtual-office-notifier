@@ -1,7 +1,6 @@
 import { Effect, Layer, Option, Redacted, Stream } from "effect";
 import { SecureRandom } from "effect/crypto";
 
-import { ActionItemWriter } from "./ActionItems.ts";
 import { ActivityRecorder } from "./ActivityRecorder.ts";
 import { AiProviders } from "./AiWriting.ts";
 import { banter } from "./Banter.ts";
@@ -9,12 +8,12 @@ import { ClipArchive } from "./ClipArchive.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import { OfficeEvent } from "./OfficeEvent.ts";
 import { RecorderLayer } from "./Recorder.ts";
+import { RecordingWriter } from "./RecordingWriter.ts";
 import { reminders } from "./Reminder.ts";
 import { ResponderLayer } from "./Responder.ts";
 import { isRetryable, type SlackError } from "./SlackClient.ts";
 import { SlackNotifier } from "./SlackNotifier.ts";
 import { StorageLayer } from "./Storage.ts";
-import { SummaryWriter } from "./SummaryWriter.ts";
 import { Transcriber } from "./Transcriber.ts";
 import { VoiceCapture } from "./VoiceCapture.ts";
 
@@ -84,13 +83,7 @@ export const program = Effect.gen(function* () {
 });
 
 const VoiceRecording = RecorderLayer.pipe(
-  Layer.provide([
-    VoiceCapture.layer,
-    ClipArchive.layer,
-    Transcriber.layer,
-    SummaryWriter.layer,
-    ActionItemWriter.layer,
-  ]),
+  Layer.provide([VoiceCapture.layer, ClipArchive.layer, Transcriber.layer, RecordingWriter.layer]),
 );
 
 // Slack is built before Discord, so a missing Slack token fails before logging

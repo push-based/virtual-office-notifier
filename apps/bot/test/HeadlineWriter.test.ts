@@ -1,23 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
-import {
-  Array,
-  Effect,
-  Fiber,
-  Layer,
-  Option,
-  pipe,
-  Random,
-  Ref,
-  Schema,
-  Stream,
-  String,
-} from "effect";
-import { AiError, LanguageModel, Model, type Response } from "effect/ai";
+import { Array, Effect, Fiber, Option, pipe, Random, Ref, Schema, String } from "effect";
+import { AiError, type Response } from "effect/ai";
 import { TestClock } from "effect/testing";
 
 import { BanterReply, HeadlineWriter, OpenedReply, UnnamedReply } from "../src/HeadlineWriter.ts";
 import { OfficeEvent } from "../src/OfficeEvent.ts";
-import { captureReports, opened } from "./fakes.ts";
+import { captureReports, opened, scriptedModel } from "./fakes.ts";
 
 type Reply = Effect.Effect<Array<Response.PartEncoded>, AiError.AiError>;
 
@@ -25,17 +13,8 @@ const says = (text: string): Reply => Effect.succeed([{ type: "text", text }]);
 
 // Records its name in `calls` each time it's asked.
 const fakeModel = (name: string, reply: Reply, calls: Ref.Ref<ReadonlyArray<string>>) =>
-  Model.make(
-    "test",
-    name,
-    Layer.effect(
-      LanguageModel.LanguageModel,
-      LanguageModel.make({
-        generateText: () =>
-          Ref.update(calls, (sent) => [...sent, name]).pipe(Effect.andThen(reply)),
-        streamText: () => Stream.empty,
-      }),
-    ),
+  scriptedModel(name, () =>
+    Ref.update(calls, (sent) => [...sent, name]).pipe(Effect.andThen(reply)),
   );
 
 // Tries the models in the order given.
@@ -466,19 +445,10 @@ describe("HeadlineWriter", () => {
       const calls = yield* Ref.make<ReadonlyArray<string>>([]);
       const prompt = yield* Ref.make("");
 
-      const banterModel = Model.make(
-        "test",
-        "banter-model",
-        Layer.effect(
-          LanguageModel.LanguageModel,
-          LanguageModel.make({
-            generateText: (options) =>
-              Ref.update(calls, (sent) => [...sent, "banter-model"]).pipe(
-                Effect.andThen(Ref.set(prompt, JSON.stringify(options.prompt))),
-                Effect.andThen(says("🐦 Ada was first in again today.\n⏰ Beat Ada tomorrow")),
-              ),
-            streamText: () => Stream.empty,
-          }),
+      const banterModel = scriptedModel("banter-model", (options) =>
+        Ref.update(calls, (sent) => [...sent, "banter-model"]).pipe(
+          Effect.andThen(Ref.set(prompt, JSON.stringify(options.prompt))),
+          Effect.andThen(says("🐦 Ada was first in again today.\n⏰ Beat Ada tomorrow")),
         ),
       );
 

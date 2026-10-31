@@ -25,7 +25,7 @@ import { RecordingEdits } from "recording-requests/RecordingEdits";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
-import { ActionItemWriter, type PulledItem } from "../src/ActionItems.ts";
+import { ownedBy, type PulledItem } from "../src/ActionItems.ts";
 import type { Written } from "../src/AiWriting.ts";
 import { ClipArchive } from "../src/ClipArchive.ts";
 import type { Clip } from "../src/ClipCutter.ts";
@@ -36,7 +36,8 @@ import { FINISH_POLL, FINISH_RETRY } from "../src/Publication.ts";
 import { POLL_INTERVAL, startRecorder, STATUS_INTERVAL } from "../src/Recorder.ts";
 import { RecordingStore, StoreUnavailable } from "../src/RecordingStore.ts";
 import { InvalidPayload } from "../src/SlackClient.ts";
-import { SummaryWriter, type WrittenSummary } from "../src/SummaryWriter.ts";
+import { actionItemsRequestOf, RecordingWriter, summaryRequestOf } from "../src/RecordingWriter.ts";
+import type { WrittenSummary } from "../src/SummaryWriter.ts";
 import { type Transcript, Transcriber, TranscriptionError } from "../src/Transcriber.ts";
 import { SPEAKING_HOLD } from "../src/Speaking.ts";
 import { type CaptureError, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
@@ -134,25 +135,28 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     Transcriber.of({ transcribe: options.transcribe ?? transcribeAll }),
   );
 
-  const summaries = Layer.succeed(
-    SummaryWriter,
-    SummaryWriter.of({
-      write: (request, style) =>
-        Ref.update(summaryRequests, (all) => [...all, request]).pipe(
+  const writer = Layer.succeed(
+    RecordingWriter,
+    RecordingWriter.of({
+      summarize: (recording) => {
+        const style = recording.details.summaryStyle;
+
+        return Ref.update(summaryRequests, (all) => [...all, summaryRequestOf(recording)]).pipe(
           Effect.andThen(Ref.update(summaryStyles, (all) => [...all, style])),
           Effect.andThen(Effect.flatten(Ref.get(whileSummarizing))),
           Effect.andThen(Ref.get(nextSummary)),
           Effect.map(Option.map((written) => ({ ...written, style }))),
-        ),
-    }),
-  );
-
-  const actionItemWriter = Layer.succeed(
-    ActionItemWriter,
-    ActionItemWriter.of({
-      pull: (request) =>
-        Ref.update(actionItemRequests, (all) => [...all, request]).pipe(
+        );
+      },
+      pullActionItems: (recording, attendees) =>
+        Ref.update(actionItemRequests, (all) => [
+          ...all,
+          actionItemsRequestOf(recording, attendees),
+        ]).pipe(
           Effect.andThen(Ref.get(nextActionItems)),
+          Effect.map(
+            Option.map(({ value, model }) => ({ model, items: ownedBy(attendees, value) })),
+          ),
         ),
     }),
   );
@@ -177,8 +181,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
       ? ClipArchive.layerDisabled
       : Layer.succeed(ClipArchive, options.archive),
     transcriber,
-    summaries,
-    actionItemWriter,
+    writer,
     slack.layer,
     history.layer,
     SecureRandom.layerWebCrypto,

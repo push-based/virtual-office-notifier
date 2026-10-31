@@ -3,17 +3,19 @@ import {
   Context,
   Effect,
   ErrorReporter,
-  identity,
   Layer,
   type LogLevel,
   Option,
-  pipe,
   Schema,
-  SchemaTransformation,
-  String,
 } from "effect";
 
-import { orReportedNone, type Providers, writerLayer, writeWithProviders } from "./AiWriting.ts";
+import {
+  orReportedNone,
+  type Providers,
+  unquoted,
+  writerLayer,
+  writeWithProviders,
+} from "./AiWriting.ts";
 import { banterLog } from "./Banter.ts";
 import type { BanterContext } from "./OfficeEvent.ts";
 
@@ -26,11 +28,7 @@ export const ReplyText = Schema.String.pipe(
       Schema.isMaxLength(MAX_REPLY_LENGTH),
       Schema.isPattern(/^[^<>]+$/),
     ),
-    SchemaTransformation.transform({
-      decode: (text) =>
-        pipe(text, String.trim, String.replace(/^["'“]+|["'”]+$/g, ""), String.trim),
-      encode: identity,
-    }),
+    unquoted,
   ),
 );
 

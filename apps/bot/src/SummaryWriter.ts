@@ -1,29 +1,17 @@
 import {
   Array,
-  Context,
   DateTime,
-  Effect,
   ErrorReporter,
-  identity,
-  Layer,
   type LogLevel,
-  Option,
   Order,
   pipe,
   Schema,
   type SchemaAST,
-  SchemaTransformation,
   String,
 } from "effect";
 import type { SummaryStyle } from "recording-requests/Recording";
 
-import {
-  type Brief,
-  orReportedNone,
-  type Providers,
-  writerLayer,
-  writeWithProviders,
-} from "./AiWriting.ts";
+import { type Brief, unquoted } from "./AiWriting.ts";
 import { officeClock } from "./Banter.ts";
 import type { ClipLine, PauseLine, RecordingDetails } from "./RecordingStore.ts";
 import { escapeSlackText, formatDuration } from "./SlackMessage.ts";
@@ -38,11 +26,7 @@ const summaryText = (limit: SchemaAST.Check<string>) =>
   Schema.String.pipe(
     Schema.decodeTo(
       Schema.String.check(Schema.isMinLength(1), limit, Schema.isPattern(/^[^<>]+$/s)),
-      SchemaTransformation.transform({
-        decode: (text) =>
-          pipe(text, String.trim, String.replace(/^["'“]+|["'”]+$/g, ""), String.trim),
-        encode: identity,
-      }),
+      unquoted,
     ),
   );
 
@@ -192,39 +176,3 @@ export const speakersOf = (lines: ReadonlyArray<ClipLine>): ReadonlyArray<string
 
 export const hasSpeech = (lines: ReadonlyArray<ClipLine>): boolean =>
   transcriptLines(lines).length > 0;
-
-export class SummaryWriter extends Context.Service<
-  SummaryWriter,
-  {
-    write(request: string, style: SummaryStyle): Effect.Effect<Option.Option<WrittenSummary>>;
-  }
->()("bot/SummaryWriter") {
-  static readonly layerProviders = (providers: Providers) =>
-    Layer.succeed(
-      SummaryWriter,
-      SummaryWriter.of({
-        write: Effect.fn("SummaryWriter.write")(
-          function* (request: string, style: SummaryStyle) {
-            const { value, model } = yield* writeWithProviders(
-              { ...STYLE_BRIEFS[style], request },
-              providers,
-            );
-
-            return { text: value, model, style };
-          },
-          orReportedNone("summarize the recording", (reason) => NoAiSummary.make({ reason })),
-        ),
-      }),
-    );
-
-  static readonly layerNone = Layer.succeed(
-    SummaryWriter,
-    SummaryWriter.of({ write: () => Effect.succeedNone }),
-  );
-
-  static readonly layer = writerLayer({
-    withProviders: ({ banter }) => SummaryWriter.layerProviders(banter),
-    withoutProviders: SummaryWriter.layerNone,
-    withoutProvidersNote: "No AI provider configured, so recordings get no summary",
-  });
-}
