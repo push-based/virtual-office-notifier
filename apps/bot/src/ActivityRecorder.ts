@@ -16,6 +16,7 @@ import {
   Schema,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
+import { QUERY_TIMEOUT, TIMED_OUT } from "recording-requests/Query";
 
 import { ActivityLog, ActivityLogError, Outage } from "./ActivityLog.ts";
 import { Database, DatabaseUnavailable, describeError, reconnectSchedule } from "./Database.ts";
@@ -26,8 +27,6 @@ import type { VoiceObservation } from "./VoiceObservation.ts";
 export const BUFFER_SIZE = 50_000;
 
 // A write taking this long is treated like the database being down.
-const WRITE_TIMEOUT = Duration.seconds(10);
-
 // How long a shutdown waits for the buffer to be written.
 export const FLUSH_TIMEOUT = Duration.seconds(10);
 
@@ -170,7 +169,7 @@ export class ActivityRecorder extends Context.Service<
       const setAside = (entry: Entry, error: ActivityLogError) =>
         DateTime.now.pipe(
           Effect.flatMap((at) => log.reject(JSON.stringify(entry), error.reason.message, at)),
-          Effect.timeout(WRITE_TIMEOUT),
+          Effect.timeout(QUERY_TIMEOUT),
           Effect.andThen(
             Effect.logWarning(
               "The database rejected an update, set it aside in rejected_updates",
@@ -192,11 +191,11 @@ export class ActivityRecorder extends Context.Service<
       const write = (entry: Entry) =>
         persist(entry).pipe(
           Effect.timeoutOrElse({
-            duration: WRITE_TIMEOUT,
+            duration: QUERY_TIMEOUT,
             orElse: () =>
               Effect.fail(
                 ActivityLogError.make({
-                  reason: Outage.make({ message: "Timed out after 10 seconds" }),
+                  reason: Outage.make({ message: TIMED_OUT }),
                 }),
               ),
           }),
