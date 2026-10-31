@@ -1,9 +1,7 @@
 import { Cron, DateTime, Effect, Schedule, Stream } from "effect";
 
 import { OfficeEvent, type OfficeLocation } from "./OfficeEvent.ts";
-
-// Weekdays at 11:15 UTC+2. A fixed offset, so it doesn't follow daylight saving.
-export const OFFICE_TIME_ZONE = DateTime.zoneMakeOffset(2 * 60 * 60 * 1000);
+import { OFFICE_TIME_ZONE } from "./OfficeTime.ts";
 
 const reminderCron = Cron.make({
   minutes: [15],

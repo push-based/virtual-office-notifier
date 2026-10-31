@@ -6,13 +6,12 @@ import {
   BANTER_PERIODS,
   banter,
   banterLog,
-  isBanterTime,
   MAX_BANTER_PER_DAY,
   periodRange,
-  startOfOfficeDay,
 } from "../src/Banter.ts";
 import { type BanterContext, type BanterPeriod, OfficeEvent } from "../src/OfficeEvent.ts";
 import { HistoryUnavailable, OfficeHistory } from "../src/OfficeHistory.ts";
+import { startOfOfficeDay } from "../src/OfficeTime.ts";
 import { firstVariant } from "./fakes.ts";
 
 const office = { guildId: "g1", channelId: "c1" };
@@ -21,25 +20,6 @@ const office = { guildId: "g1", channelId: "c1" };
 const officeTime = (iso: string) => DateTime.makeUnsafe(`${iso}+02:00`);
 
 const iso = (at: DateTime.Utc) => DateTime.formatIso(at);
-
-describe("isBanterTime", () => {
-  it.each([
-    { at: "2026-10-02T09:00:00", expected: true, why: "the start of a Friday" },
-    { at: "2026-10-02T17:59:00", expected: true, why: "just before 18:00 on a Friday" },
-    { at: "2026-09-28T12:00:00", expected: true, why: "midday on a Monday" },
-    { at: "2026-10-02T08:59:00", expected: false, why: "just before 09:00" },
-    { at: "2026-10-02T18:00:00", expected: false, why: "18:00" },
-    { at: "2026-10-03T12:00:00", expected: false, why: "a Saturday" },
-    { at: "2026-10-04T12:00:00", expected: false, why: "a Sunday" },
-  ])("is $expected at $why, in office time", ({ at, expected }) => {
-    assert.strictEqual(isBanterTime(officeTime(at)), expected);
-  });
-
-  it("follows office time rather than UTC", () => {
-    assert.isTrue(isBanterTime(DateTime.makeUnsafe("2026-10-02T07:00:00Z")));
-    assert.isFalse(isBanterTime(DateTime.makeUnsafe("2026-10-02T16:00:00Z")));
-  });
-});
 
 describe("periodRange", () => {
   const friday = officeTime("2026-10-02T14:05:00");
