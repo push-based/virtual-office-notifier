@@ -16,30 +16,31 @@ import {
   String,
 } from "effect";
 
-import { periodRange } from "./Banter.ts";
-import { BotPosts } from "./BotPosts.ts";
-import { SlackConfig } from "./Config.ts";
-import type { BanterContext } from "./OfficeEvent.ts";
-import { OfficeHistory } from "./OfficeHistory.ts";
-import { isOfficeHours, startOfOfficeDay } from "./OfficeTime.ts";
-import { type ClefState, ReplyDecider } from "./ReplyDecider.ts";
-import { type ThreadLine, ReplyWriter } from "./ReplyWriter.ts";
-import { isRetryable, type SlackError, SlackClient, type ThreadMessage } from "./SlackClient.ts";
+import { periodRange } from "../announcing/index.ts";
 import {
   type ActivityContext,
-  eligibleActivity,
-  type Envelope,
-  SlackActivity,
-} from "./SlackEvent.ts";
-import {
+  BotPosts,
   type ClefVerdict,
   type DecisionReason,
+  eligibleActivity,
+  type Envelope,
+  isRetryable,
   type Outcome,
   type ResponderSettings,
+  SlackActivity,
+  SlackClient,
+  type SlackError,
   SlackHistory,
-} from "./SlackHistory.ts";
-import { replyMessage } from "./SlackMessage.ts";
-import { SlackSocket } from "./SlackSocket.ts";
+  SlackSocket,
+  type ThreadMessage,
+} from "../slack/index.ts";
+import { SlackConfig } from "../Config.ts";
+import type { BanterContext } from "../OfficeEvent.ts";
+import { OfficeHistory } from "../OfficeHistory.ts";
+import { isOfficeHours, startOfOfficeDay } from "../OfficeTime.ts";
+import { type ClefState, ReplyDecider } from "./ReplyDecider.ts";
+import { type ThreadLine, ReplyWriter } from "./ReplyWriter.ts";
+import { replyMessage } from "./ReplyMessage.ts";
 
 export const MAX_MESSAGE_LENGTH = 1000;
 

@@ -3,15 +3,13 @@ import { SecureRandom } from "effect/crypto";
 
 import { ActivityRecorder } from "./ActivityRecorder.ts";
 import { AiProviders } from "./AiWriting.ts";
-import { banter } from "./Banter.ts";
+import { banter, reminders, SlackNotifier } from "./announcing/index.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import { OfficeEvent } from "./OfficeEvent.ts";
 import { OfficeSeat } from "./OfficeSeat.ts";
 import { RecordingLayer } from "./recording/index.ts";
-import { reminders } from "./Reminder.ts";
-import { ResponderLayer } from "./Responder.ts";
-import { isRetryable, type SlackError } from "./SlackClient.ts";
-import { SlackNotifier } from "./SlackNotifier.ts";
+import { ResponderLayer } from "./answering/index.ts";
+import { isRetryable, type SlackError } from "./slack/index.ts";
 import { StorageLayer } from "./Storage.ts";
 
 const logSlackError = (error: SlackError) =>

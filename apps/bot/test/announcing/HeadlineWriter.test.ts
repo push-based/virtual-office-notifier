@@ -3,9 +3,14 @@ import { Array, Effect, Fiber, Option, pipe, Random, Ref, Schema, String } from 
 import { AiError, type Response } from "effect/ai";
 import { TestClock } from "effect/testing";
 
-import { BanterReply, HeadlineWriter, OpenedReply, UnnamedReply } from "../src/HeadlineWriter.ts";
-import { OfficeEvent } from "../src/OfficeEvent.ts";
-import { captureReports, opened, scriptedModel } from "./fakes.ts";
+import {
+  BanterReply,
+  HeadlineWriter,
+  OpenedReply,
+  UnnamedReply,
+} from "../../src/announcing/HeadlineWriter.ts";
+import { OfficeEvent } from "../../src/OfficeEvent.ts";
+import { captureReports, opened, scriptedModel } from "../fakes.ts";
 
 type Reply = Effect.Effect<Array<Response.PartEncoded>, AiError.AiError>;
 

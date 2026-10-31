@@ -79,7 +79,7 @@ export class SlackSocket extends Context.Service<
   {
     readonly envelopes: Stream.Stream<Envelope>;
   }
->()("bot/SlackSocket") {
+>()("bot/slack/SlackSocket") {
   static readonly layerNoDeps = Layer.effect(
     SlackSocket,
     Effect.gen(function* () {

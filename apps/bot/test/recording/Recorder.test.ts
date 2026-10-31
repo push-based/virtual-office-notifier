@@ -25,7 +25,7 @@ import { RecordingEdits } from "recording-requests/RecordingEdits";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
-import { BotPosts } from "../../src/BotPosts.ts";
+import { BotPosts } from "../../src/slack/BotPosts.ts";
 import { ownedBy, type PulledItem } from "../../src/recording/ActionItems.ts";
 import type { Written } from "../../src/AiWriting.ts";
 import { ClipArchive } from "../../src/recording/ClipArchive.ts";
@@ -37,7 +37,7 @@ import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../../src/OfficeEvent.t
 import { FINISH_POLL, FINISH_RETRY } from "../../src/recording/Publication.ts";
 import { POLL_INTERVAL, startRecorder, STATUS_INTERVAL } from "../../src/recording/Recorder.ts";
 import { RecordingStore, StoreUnavailable } from "../../src/recording/RecordingStore.ts";
-import { InvalidPayload } from "../../src/SlackClient.ts";
+import { InvalidPayload } from "../../src/slack/SlackClient.ts";
 import {
   actionItemsRequestOf,
   RecordingWriter,

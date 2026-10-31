@@ -13,21 +13,25 @@ import {
 } from "effect";
 import { TestClock } from "effect/testing";
 
-import { BotPosts } from "../src/BotPosts.ts";
-import { OfficeHistory } from "../src/OfficeHistory.ts";
+import { BotPosts } from "../../src/slack/BotPosts.ts";
+import { OfficeHistory } from "../../src/OfficeHistory.ts";
 import {
   ClefFailed,
   type ClefState,
   type Decided,
   judge,
   ReplyDecider,
-} from "../src/ReplyDecider.ts";
-import { type ReplyContext, ReplyWriter, type WrittenReply } from "../src/ReplyWriter.ts";
-import { respondToSlack } from "../src/Responder.ts";
-import { AccessRevoked } from "../src/SlackClient.ts";
-import { decodeEnvelope, type Envelope } from "../src/SlackEvent.ts";
-import type { ClefVerdict, LinkedMember, ResponderSettings } from "../src/SlackHistory.ts";
-import { SlackSocket } from "../src/SlackSocket.ts";
+} from "../../src/answering/ReplyDecider.ts";
+import {
+  type ReplyContext,
+  ReplyWriter,
+  type WrittenReply,
+} from "../../src/answering/ReplyWriter.ts";
+import { respondToSlack } from "../../src/answering/Responder.ts";
+import { AccessRevoked } from "../../src/slack/SlackClient.ts";
+import { decodeEnvelope, type Envelope } from "../../src/slack/SlackEvent.ts";
+import type { ClefVerdict, LinkedMember, ResponderSettings } from "../../src/slack/SlackHistory.ts";
+import { SlackSocket } from "../../src/slack/SlackSocket.ts";
 import {
   BOT_USER_ID,
   captureReports,
@@ -37,7 +41,7 @@ import {
   makeFakeSlackHistory,
   SLACK_ENV,
   withEnv,
-} from "./fakes.ts";
+} from "../fakes.ts";
 
 const OFFICE = SLACK_ENV.SLACK_CHANNEL_ID;
 

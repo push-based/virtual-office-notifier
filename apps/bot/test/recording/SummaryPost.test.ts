@@ -3,7 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import { ActionItemList } from "../../src/recording/ActionItems.ts";
 import { rewriteNote, summaryMessage } from "../../src/recording/SummaryPost.ts";
-import { AI_DISCLAIMER } from "../../src/SlackMessage.ts";
+import { AI_DISCLAIMER } from "../../src/slack/SlackMessage.ts";
 
 // 2026-09-25T14:05:00Z
 const at = DateTime.makeUnsafe(1_790_345_100_000);

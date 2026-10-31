@@ -3,9 +3,9 @@ import { Array, Effect, Layer, Option, pipe, Queue, Schema, Stream, String } fro
 import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 
-import { SlackClient } from "../src/SlackClient.ts";
-import type { Envelope } from "../src/SlackEvent.ts";
-import { SlackSocket } from "../src/SlackSocket.ts";
+import { SlackClient } from "../../src/slack/SlackClient.ts";
+import type { Envelope } from "../../src/slack/SlackEvent.ts";
+import { SlackSocket } from "../../src/slack/SlackSocket.ts";
 import {
   captureReports,
   makeFakeSlackHttp,
@@ -14,7 +14,7 @@ import {
   slackError,
   slackOk,
   withEnv,
-} from "./fakes.ts";
+} from "../fakes.ts";
 
 type Listener = (event: Socket.WebSocketEvent) => void;
 

@@ -2,8 +2,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 
-import { type ClefState, judge, ReplyDecider } from "../src/ReplyDecider.ts";
-import type { ClefVerdict } from "../src/SlackHistory.ts";
+import { type ClefState, judge, ReplyDecider } from "../../src/answering/ReplyDecider.ts";
+import type { ClefVerdict } from "../../src/slack/SlackHistory.ts";
 import {
   DEFAULT_SETTINGS,
   hang,
@@ -13,7 +13,7 @@ import {
   requestText,
   respond,
   withEnv,
-} from "./fakes.ts";
+} from "../fakes.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 

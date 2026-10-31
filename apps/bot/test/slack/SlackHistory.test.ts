@@ -4,10 +4,14 @@ import { Array, DateTime, Duration, Effect, Exit, Layer, Option } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 
-import { ActivityLog } from "../src/ActivityLog.ts";
-import { columnNaming, Database } from "../src/Database.ts";
-import { NO_VOICE_DETAILS } from "../src/OfficeEvent.ts";
-import { type ConsideredMessage, type DecisionRecord, SlackHistory } from "../src/SlackHistory.ts";
+import { ActivityLog } from "../../src/ActivityLog.ts";
+import { columnNaming, Database } from "../../src/Database.ts";
+import { NO_VOICE_DETAILS } from "../../src/OfficeEvent.ts";
+import {
+  type ConsideredMessage,
+  type DecisionRecord,
+  SlackHistory,
+} from "../../src/slack/SlackHistory.ts";
 
 const SESSION = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 

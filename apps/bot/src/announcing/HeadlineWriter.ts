@@ -20,9 +20,9 @@ import {
   type Providers,
   writerLayer,
   writeWithProviders,
-} from "./AiWriting.ts";
+} from "../AiWriting.ts";
 import { banterLog } from "./Banter.ts";
-import { OfficeEvent } from "./OfficeEvent.ts";
+import { OfficeEvent } from "../OfficeEvent.ts";
 import {
   banterExamples,
   emptiedHeadlines,
@@ -33,7 +33,7 @@ import {
   openedHeadlines,
   reminderHeadlines,
   type Variants,
-} from "./SlackMessage.ts";
+} from "./Announcement.ts";
 
 // One line with no Slack link or mention syntax. Models like to wrap a line in
 // quotes.
@@ -173,7 +173,7 @@ export class HeadlineWriter extends Context.Service<
     // None means the fixed phrasings should be used.
     write(event: OfficeEvent): Effect.Effect<Option.Option<GeneratedHeadline>>;
   }
->()("bot/HeadlineWriter") {
+>()("bot/announcing/HeadlineWriter") {
   // Either provider may go first, and its models are tried in turn until one
   // writes a usable headline.
   static readonly layerProviders = (providers: Providers, banterProviders: Providers = providers) =>

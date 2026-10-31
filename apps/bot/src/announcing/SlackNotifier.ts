@@ -1,18 +1,17 @@
 import { Context, Effect, Layer, Option, Random } from "effect";
 
-import { BotPosts } from "./BotPosts.ts";
-import { SlackConfig } from "./Config.ts";
+import { BotPosts, SlackClient, type SlackError } from "../slack/index.ts";
+import { SlackConfig } from "../Config.ts";
 import { HeadlineWriter } from "./HeadlineWriter.ts";
-import type { OfficeEvent } from "./OfficeEvent.ts";
-import { type SlackError, SlackClient } from "./SlackClient.ts";
-import { formatMessage } from "./SlackMessage.ts";
+import type { OfficeEvent } from "../OfficeEvent.ts";
+import { formatMessage } from "./Announcement.ts";
 
 export class SlackNotifier extends Context.Service<
   SlackNotifier,
   {
     notify(event: OfficeEvent): Effect.Effect<boolean, SlackError>;
   }
->()("bot/SlackNotifier") {
+>()("bot/announcing/SlackNotifier") {
   static readonly layerNoDeps = Layer.effect(
     SlackNotifier,
     Effect.gen(function* () {

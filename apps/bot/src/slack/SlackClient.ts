@@ -23,7 +23,7 @@ import {
   HttpClientResponse,
 } from "effect/http";
 
-import { SlackConfig } from "./Config.ts";
+import { SlackConfig } from "../Config.ts";
 import type { SlackMessage } from "./SlackMessage.ts";
 
 export class RateLimited extends Schema.TaggedError<
@@ -329,7 +329,7 @@ export class SlackClient extends Context.Service<
     readonly botUserId: Effect.Effect<string, SlackError>;
     readonly openConnection: Effect.Effect<string, SlackError>;
   }
->()("bot/SlackClient") {
+>()("bot/slack/SlackClient") {
   static readonly layerNoDeps = Layer.effect(
     SlackClient,
     Effect.gen(function* () {
