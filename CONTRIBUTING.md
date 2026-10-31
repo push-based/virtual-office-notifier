@@ -42,6 +42,7 @@ Most changes don't need a `.env` at all, since the tests run without tokens or n
 The app is built on [Effect](https://effect.website) v4. Follow the patterns already in `apps/bot/src/`:
 
 - Services are `Context.Service` classes with a `layer`, and a test layer where tests need one.
+- The bot's code sits in a folder per concern under `apps/bot/src/`, and each folder's `index.ts` is its interface. Code outside a folder imports only its `index.ts`, and lint fails on anything deeper. Tests mirror the folders and can import the internals.
 - Errors are `Schema.TaggedError` classes, handled by tag.
 - Configuration is read through `Config` in [`apps/bot/src/Config.ts`](apps/bot/src/Config.ts). Secrets are `Redacted` and never logged. Watch out for errors that carry request headers, since the Slack and Cloudflare tokens travel in them.
 - Anything posted to Slack that comes from outside, like a Discord display name or AI output, goes through `escapeSlackText`, so it can't ping `@channel` or post links.
