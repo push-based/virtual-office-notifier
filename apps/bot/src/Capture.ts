@@ -21,6 +21,7 @@ import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
 import type { Clip } from "./ClipCutter.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
+import { OfficeSeat } from "./OfficeSeat.ts";
 import { oggOpusFile, opusPacketsDuration } from "./OggOpus.ts";
 import { MIN_CLIP_DURATION } from "./Recording.ts";
 import { RecordingStore } from "./RecordingStore.ts";
@@ -70,6 +71,7 @@ const make = Effect.fnUntraced(function* (
 ) {
   const scope = yield* Scope.Scope;
   const gateway = yield* DiscordGateway;
+  const seat = yield* OfficeSeat;
   const store = yield* RecordingStore;
   const voice = yield* VoiceCapture;
   const archive = yield* ClipArchive;
@@ -214,7 +216,7 @@ const make = Effect.fnUntraced(function* (
     );
 
   const begin = Effect.fn("Capture.begin")(function* (recording: ActiveRecording) {
-    yield* gateway.setRecording("Capturing");
+    yield* seat.record("Capturing");
 
     const stop = yield* Deferred.make<void>();
     const fiber = yield* Effect.forkIn(listen(recording.id, stop), scope);
@@ -229,7 +231,7 @@ const make = Effect.fnUntraced(function* (
     );
 
     yield* stopSession(current);
-    yield* gateway.setRecording("Paused");
+    yield* seat.record("Paused");
   });
 
   const end = Effect.gen(function* () {
@@ -238,7 +240,7 @@ const make = Effect.fnUntraced(function* (
     if (Option.isNone(current)) return Option.none<ActiveRecording>();
 
     yield* stopSession(current);
-    yield* gateway.setRecording("Off");
+    yield* seat.record("Off");
 
     return Option.some(current.value.recording);
   });

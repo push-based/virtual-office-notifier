@@ -35,6 +35,7 @@ import type { PersonInOffice } from "recording-requests/RecordingRequest";
 
 import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
 import { DiscordConfig } from "./Config.ts";
+import type { SeatAdapter } from "./OfficeSeat.ts";
 import {
   isOfficeJoin,
   isOfficeLeave,
@@ -51,23 +52,6 @@ import {
 } from "./OfficeEvent.ts";
 import { sentInOffice, type TimedVoiceEffect, type VoiceEffect } from "./VoiceEffect.ts";
 import { observe, type VoiceObservation } from "./VoiceObservation.ts";
-
-export const RECORDING_NICKNAME = "🔴 Recording";
-
-export const PAUSED_NICKNAME = "⏸️ Recording paused";
-
-export type RecordingMode = "Off" | "Capturing" | "Paused";
-
-const nicknameFor = (mode: RecordingMode): string | null => {
-  switch (mode) {
-    case "Off":
-      return null;
-    case "Capturing":
-      return RECORDING_NICKNAME;
-    case "Paused":
-      return PAUSED_NICKNAME;
-  }
-};
 
 export class DiscordLoginError extends Schema.TaggedError<
   DiscordLoginError,
@@ -282,54 +266,37 @@ export class BotMoveError extends Schema.TaggedError<
   reason: Schema.String,
 }) {}
 
-const sendVoiceState = (guild: Guild, channelId: string | null, selfDeaf: boolean) =>
+const sendVoiceState = (guild: Guild, channelId: string | null) =>
   guild.shard.status === Status.Ready
     ? Effect.try({
         try: () =>
           guild.shard.send({
             op: GatewayOpcodes.VoiceStateUpdate,
-            d: { guild_id: guild.id, channel_id: channelId, self_mute: true, self_deaf: selfDeaf },
+            d: { guild_id: guild.id, channel_id: channelId, self_mute: true, self_deaf: true },
           }),
         catch: (cause) => BotMoveError.make({ reason: String(cause) }),
       })
     : Effect.fail(BotMoveError.make({ reason: "Discord isn't connected" }));
 
-const moveBot = (guild: Guild, officeChannelId: string) => (presence: BotPresence) =>
-  sendVoiceState(guild, presence === "InOffice" ? officeChannelId : null, true).pipe(
-    Effect.andThen(Effect.logInfo("Moved the bot")),
-    Effect.catchTag("BotMoveError", (error) =>
-      Effect.logWarning("Couldn't move the bot").pipe(
-        Effect.annotateLogs({ reason: error.reason }),
-      ),
-    ),
-    Effect.annotateLogs({ presence }),
-  );
+const shardReconnects = (client: Client) =>
+  Stream.callback<void>(
+    Effect.fnUntraced(function* (queue) {
+      const onReconnect = () => {
+        Queue.offerUnsafe(queue, undefined);
+      };
 
-const LEAVE_TIMEOUT = Duration.seconds(5);
-
-const leaveForRecording = (guild: Guild) =>
-  sendVoiceState(guild, null, true).pipe(
-    Effect.andThen(
-      Effect.sync(() => guild.members.me?.voice.channelId ?? null).pipe(
-        Effect.repeat({
-          until: (channelId) => channelId === null,
-          schedule: Schedule.spaced("100 millis"),
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          client.on(Events.ShardReady, onReconnect);
+          client.on(Events.ShardResume, onReconnect);
         }),
-        Effect.timeoutOption(LEAVE_TIMEOUT),
-      ),
-    ),
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          Effect.logWarning("Discord didn't confirm the bot left the office before recording"),
-        onSome: () => Effect.void,
-      }),
-    ),
-    Effect.catchTag("BotMoveError", (error) =>
-      Effect.logWarning("Couldn't step out of the office before recording").pipe(
-        Effect.annotateLogs({ reason: error.reason }),
-      ),
-    ),
+        () =>
+          Effect.sync(() => {
+            client.off(Events.ShardReady, onReconnect);
+            client.off(Events.ShardResume, onReconnect);
+          }),
+      );
+    }),
   );
 
 const setNickname = (guild: Guild, nickname: string | null) =>
@@ -363,7 +330,6 @@ export interface TestGateway {
   readonly present?: ReadonlyArray<VoiceStateUpdate>;
   readonly effects?: ReadonlyArray<VoiceEffect>;
   readonly moves?: Queue.Enqueue<BotPresence>;
-  readonly recordings?: Queue.Enqueue<RecordingMode>;
   readonly selfId?: string;
 }
 
@@ -375,9 +341,7 @@ export class DiscordGateway extends Context.Service<
     readonly voiceObservations: Stream.Stream<VoiceObservation>;
     readonly voiceEffects: Stream.Stream<TimedVoiceEffect>;
     readonly botPresence: Stream.Stream<BotPresence>;
-    moveBot(presence: BotPresence): Effect.Effect<void>;
-    // Un-deafens and renames the bot while it records, and back afterwards.
-    setRecording(mode: RecordingMode): Effect.Effect<void>;
+    readonly seat: Option.Option<SeatAdapter>;
     readonly occupants: Effect.Effect<ReadonlyArray<PersonInOffice>>;
     readonly selfUserId: string;
     readonly voiceAdapter: Option.Option<DiscordGatewayAdapterCreator>;
@@ -474,38 +438,6 @@ export class DiscordGateway extends Context.Service<
         followOffice(officeChannelId, occupants),
       );
 
-      const wanted = yield* Ref.make<BotPresence>("Away");
-      const recording = yield* Ref.make<RecordingMode>("Off");
-      const moving = yield* Semaphore.make(1);
-      const oneMoveAtATime = moving.withPermits(1);
-
-      const goWhereWanted = Option.match(office, {
-        onNone: () => Effect.void,
-        onSome: (channel) =>
-          Effect.all([Ref.get(wanted), Ref.get(recording)]).pipe(
-            Effect.flatMap(([presence, mode]) =>
-              mode === "Capturing"
-                ? Effect.void
-                : moveBot(channel.guild, officeChannelId)(presence),
-            ),
-            oneMoveAtATime,
-          ),
-      });
-
-      const setRecording = (mode: RecordingMode) =>
-        Option.match(office, {
-          onNone: () => Ref.set(recording, mode),
-          onSome: (channel) =>
-            Ref.set(recording, mode).pipe(
-              Effect.andThen(setNickname(channel.guild, nicknameFor(mode))),
-              Effect.andThen(
-                mode === "Capturing"
-                  ? oneMoveAtATime(leaveForRecording(channel.guild))
-                  : goWhereWanted,
-              ),
-            ),
-        });
-
       const whoIsIn = Effect.sync((): ReadonlyArray<PersonInOffice> =>
         Option.match(office, {
           onNone: () => [],
@@ -516,9 +448,6 @@ export class DiscordGateway extends Context.Service<
             ),
         }),
       );
-
-      client.on(Events.ShardReady, () => runFork(goWhereWanted));
-      client.on(Events.ShardResume, () => runFork(goWhereWanted));
 
       return DiscordGateway.of({
         officeEvents: followed.officeEvents,
@@ -533,8 +462,13 @@ export class DiscordGateway extends Context.Service<
           onNone: () => Stream.empty,
           onSome: () => botPresence(occupants, followed.officeEvents),
         }),
-        moveBot: (presence) => Ref.set(wanted, presence).pipe(Effect.andThen(goWhereWanted)),
-        setRecording,
+        seat: Option.map(office, (channel): SeatAdapter => ({
+          officeChannelId,
+          move: (channelId) => sendVoiceState(channel.guild, channelId),
+          inVoice: Effect.sync(() => (channel.guild.members.me?.voice.channelId ?? null) !== null),
+          rename: (nickname) => setNickname(channel.guild, nickname),
+          reconnected: shardReconnects(client),
+        })),
         occupants: whoIsIn,
         selfUserId: ready.user.id,
         voiceAdapter: Option.map(office, (channel) => channel.guild.voiceAdapterCreator),
@@ -556,7 +490,6 @@ export class DiscordGateway extends Context.Service<
     present = [],
     effects = [],
     moves,
-    recordings,
     selfId = "self",
   }: TestGateway) =>
     Layer.effect(
@@ -597,12 +530,16 @@ export class DiscordGateway extends Context.Service<
             officeEffects(officeChannelId),
           ),
           botPresence: botPresence(occupants, followed.officeEvents),
-          moveBot: (presence) =>
-            moves === undefined ? Effect.void : Queue.offer(moves, presence).pipe(Effect.asVoid),
-          setRecording: (mode) =>
-            recordings === undefined
-              ? Effect.void
-              : Queue.offer(recordings, mode).pipe(Effect.asVoid),
+          seat: Option.some({
+            officeChannelId,
+            move: (channelId) =>
+              moves === undefined
+                ? Effect.void
+                : Queue.offer(moves, channelId === null ? "Away" : "InOffice").pipe(Effect.asVoid),
+            inVoice: Effect.succeed(false),
+            rename: () => Effect.void,
+            reconnected: Stream.empty,
+          }),
           occupants: Ref.get(inOffice).pipe(Effect.map((members) => [...members.values()])),
           selfUserId: selfId,
           voiceAdapter: Option.none(),

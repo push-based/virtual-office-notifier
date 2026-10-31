@@ -18,6 +18,7 @@ import {
   SLACK_ENV,
   slackError,
   withEnv,
+  gatewayWithSeat,
 } from "./fakes.ts";
 
 const OFFICE = "office";
@@ -79,7 +80,7 @@ const runWithSentry = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>
     const fiber = yield* program.pipe(
       Effect.provide(
         Layer.mergeAll(
-          DiscordGateway.layerTest({ updates: queue }),
+          gatewayWithSeat({ updates: queue }),
           slack.layer,
           ActivityRecorder.layerDisabled,
           OfficeHistory.layerDisabled,

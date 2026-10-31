@@ -7,6 +7,7 @@ import { banter } from "./Banter.ts";
 import { ClipArchive } from "./ClipArchive.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import { OfficeEvent } from "./OfficeEvent.ts";
+import { OfficeSeat } from "./OfficeSeat.ts";
 import { RecorderLayer } from "./Recorder.ts";
 import { RecordingWriter } from "./RecordingWriter.ts";
 import { reminders } from "./Reminder.ts";
@@ -37,6 +38,7 @@ export const program = Effect.gen(function* () {
   const gateway = yield* DiscordGateway;
   const slack = yield* SlackNotifier;
   const recorder = yield* ActivityRecorder;
+  const seat = yield* OfficeSeat;
 
   yield* Effect.logInfo("Watching the virtual office");
 
@@ -74,7 +76,7 @@ export const program = Effect.gen(function* () {
 
   const recordEffects = Stream.runForEach(gateway.voiceEffects, recorder.recordEffect);
 
-  const followOccupancy = Stream.runForEach(gateway.botPresence, gateway.moveBot);
+  const followOccupancy = Stream.runForEach(gateway.botPresence, seat.want);
 
   yield* Effect.all([announce, record, recordEffects, followOccupancy], {
     concurrency: "unbounded",
@@ -90,6 +92,7 @@ const VoiceRecording = RecorderLayer.pipe(
 // in to Discord. Recording connects to the database in the background and
 // never fails startup.
 export const MainLayer = Layer.mergeAll(ResponderLayer, VoiceRecording).pipe(
+  Layer.provideMerge(OfficeSeat.layer),
   Layer.provideMerge(DiscordGateway.layer),
   Layer.provideMerge(SlackNotifier.layer),
   Layer.provide(AiProviders.layer),
