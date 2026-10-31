@@ -22,7 +22,7 @@ import {
   type Member,
   type PulledActionItems,
 } from "./ActionItems.ts";
-import { guardQuery } from "recording-requests/Query";
+import { guardChange, guardQuery, type QueryGuard } from "recording-requests/Query";
 
 import { memberUpsert } from "./ActivityLog.ts";
 
@@ -342,12 +342,16 @@ export class RecordingStore extends Context.Service<
       const database = yield* Database;
       const upsertMember = memberUpsert(sql);
 
-      const onceReady = guardQuery({
+      const guard: QueryGuard<StoreUnavailable> = {
         ready: database.ready,
         unavailable: (reason) => StoreUnavailable.make({ reason }),
         unreadable: (reason) => StoreUnavailable.make({ reason, unreadable: true }),
         describe: describeError,
-      });
+      };
+
+      const onceReady = guardQuery(guard);
+
+      const atomically = guardChange(guard, sql);
 
       const findActive = SqlSchema.findOneOption({
         Request: Schema.Void,
@@ -632,11 +636,10 @@ export class RecordingStore extends Context.Service<
 
       const startRecording = Effect.fn("RecordingStore.startRecording")(
         (recording: NewRecording) =>
-          onceReady(
-            sql.withTransaction(
-              Effect.all([
-                upsertMember(recording.startedBy, recording.startedByName, recording.startedAt),
-                sql`
+          atomically(
+            Effect.all([
+              upsertMember(recording.startedBy, recording.startedByName, recording.startedAt),
+              sql`
                   INSERT INTO office.recordings ${sql.insert({
                     id: recording.id,
                     guildId: recording.guildId,
@@ -648,9 +651,8 @@ export class RecordingStore extends Context.Service<
                     summaryStyle: recording.summaryStyle,
                   })}
                 `,
-                event(recording.id, recording.startedAt, "started", null, recording.startedBy),
-              ]),
-            ),
+              event(recording.id, recording.startedAt, "started", null, recording.startedBy),
+            ]),
           ),
         Effect.asVoid,
       );
@@ -663,64 +665,56 @@ export class RecordingStore extends Context.Service<
 
       const pauseRecording = Effect.fn("RecordingStore.pauseRecording")(
         (id: string, at: DateTime.Utc, by: string, byName: string) =>
-          onceReady(
-            sql.withTransaction(
-              Effect.all([
-                upsertMember(by, byName, at),
-                sql`
+          atomically(
+            Effect.all([
+              upsertMember(by, byName, at),
+              sql`
                   UPDATE office.recordings
                   SET paused_at = ${DateTime.toDate(at)}, paused_by = ${by}
                   WHERE id = ${id} AND ${inState(sql, "running")}
                 `,
-                event(id, at, "paused", null, by),
-              ]),
-            ),
+              event(id, at, "paused", null, by),
+            ]),
           ),
         Effect.asVoid,
       );
 
       const resumeRecording = Effect.fn("RecordingStore.resumeRecording")(
         (id: string, at: DateTime.Utc, by: string, byName: string) =>
-          onceReady(
-            sql.withTransaction(
-              Effect.all([
-                upsertMember(by, byName, at),
-                sql`
+          atomically(
+            Effect.all([
+              upsertMember(by, byName, at),
+              sql`
                   UPDATE office.recordings
                   SET paused_at = NULL, paused_by = NULL
                   WHERE id = ${id} AND ${inState(sql, "running")}
                 `,
-                event(id, at, "resumed", "requested" satisfies ResumeReason, by),
-              ]),
-            ),
+              event(id, at, "resumed", "requested" satisfies ResumeReason, by),
+            ]),
           ),
         Effect.asVoid,
       );
 
       const stopRecording = Effect.fn("RecordingStore.stopRecording")(
         (id: string, at: DateTime.Utc, reason: StopReason, by: string | null) =>
-          onceReady(
-            sql.withTransaction(
-              Effect.all([
-                sql`
+          atomically(
+            Effect.all([
+              sql`
                   UPDATE office.recordings
                   SET stopped_at = ${DateTime.toDate(at)}, stop_reason = ${reason}, stopped_by = ${by}
                   WHERE id = ${id} AND ${inState(sql, "running")}
                 `,
-                event(id, at, "stopped", reason, by),
-              ]),
-            ),
+              event(id, at, "stopped", reason, by),
+            ]),
           ),
         Effect.asVoid,
       );
 
       const addClip = Effect.fn("RecordingStore.addClip")(
         (clip: NewClip) =>
-          onceReady(
-            sql.withTransaction(
-              upsertMember(clip.userId, clip.displayName, clip.startedAt).pipe(
-                Effect.andThen(insertClip(clip)),
-              ),
+          atomically(
+            upsertMember(clip.userId, clip.displayName, clip.startedAt).pipe(
+              Effect.andThen(insertClip(clip)),
             ),
           ),
         Effect.map(({ id }) => id),
@@ -844,23 +838,22 @@ export class RecordingStore extends Context.Service<
 
       const recordActionItems = Effect.fn("RecordingStore.recordActionItems")(
         (id: string, pulled: Option.Option<PulledActionItems>, at: DateTime.Utc) =>
-          onceReady(
-            sql.withTransaction(
-              Effect.gen(function* () {
-                const marked = yield* markPulled({
-                  id,
-                  pulledAt: at,
-                  model: Option.map(pulled, ({ model }) => model),
-                });
+          atomically(
+            Effect.gen(function* () {
+              const marked = yield* markPulled({
+                id,
+                pulledAt: at,
+                model: Option.map(pulled, ({ model }) => model),
+              });
 
-                const items = Option.match(pulled, {
-                  onNone: () => [],
-                  onSome: ({ items }) => items,
-                });
+              const items = Option.match(pulled, {
+                onNone: () => [],
+                onSome: ({ items }) => items,
+              });
 
-                if (marked.length === 0 || !Array.isReadonlyArrayNonEmpty(items)) return;
+              if (marked.length === 0 || !Array.isReadonlyArrayNonEmpty(items)) return;
 
-                yield* sql`
+              yield* sql`
                   INSERT INTO office.recording_action_items ${sql.insert(
                     Array.map(items, ({ text, owner }, position) => ({
                       recordingId: id,
@@ -871,8 +864,7 @@ export class RecordingStore extends Context.Service<
                     })),
                   )}
                 `;
-              }),
-            ),
+            }),
           ),
       );
 
@@ -883,22 +875,21 @@ export class RecordingStore extends Context.Service<
 
       const replaceActionItems = Effect.fn("RecordingStore.replaceActionItems")(
         (id: string, pulled: PulledActionItems, at: DateTime.Utc) =>
-          onceReady(
-            sql.withTransaction(
-              Effect.gen(function* () {
-                const pulledAt = DateTime.toDate(at);
+          atomically(
+            Effect.gen(function* () {
+              const pulledAt = DateTime.toDate(at);
 
-                const marked = yield* markRepulled({ id, pulledAt: at, model: pulled.model });
+              const marked = yield* markRepulled({ id, pulledAt: at, model: pulled.model });
 
-                if (marked.length === 0) return false;
+              if (marked.length === 0) return false;
 
-                yield* sql`
+              yield* sql`
                   UPDATE office.recording_action_items SET replaced_at = ${pulledAt}
                   WHERE recording_id = ${id} AND replaced_at IS NULL
                 `;
 
-                if (Array.isReadonlyArrayNonEmpty(pulled.items))
-                  yield* sql`
+              if (Array.isReadonlyArrayNonEmpty(pulled.items))
+                yield* sql`
                     INSERT INTO office.recording_action_items ${sql.insert(
                       Array.map(pulled.items, ({ text, owner }, position) => ({
                         recordingId: id,
@@ -910,9 +901,8 @@ export class RecordingStore extends Context.Service<
                     )}
                   `;
 
-                return true;
-              }),
-            ),
+              return true;
+            }),
           ),
       );
 
@@ -932,10 +922,9 @@ export class RecordingStore extends Context.Service<
 
       const saveRewrite = Effect.fn("RecordingStore.saveRewrite")(
         (id: string, rewritten: RewrittenSummary) =>
-          onceReady(
-            sql.withTransaction(
-              Effect.all([
-                sql`
+          atomically(
+            Effect.all([
+              sql`
                   INSERT INTO office.recording_summaries ${sql.insert({
                     recordingId: id,
                     writtenAt: DateTime.toDate(rewritten.writtenAt),
@@ -945,7 +934,7 @@ export class RecordingStore extends Context.Service<
                     editId: rewritten.editId,
                   })}
                 `,
-                sql`
+              sql`
                   UPDATE office.recordings
                   SET summary = ${rewritten.text}, summary_model = ${rewritten.model},
                       summary_written_style = ${rewritten.style},
@@ -955,8 +944,7 @@ export class RecordingStore extends Context.Service<
                       END
                   WHERE id = ${id}
                 `,
-              ]),
-            ),
+            ]),
           ),
         Effect.asVoid,
       );
@@ -979,10 +967,9 @@ export class RecordingStore extends Context.Service<
         const { summaryStyle, agenda } = finished.writtenWith;
         const posted = finished.slackTs !== null;
 
-        const rows = yield* onceReady(
-          sql.withTransaction(
-            Effect.gen(function* () {
-              const updated = yield* sql`
+        const rows = yield* atomically(
+          Effect.gen(function* () {
+            const updated = yield* sql`
                 UPDATE office.recordings
                 SET transcript = ${finished.transcript}, summary = ${finished.summary},
                     summary_model = ${finished.summaryModel},
@@ -1003,8 +990,8 @@ export class RecordingStore extends Context.Service<
                 RETURNING summary_rewrite_edit_id IS NOT NULL AS rewriting
               `.pipe(Effect.flatMap(decodeRewriting));
 
-              if (finished.summary !== null && finished.summaryModel !== null)
-                yield* sql`
+            if (finished.summary !== null && finished.summaryModel !== null)
+              yield* sql`
                   INSERT INTO office.recording_summaries ${sql.insert({
                     recordingId: id,
                     writtenAt: DateTime.toDate(finished.finishedAt),
@@ -1014,9 +1001,8 @@ export class RecordingStore extends Context.Service<
                   })}
                 `;
 
-              return updated;
-            }),
-          ),
+            return updated;
+          }),
         );
 
         return Array.some(rows, ({ rewriting }) => rewriting);

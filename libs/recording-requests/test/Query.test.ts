@@ -1,8 +1,12 @@
+import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
 import { Deferred, Duration, Effect, Exit, Fiber, Schema, String } from "effect";
+import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
-import { guardQuery, QUERY_TIMEOUT } from "../src/Query.ts";
+import { guardChange, guardQuery, QUERY_TIMEOUT } from "../src/Query.ts";
+import { columnNaming } from "../src/SqlNaming.ts";
+import { migrated } from "./schema.ts";
 
 class Unavailable extends Schema.TaggedError<Unavailable, { readonly brand: unique symbol }>()(
   "Unavailable",
@@ -86,5 +90,68 @@ describe("guardQuery", () => {
         Exit.fail(unavailable("Timed out after 10 seconds")),
       );
     }),
+  );
+});
+
+const notes = Effect.gen(function* () {
+  const sql = yield* migrated;
+
+  yield* sql`CREATE TABLE office.notes (text text NOT NULL)`;
+
+  return sql;
+});
+
+const noted = (sql: SqlClient.SqlClient) =>
+  sql<{ readonly text: string }>`SELECT text FROM office.notes ORDER BY text`;
+
+describe("guardChange", () => {
+  it.effect("opens its own transaction when there isn't one, and rolls it back on failure", () =>
+    Effect.gen(function* () {
+      const sql = yield* notes;
+      const change = guardChange({ ready: Effect.void, unavailable }, sql);
+
+      yield* change(sql`INSERT INTO office.notes VALUES ('kept')`);
+
+      const exit = yield* change(
+        sql`INSERT INTO office.notes VALUES ('dropped')`.pipe(
+          Effect.andThen(Effect.fail(Refused.make())),
+        ),
+      ).pipe(Effect.exit);
+
+      assert.deepStrictEqual(exit, Exit.fail(unavailable("connection refused")));
+      assert.deepStrictEqual(yield* noted(sql), [{ text: "kept" }]);
+    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
+  );
+
+  it.effect("joins the transaction it's already in, so the whole thing commits or none of it", () =>
+    Effect.gen(function* () {
+      const sql = yield* notes;
+      const change = guardChange({ ready: Effect.void, unavailable }, sql);
+
+      const exit = yield* sql
+        .withTransaction(
+          change(sql`INSERT INTO office.notes VALUES ('inner')`).pipe(
+            Effect.andThen(Effect.fail(Refused.make())),
+          ),
+        )
+        .pipe(Effect.exit);
+
+      assert.isTrue(Exit.isFailure(exit));
+      assert.deepStrictEqual(yield* noted(sql), []);
+    }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
+  );
+
+  it.effect(
+    "doesn't wait for the database again or start a second clock inside a transaction",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* notes;
+        const never = yield* Deferred.make<void>();
+        const change = guardChange({ ready: Deferred.await(never), unavailable }, sql);
+
+        yield* sql.withTransaction(change(sql`INSERT INTO office.notes VALUES ('inner')`));
+
+        assert.deepStrictEqual(yield* noted(sql), [{ text: "inner" }]);
+      }).pipe(Effect.provide(PgliteClient.layer(columnNaming))),
   );
 });
