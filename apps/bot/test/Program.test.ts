@@ -16,11 +16,11 @@ import {
 } from "effect";
 import { TestClock } from "effect/testing";
 
-import type { BotPresence } from "../src/BotPresence.ts";
-import { OfficeHistory } from "../src/OfficeHistory.ts";
+import type { BotPresence } from "../src/office/BotPresence.ts";
+import { OfficeHistory } from "../src/activity/OfficeHistory.ts";
 import { MainLayer, program } from "../src/Program.ts";
-import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
-import type { VoiceEffect } from "../src/VoiceEffect.ts";
+import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/office/OfficeEvent.ts";
+import type { VoiceEffect } from "../src/office/VoiceEffect.ts";
 import {
   firstVariant,
   hang,

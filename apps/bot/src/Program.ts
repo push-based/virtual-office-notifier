@@ -1,12 +1,10 @@
 import { Effect, Layer, Option, Redacted, Stream } from "effect";
 import { SecureRandom } from "effect/crypto";
 
-import { ActivityRecorder } from "./ActivityRecorder.ts";
-import { AiProviders } from "./AiWriting.ts";
+import { ActivityRecorder } from "./activity/index.ts";
+import { AiProviders } from "./ai/index.ts";
 import { banter, reminders, SlackNotifier } from "./announcing/index.ts";
-import { DiscordGateway } from "./DiscordGateway.ts";
-import { OfficeEvent } from "./OfficeEvent.ts";
-import { OfficeSeat } from "./OfficeSeat.ts";
+import { DiscordGateway, OfficeEvent, OfficeSeat } from "./office/index.ts";
 import { RecordingLayer } from "./recording/index.ts";
 import { ResponderLayer } from "./answering/index.ts";
 import { isRetryable, type SlackError } from "./slack/index.ts";

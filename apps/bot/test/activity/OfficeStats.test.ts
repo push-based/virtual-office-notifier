@@ -15,11 +15,11 @@ import {
 } from "recording-requests/RecordingApi";
 import { StatsHandlers } from "recording-requests/StatsHandlers";
 
-import { ActivityLog } from "../src/ActivityLog.ts";
-import { columnNaming, Database } from "../src/Database.ts";
-import { NO_VOICE_DETAILS, type VoiceDetails } from "../src/OfficeEvent.ts";
-import type { TimedVoiceEffect } from "../src/VoiceEffect.ts";
-import type { VoiceObservation } from "../src/VoiceObservation.ts";
+import { ActivityLog } from "../../src/activity/ActivityLog.ts";
+import { columnNaming, Database } from "../../src/database/Database.ts";
+import { NO_VOICE_DETAILS, type VoiceDetails } from "../../src/office/OfficeEvent.ts";
+import type { TimedVoiceEffect } from "../../src/office/VoiceEffect.ts";
+import type { VoiceObservation } from "../../src/office/VoiceObservation.ts";
 
 const OFFICE = "office";
 

@@ -13,11 +13,14 @@ import {
 import {
   type BanterContext,
   type BanterPeriod,
+  isOfficeHours,
+  officeClock,
   OfficeEvent,
   type OfficeLocation,
-} from "../OfficeEvent.ts";
-import { OfficeHistory } from "../OfficeHistory.ts";
-import { isOfficeHours, officeClock, startOfOfficeDay, startOfOfficeWeek } from "../OfficeTime.ts";
+  startOfOfficeDay,
+  startOfOfficeWeek,
+} from "../office/index.ts";
+import { OfficeHistory } from "../activity/index.ts";
 
 export const MAX_BANTER_PER_DAY = 5;
 

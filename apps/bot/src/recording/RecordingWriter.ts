@@ -9,7 +9,7 @@ import {
   ownedBy,
   type PulledActionItems,
 } from "./ActionItems.ts";
-import { orReportedNone, type Providers, writerLayer, writeWithProviders } from "../AiWriting.ts";
+import { orReportedNone, type Providers, writerLayer, writeWithProviders } from "../ai/index.ts";
 import type { ClipLine, PauseLine, RecordingDetails } from "./RecordingStore.ts";
 import {
   NoAiSummary,

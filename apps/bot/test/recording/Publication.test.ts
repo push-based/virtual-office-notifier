@@ -5,7 +5,7 @@ import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
 import { BotPosts } from "../../src/slack/BotPosts.ts";
-import { columnNaming, Database } from "../../src/Database.ts";
+import { columnNaming, Database } from "../../src/database/Database.ts";
 import { FINISH_RETRY, Publication } from "../../src/recording/Publication.ts";
 import {
   type NewClip,

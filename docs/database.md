@@ -63,6 +63,6 @@ Anything that can't be stored is logged with an `entry` holding the full JSON, s
 
 `DATABASE_URL` is the Supabase **session pooler** connection string, not the direct connection or the transaction pooler: the direct one is IPv6-only unless the project has the IPv4 add-on, and GCP VMs only have IPv4 by default, while the transaction pooler (port 6543) doesn't support the prepared statements the client uses. Percent-encode any special characters in the password.
 
-The connection is encrypted and checked against Supabase's own root certificate in [`apps/bot/src/SupabaseCa.ts`](../apps/bot/src/SupabaseCa.ts), which Node doesn't trust by default. It expires on 26 April 2031.
+The connection is encrypted and checked against Supabase's own root certificate in [`apps/bot/src/database/SupabaseCa.ts`](../apps/bot/src/database/SupabaseCa.ts), which Node doesn't trust by default. It expires on 26 April 2031.
 
 Locally, leave `DATABASE_URL` out unless you mean to record; without it, nothing is recorded or read. `pnpm --filter bot dev` with the production URL writes into the production data. The deploy, on the other hand, fails without it, so production always records.

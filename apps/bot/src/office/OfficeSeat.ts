@@ -36,7 +36,7 @@ export class OfficeSeat extends Context.Service<
     want(presence: BotPresence): Effect.Effect<void>;
     record(mode: RecordingMode): Effect.Effect<void>;
   }
->()("bot/OfficeSeat") {
+>()("bot/office/OfficeSeat") {
   static readonly make = Effect.fnUntraced(function* (adapter: SeatAdapter) {
     const wanted = yield* Ref.make<BotPresence>("Away");
     const recording = yield* Ref.make<RecordingMode>("Off");

@@ -1,9 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Array, type Cause, Effect, Queue, Stream } from "effect";
 
-import { DiscordGateway } from "../src/DiscordGateway.ts";
-import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
-import { pollUntil, withEnv } from "./fakes.ts";
+import { DiscordGateway } from "../../src/office/DiscordGateway.ts";
+import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../../src/office/OfficeEvent.ts";
+import { pollUntil, withEnv } from "../fakes.ts";
 
 const OFFICE = "office";
 

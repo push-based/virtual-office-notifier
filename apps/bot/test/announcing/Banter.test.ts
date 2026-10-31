@@ -9,9 +9,13 @@ import {
   MAX_BANTER_PER_DAY,
   periodRange,
 } from "../../src/announcing/Banter.ts";
-import { type BanterContext, type BanterPeriod, OfficeEvent } from "../../src/OfficeEvent.ts";
-import { HistoryUnavailable, OfficeHistory } from "../../src/OfficeHistory.ts";
-import { startOfOfficeDay } from "../../src/OfficeTime.ts";
+import {
+  type BanterContext,
+  type BanterPeriod,
+  OfficeEvent,
+} from "../../src/office/OfficeEvent.ts";
+import { HistoryUnavailable, OfficeHistory } from "../../src/activity/OfficeHistory.ts";
+import { startOfOfficeDay } from "../../src/office/OfficeTime.ts";
 import { firstVariant } from "../fakes.ts";
 
 const office = { guildId: "g1", channelId: "c1" };

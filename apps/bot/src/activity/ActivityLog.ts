@@ -1,9 +1,8 @@
 import { Context, DateTime, Effect, Layer, pipe, Predicate, Schema, String } from "effect";
 import { SqlClient, type SqlError } from "effect/sql";
 
-import { describeError } from "./Database.ts";
-import type { TimedVoiceEffect } from "./VoiceEffect.ts";
-import type { VoiceObservation } from "./VoiceObservation.ts";
+import { describeError } from "../database/index.ts";
+import type { TimedVoiceEffect, VoiceObservation } from "../office/index.ts";
 
 // The database is unreachable or misbehaving. Worth retrying the same write.
 export class Outage extends Schema.TaggedError<Outage, { readonly brand: unique symbol }>()(
@@ -144,7 +143,7 @@ export class ActivityLog extends Context.Service<
     // Sets aside something that could never be written, as JSON.
     reject(payload: string, error: string, at: DateTime.Utc): Effect.Effect<void, ActivityLogError>;
   }
->()("bot/ActivityLog") {
+>()("bot/activity/ActivityLog") {
   static readonly layer = Layer.effect(
     ActivityLog,
     Effect.gen(function* () {

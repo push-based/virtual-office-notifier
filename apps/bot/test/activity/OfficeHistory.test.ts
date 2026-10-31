@@ -4,12 +4,12 @@ import { DateTime, Effect, Layer } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 
-import { ActivityLog } from "../src/ActivityLog.ts";
-import { columnNaming, Database } from "../src/Database.ts";
-import { NO_VOICE_DETAILS, type VoiceDetails } from "../src/OfficeEvent.ts";
-import { MAX_ACTIVITY_ENTRIES, OfficeHistory } from "../src/OfficeHistory.ts";
-import type { TimedVoiceEffect } from "../src/VoiceEffect.ts";
-import type { VoiceObservation } from "../src/VoiceObservation.ts";
+import { ActivityLog } from "../../src/activity/ActivityLog.ts";
+import { columnNaming, Database } from "../../src/database/Database.ts";
+import { NO_VOICE_DETAILS, type VoiceDetails } from "../../src/office/OfficeEvent.ts";
+import { MAX_ACTIVITY_ENTRIES, OfficeHistory } from "../../src/activity/OfficeHistory.ts";
+import type { TimedVoiceEffect } from "../../src/office/VoiceEffect.ts";
+import type { VoiceObservation } from "../../src/office/VoiceObservation.ts";
 
 const OFFICE = "office";
 

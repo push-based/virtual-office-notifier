@@ -1,7 +1,6 @@
 import { Cron, DateTime, Effect, Schedule, Stream } from "effect";
 
-import { OfficeEvent, type OfficeLocation } from "../OfficeEvent.ts";
-import { OFFICE_TIME_ZONE } from "../OfficeTime.ts";
+import { OFFICE_TIME_ZONE, OfficeEvent, type OfficeLocation } from "../office/index.ts";
 
 const reminderCron = Cron.make({
   minutes: [15],

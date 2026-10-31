@@ -3,7 +3,7 @@ import { Context, Effect, Layer, Option, Random } from "effect";
 import { BotPosts, SlackClient, type SlackError } from "../slack/index.ts";
 import { SlackConfig } from "../Config.ts";
 import { HeadlineWriter } from "./HeadlineWriter.ts";
-import type { OfficeEvent } from "../OfficeEvent.ts";
+import type { OfficeEvent } from "../office/index.ts";
 import { formatMessage } from "./Announcement.ts";
 
 export class SlackNotifier extends Context.Service<

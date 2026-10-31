@@ -24,9 +24,9 @@ import {
 } from "./ActionItems.ts";
 import { guardChange, guardQuery, type QueryGuard } from "recording-requests/Query";
 
-import { memberUpsert } from "../ActivityLog.ts";
+import { memberUpsert } from "../activity/index.ts";
 
-import { Database, describeError } from "../Database.ts";
+import { Database, describeError } from "../database/index.ts";
 import { MAX_TRANSCRIPTION_ATTEMPTS, type ResumeReason, TranscriptionStatus } from "./Recording.ts";
 
 export class StoreUnavailable extends Schema.TaggedError<

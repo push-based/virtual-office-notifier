@@ -11,7 +11,7 @@ import {
   type SectionBlock,
   type SlackMessage,
 } from "../slack/index.ts";
-import type { OfficeLocation } from "../OfficeEvent.ts";
+import type { OfficeLocation } from "../office/index.ts";
 import { type ActionItemLine, ActionItemList } from "./ActionItems.ts";
 
 export interface RecordingSummary {

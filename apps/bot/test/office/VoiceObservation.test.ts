@@ -1,8 +1,8 @@
 import { DateTime, Result } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
-import { NO_VOICE_DETAILS, type TimedVoiceStateUpdate } from "../src/OfficeEvent.ts";
-import { observe } from "../src/VoiceObservation.ts";
+import { NO_VOICE_DETAILS, type TimedVoiceStateUpdate } from "../../src/office/OfficeEvent.ts";
+import { observe } from "../../src/office/VoiceObservation.ts";
 
 const OFFICE = "office";
 

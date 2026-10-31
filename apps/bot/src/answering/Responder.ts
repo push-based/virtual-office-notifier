@@ -35,9 +35,8 @@ import {
   type ThreadMessage,
 } from "../slack/index.ts";
 import { SlackConfig } from "../Config.ts";
-import type { BanterContext } from "../OfficeEvent.ts";
-import { OfficeHistory } from "../OfficeHistory.ts";
-import { isOfficeHours, startOfOfficeDay } from "../OfficeTime.ts";
+import { type BanterContext, isOfficeHours, startOfOfficeDay } from "../office/index.ts";
+import { OfficeHistory } from "../activity/index.ts";
 import { type ClefState, ReplyDecider } from "./ReplyDecider.ts";
 import { type ThreadLine, ReplyWriter } from "./ReplyWriter.ts";
 import { replyMessage } from "./ReplyMessage.ts";

@@ -4,9 +4,9 @@ import { Array, DateTime, Duration, Effect, Exit, Layer, Option } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 
-import { ActivityLog } from "../../src/ActivityLog.ts";
-import { columnNaming, Database } from "../../src/Database.ts";
-import { NO_VOICE_DETAILS } from "../../src/OfficeEvent.ts";
+import { ActivityLog } from "../../src/activity/ActivityLog.ts";
+import { columnNaming, Database } from "../../src/database/Database.ts";
+import { NO_VOICE_DETAILS } from "../../src/office/OfficeEvent.ts";
 import {
   type ConsideredMessage,
   type DecisionRecord,

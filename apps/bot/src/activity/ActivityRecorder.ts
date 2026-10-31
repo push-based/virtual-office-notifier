@@ -19,9 +19,13 @@ import { SecureRandom } from "effect/crypto";
 import { QUERY_TIMEOUT, TIMED_OUT } from "recording-requests/Query";
 
 import { ActivityLog, ActivityLogError, Outage } from "./ActivityLog.ts";
-import { Database, DatabaseUnavailable, describeError, reconnectSchedule } from "./Database.ts";
-import type { TimedVoiceEffect } from "./VoiceEffect.ts";
-import type { VoiceObservation } from "./VoiceObservation.ts";
+import {
+  Database,
+  DatabaseUnavailable,
+  describeError,
+  reconnectSchedule,
+} from "../database/index.ts";
+import type { TimedVoiceEffect, VoiceObservation } from "../office/index.ts";
 
 // Many days of office traffic, and a few MB at most.
 export const BUFFER_SIZE = 50_000;
@@ -132,7 +136,7 @@ export class ActivityRecorder extends Context.Service<
     record(observation: VoiceObservation): Effect.Effect<void>;
     recordEffect(effect: TimedVoiceEffect): Effect.Effect<void>;
   }
->()("bot/ActivityRecorder") {
+>()("bot/activity/ActivityRecorder") {
   // One writer drains the buffer in order. An outage keeps the entry at the
   // front and retries on the reconnect schedule. A row Postgres rejects goes
   // to rejected_updates instead, so it can't block everything behind it.

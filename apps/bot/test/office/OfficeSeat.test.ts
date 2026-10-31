@@ -2,14 +2,14 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Queue, Ref, Stream } from "effect";
 import { TestClock } from "effect/testing";
 
-import { BotMoveError } from "../src/DiscordGateway.ts";
+import { BotMoveError } from "../../src/office/DiscordGateway.ts";
 import {
   LEAVE_TIMEOUT,
   OfficeSeat,
   PAUSED_NICKNAME,
   RECORDING_NICKNAME,
   type SeatAdapter,
-} from "../src/OfficeSeat.ts";
+} from "../../src/office/OfficeSeat.ts";
 
 const OFFICE = "office";
 

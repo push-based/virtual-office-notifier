@@ -98,7 +98,7 @@ export class Database extends Context.Service<
     // until then, connecting is retried in the background.
     readonly ready: Effect.Effect<void>;
   }
->()("bot/Database") {
+>()("bot/database/Database") {
   // Connecting happens in the background, so building this never waits on
   // the database, and a database that's down can't hold up the bot.
   static readonly layerNoDeps = (loader: Migrator.Loader = migrations) =>

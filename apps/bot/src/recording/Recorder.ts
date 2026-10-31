@@ -30,11 +30,9 @@ import {
 } from "recording-requests/RecordingRequests";
 import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 
-import type { BotPresence } from "../BotPresence.ts";
+import { type BotPresence, DiscordGateway, type OfficeLocation } from "../office/index.ts";
 import { Capture } from "./Capture.ts";
 import { SlackConfig } from "../Config.ts";
-import { DiscordGateway } from "../DiscordGateway.ts";
-import type { OfficeLocation } from "../OfficeEvent.ts";
 import { Publication } from "./Publication.ts";
 import { RecordingStore, type StoreUnavailable } from "./RecordingStore.ts";
 import { StoreHealth } from "./StoreHealth.ts";

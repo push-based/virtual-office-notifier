@@ -2,8 +2,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { Model } from "effect/ai";
 
-import { AiProviders, type ModelLayer, type Providers } from "../src/AiWriting.ts";
-import { withEnv } from "./fakes.ts";
+import { AiProviders, type ModelLayer, type Providers } from "../../src/ai/AiWriting.ts";
+import { withEnv } from "../fakes.ts";
 
 const MODELS = {
   OPENROUTER_MODELS: "a/one:free, a/two:free",
