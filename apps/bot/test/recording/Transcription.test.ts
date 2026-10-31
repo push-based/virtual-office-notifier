@@ -3,12 +3,12 @@ import { assert, describe, it } from "@effect/vitest";
 import { DateTime, Effect, Layer, Option, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { ArchiveError, ClipArchive } from "../src/ClipArchive.ts";
-import { columnNaming, Database } from "../src/Database.ts";
-import { RecordingStore } from "../src/RecordingStore.ts";
-import { Transcriber } from "../src/Transcriber.ts";
-import { Transcription } from "../src/Transcription.ts";
-import { pollUntil } from "./fakes.ts";
+import { ArchiveError, ClipArchive } from "../../src/recording/ClipArchive.ts";
+import { columnNaming, Database } from "../../src/Database.ts";
+import { RecordingStore } from "../../src/recording/RecordingStore.ts";
+import { Transcriber } from "../../src/recording/Transcriber.ts";
+import { Transcription } from "../../src/recording/Transcription.ts";
+import { pollUntil } from "../fakes.ts";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 

@@ -6,7 +6,7 @@ import {
   oggOpusFile,
   opusPacketSamples,
   opusPacketsDuration,
-} from "../src/OggOpus.ts";
+} from "../../../src/recording/audio/OggOpus.ts";
 
 // A 20 ms CELT fullband stereo packet, as Discord sends: config 31, stereo, one frame.
 const celt20ms = (fill = 0xab): Uint8Array => new Uint8Array([0b1111_1100, fill, fill, fill]);

@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { Duration, Effect, Ref } from "effect";
 import { TestClock } from "effect/testing";
 
-import { SummaryRewriter } from "../src/SummaryRewriter.ts";
+import { SummaryRewriter } from "../../src/recording/SummaryRewriter.ts";
 
 const REWRITE_TAKES = Duration.minutes(1);
 

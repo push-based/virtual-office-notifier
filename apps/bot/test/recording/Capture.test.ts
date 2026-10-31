@@ -4,16 +4,16 @@ import { Array, type Cause, DateTime, Effect, Layer, Option, Queue, Ref } from "
 import { SqlClient } from "effect/sql";
 import type { ActiveRecording } from "recording-requests/RecordingRequest";
 
-import { Capture } from "../src/Capture.ts";
-import { ClipArchive } from "../src/ClipArchive.ts";
-import type { Clip } from "../src/ClipCutter.ts";
-import { columnNaming, Database } from "../src/Database.ts";
-import { DiscordGateway } from "../src/DiscordGateway.ts";
-import { OfficeSeat, type RecordingMode } from "../src/OfficeSeat.ts";
-import { RecordingStore } from "../src/RecordingStore.ts";
-import type { Transcription } from "../src/Transcription.ts";
-import { type CaptureError, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
-import { pollUntil, withEnv } from "./fakes.ts";
+import { Capture } from "../../src/recording/Capture.ts";
+import { ClipArchive } from "../../src/recording/ClipArchive.ts";
+import type { Clip } from "../../src/recording/audio/ClipCutter.ts";
+import { columnNaming, Database } from "../../src/Database.ts";
+import { DiscordGateway } from "../../src/DiscordGateway.ts";
+import { OfficeSeat, type RecordingMode } from "../../src/OfficeSeat.ts";
+import { RecordingStore } from "../../src/recording/RecordingStore.ts";
+import type { Transcription } from "../../src/recording/Transcription.ts";
+import { type CaptureError, Heard, VoiceCapture } from "../../src/recording/audio/VoiceCapture.ts";
+import { pollUntil, withEnv } from "../fakes.ts";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 

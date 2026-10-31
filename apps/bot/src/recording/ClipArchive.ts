@@ -14,7 +14,7 @@ import {
 } from "effect";
 import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
-import { RecordingConfig } from "./Config.ts";
+import { RecordingConfig } from "../Config.ts";
 
 export class ArchiveError extends Schema.TaggedError<
   ArchiveError,
@@ -61,7 +61,7 @@ export class ClipArchive extends Context.Service<
     upload(path: string, audio: Uint8Array): Effect.Effect<void, ArchiveError>;
     download(path: string): Effect.Effect<Uint8Array, ArchiveError>;
   }
->()("bot/ClipArchive") {
+>()("bot/recording/ClipArchive") {
   static readonly layerBucket = (bucket: string) =>
     Layer.effect(
       ClipArchive,

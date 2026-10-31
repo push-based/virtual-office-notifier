@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 
-import { ClipAudio } from "../src/ClipAudio.ts";
+import { ClipAudio } from "../../../src/recording/audio/ClipAudio.ts";
 
 const bytes = (fill: number) => new Uint8Array([fill, fill, fill]);
 

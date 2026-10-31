@@ -22,8 +22,8 @@ import { Client, Events, GatewayIntentBits } from "discord.js";
 import type { Buffer } from "node:buffer";
 
 import { AiConfig, DiscordConfig, RecordingConfig } from "../src/Config.ts";
-import { oggOpusFile, opusPacketsDuration } from "../src/OggOpus.ts";
-import { Transcriber } from "../src/Transcriber.ts";
+import { oggOpusFile, opusPacketsDuration } from "../src/recording/audio/OggOpus.ts";
+import { Transcriber } from "../src/recording/Transcriber.ts";
 
 // Joins the office with audio on, writes one Ogg/Opus file per stretch of
 // speech, and sends the first long enough clip to Workers AI Whisper. It

@@ -7,7 +7,7 @@ import { ActivityRecorder, RecordingDisabled } from "./ActivityRecorder.ts";
 import { DatabaseConfig } from "./Config.ts";
 import { Database, describeError } from "./Database.ts";
 import { OfficeHistory } from "./OfficeHistory.ts";
-import { RecordingStore } from "./RecordingStore.ts";
+import { RecordingStore } from "./recording/index.ts";
 import { SlackHistory } from "./SlackHistory.ts";
 
 const disabled = Layer.mergeAll(

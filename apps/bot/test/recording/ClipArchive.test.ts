@@ -2,8 +2,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Effect, Fiber, Layer, Option } from "effect";
 import { TestClock } from "effect/testing";
 
-import { ClipArchive, objectPathOf } from "../src/ClipArchive.ts";
-import { makeFakeSlackHttp, type Reply, requestText, respond } from "./fakes.ts";
+import { ClipArchive, objectPathOf } from "../../src/recording/ClipArchive.ts";
+import { makeFakeSlackHttp, type Reply, requestText, respond } from "../fakes.ts";
 
 const token = (accessToken: string, expiresIn = 3600): Reply =>
   respond(

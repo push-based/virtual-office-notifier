@@ -9,7 +9,7 @@ import {
   type Member,
   ownedBy,
   ownerOf,
-} from "../src/ActionItems.ts";
+} from "../../src/recording/ActionItems.ts";
 
 const decode = Schema.decodeUnknownEffect(ActionItemsReply);
 
