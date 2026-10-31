@@ -16,7 +16,7 @@ import {
 import { Migrator, SqlClient, type SqlError } from "effect/sql";
 import { columnNaming } from "recording-requests/SqlNaming";
 
-import { migrations } from "./migrations.ts";
+import { migrations } from "recording-requests/migrations";
 import { SUPABASE_ROOT_CA } from "./SupabaseCa.ts";
 
 // Everything the bot stores lives here, out of the `public` schema that

@@ -18,6 +18,7 @@ import {
   guardTransaction,
 } from "./Query.ts";
 import { NO_PLAN, type RecordingPlan, SummaryStyle } from "./Recording.ts";
+import { inState } from "./RecordingStates.ts";
 import { DEFAULT_SUMMARY_STYLE } from "./Wire.ts";
 import type { Requester } from "./RecordingApi.ts";
 import {
@@ -173,7 +174,7 @@ const readStatus = (sql: SqlClient.SqlClient) =>
              r.paused_at, r.paused_by, coalesce(p.real_name, p.display_name) AS paused_by_name,
              r.title, r.agenda, r.summary_style
       FROM office.recording_status s
-      LEFT JOIN office.recordings r ON r.id = s.recording_id AND r.stopped_at IS NULL
+      LEFT JOIN office.recordings r ON r.id = s.recording_id AND ${inState(sql, "running", "r")}
       LEFT JOIN office.members m ON m.user_id = r.started_by
       LEFT JOIN office.members p ON p.user_id = r.paused_by
     `,

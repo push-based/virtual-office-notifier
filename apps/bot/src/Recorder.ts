@@ -15,6 +15,7 @@ import {
   Stream,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
+import type { StopReason } from "recording-requests/Recording";
 import { rewritesSummary } from "recording-requests/RecordingEdit";
 import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEdits";
 import {
@@ -35,7 +36,6 @@ import { SlackConfig } from "./Config.ts";
 import { DiscordGateway } from "./DiscordGateway.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
 import { Publication } from "./Publication.ts";
-import type { StopReason } from "./Recording.ts";
 import { RecordingStore, type StoreUnavailable } from "./RecordingStore.ts";
 import { StoreHealth } from "./StoreHealth.ts";
 import { Transcription } from "./Transcription.ts";

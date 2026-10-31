@@ -5,7 +5,7 @@ import { Migrator, SqlClient } from "effect/sql";
 
 import { ActionItemList } from "../src/ActionItems.ts";
 import { columnNaming, Database } from "../src/Database.ts";
-import { migrations } from "../src/migrations.ts";
+import { migrations } from "recording-requests/migrations";
 import { MAX_TRANSCRIPTION_ATTEMPTS } from "../src/Recording.ts";
 import {
   type FinishedRecording,

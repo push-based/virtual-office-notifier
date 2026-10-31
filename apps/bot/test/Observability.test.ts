@@ -4,7 +4,6 @@ import { Array, type Cause, Effect, Fiber, Layer, Option, Queue, Schema } from "
 import { TestClock } from "effect/testing";
 
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
-import { DiscordGateway } from "../src/DiscordGateway.ts";
 import { layerSentry } from "../src/Observability.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import { OfficeHistory } from "../src/OfficeHistory.ts";

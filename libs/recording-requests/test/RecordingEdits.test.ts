@@ -7,6 +7,7 @@ import { TestClock } from "effect/testing";
 import { connectedTo, QUERY_TIMEOUT } from "../src/Query.ts";
 import { type EditHandler, RecordingEdits } from "../src/RecordingEdits.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
+import { migrated } from "./schema.ts";
 
 class ConnectionRefused extends Schema.TaggedError<
   ConnectionRefused,
@@ -25,27 +26,15 @@ const ada = { id: "u1", name: "Ada" };
 const createTables = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  yield* sql`CREATE SCHEMA office`;
+  yield* migrated;
   yield* sql`
-    CREATE TABLE office.recordings (
-      id uuid PRIMARY KEY, stopped_at timestamptz, finished_at timestamptz, slack_ts text, title text
-    )
+    INSERT INTO office.members (user_id, display_name, first_seen_at, last_seen_at)
+    VALUES (${ada.id}, ${ada.name}, now(), now())
   `;
   yield* sql`
-    CREATE TABLE office.recording_edits (
-      id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-      recording_id uuid NOT NULL,
-      edited_at timestamptz NOT NULL DEFAULT now(),
-      edited_by text NOT NULL,
-      edited_by_name text NOT NULL,
-      kind text NOT NULL,
-      change jsonb NOT NULL,
-      handled_at timestamptz,
-      outcome text,
-      reason text
-    )
+    INSERT INTO office.recordings (id, guild_id, channel_id, started_at, started_by)
+    VALUES (${RECORDING}, 'guild', 'office', now(), ${ada.id})
   `;
-  yield* sql`INSERT INTO office.recordings (id) VALUES (${RECORDING})`;
 
   return sql;
 });

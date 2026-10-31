@@ -11,9 +11,10 @@ import {
   Schema,
 } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
-import { SummaryStyle } from "recording-requests/Recording";
+import { StopReason, SummaryStyle } from "recording-requests/Recording";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { type ActiveRecording, RowId } from "recording-requests/RecordingRequest";
+import { inState } from "recording-requests/RecordingStates";
 
 import {
   type ActionItemLine,
@@ -26,12 +27,7 @@ import { guardQuery } from "recording-requests/Query";
 import { memberUpsert } from "./ActivityLog.ts";
 
 import { Database, describeError } from "./Database.ts";
-import {
-  MAX_TRANSCRIPTION_ATTEMPTS,
-  type ResumeReason,
-  StopReason,
-  TranscriptionStatus,
-} from "./Recording.ts";
+import { MAX_TRANSCRIPTION_ATTEMPTS, type ResumeReason, TranscriptionStatus } from "./Recording.ts";
 
 export class StoreUnavailable extends Schema.TaggedError<
   StoreUnavailable,
@@ -358,7 +354,7 @@ export class RecordingStore extends Context.Service<
         Result: ActiveRow,
         execute: () => sql`
           SELECT id, started_at, started_by, paused_at, paused_by
-          FROM office.recordings WHERE stopped_at IS NULL LIMIT 1
+          FROM office.recordings WHERE ${inState(sql, "running")} LIMIT 1
         `,
       });
 
@@ -366,7 +362,7 @@ export class RecordingStore extends Context.Service<
         Request: Schema.Void,
         Result: IdRow,
         execute: () =>
-          sql`SELECT id FROM office.recordings WHERE stopped_at IS NOT NULL AND finished_at IS NULL ORDER BY started_at`,
+          sql`SELECT id FROM office.recordings WHERE ${inState(sql, "transcribing")} ORDER BY started_at`,
       });
 
       const insertClip = SqlSchema.findOne({
@@ -452,8 +448,7 @@ export class RecordingStore extends Context.Service<
           SELECT slack_channel_id, slack_ts, summary, summary_model,
                  summary_written_style AS summary_style
           FROM office.recordings
-          WHERE id = ${id} AND finished_at IS NOT NULL
-            AND slack_channel_id IS NOT NULL AND slack_ts IS NOT NULL
+          WHERE id = ${id} AND ${inState(sql, "finished")}
         `,
       });
 
@@ -577,7 +572,7 @@ export class RecordingStore extends Context.Service<
         Result: IdRow,
         execute: ({ id, editId }) => sql`
           UPDATE office.recordings SET summary_rewrite_edit_id = ${editId}
-          WHERE id = ${id} AND finished_at IS NOT NULL AND slack_ts IS NOT NULL
+          WHERE id = ${id} AND ${inState(sql, "finished")}
           RETURNING id
         `,
       });
@@ -607,8 +602,7 @@ export class RecordingStore extends Context.Service<
         Result: UnlinkedRow,
         execute: () => sql`
           SELECT id, slack_channel_id, slack_ts FROM office.recordings
-          WHERE finished_at IS NOT NULL AND slack_ts IS NOT NULL AND slack_channel_id IS NOT NULL
-            AND slack_permalink IS NULL
+          WHERE ${inState(sql, "finished")} AND slack_permalink IS NULL
           ORDER BY started_at
         `,
       });
@@ -676,7 +670,7 @@ export class RecordingStore extends Context.Service<
                 sql`
                   UPDATE office.recordings
                   SET paused_at = ${DateTime.toDate(at)}, paused_by = ${by}
-                  WHERE id = ${id} AND stopped_at IS NULL
+                  WHERE id = ${id} AND ${inState(sql, "running")}
                 `,
                 event(id, at, "paused", null, by),
               ]),
@@ -694,7 +688,7 @@ export class RecordingStore extends Context.Service<
                 sql`
                   UPDATE office.recordings
                   SET paused_at = NULL, paused_by = NULL
-                  WHERE id = ${id} AND stopped_at IS NULL
+                  WHERE id = ${id} AND ${inState(sql, "running")}
                 `,
                 event(id, at, "resumed", "requested" satisfies ResumeReason, by),
               ]),
@@ -711,7 +705,7 @@ export class RecordingStore extends Context.Service<
                 sql`
                   UPDATE office.recordings
                   SET stopped_at = ${DateTime.toDate(at)}, stop_reason = ${reason}, stopped_by = ${by}
-                  WHERE id = ${id} AND stopped_at IS NULL
+                  WHERE id = ${id} AND ${inState(sql, "running")}
                 `,
                 event(id, at, "stopped", reason, by),
               ]),

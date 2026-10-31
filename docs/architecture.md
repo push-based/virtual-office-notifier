@@ -113,15 +113,15 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 
 **The activity record and the database**
 
-| Module                                                       | Responsibility                                                                                                     |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| [`ActivityRecorder.ts`](../apps/bot/src/ActivityRecorder.ts) | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects.       |
-| [`ActivityLog.ts`](../apps/bot/src/ActivityLog.ts)           | The repository: the SQL that writes bot sessions, members, snapshots and effects, and tells outages from bad rows. |
-| [`OfficeHistory.ts`](../apps/bot/src/OfficeHistory.ts)       | Reads the recorded activity and who's in, and keeps count of the banter posted.                                    |
-| [`Storage.ts`](../apps/bot/src/Storage.ts)                   | Sets up the database once for recording and reading, or turns both off without `DATABASE_URL`.                     |
-| [`Database.ts`](../apps/bot/src/Database.ts)                 | Connects to Postgres and runs the migrations in the background, retrying until it works.                           |
-| [`migrations.ts`](../apps/bot/src/migrations.ts)             | The tables and the `voice_activity` and `office_activity` views, bundled into the app.                             |
-| [`SupabaseCa.ts`](../apps/bot/src/SupabaseCa.ts)             | Supabase's root certificate, which Node doesn't trust by default.                                                  |
+| Module                                                          | Responsibility                                                                                                                                                            |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`ActivityRecorder.ts`](../apps/bot/src/ActivityRecorder.ts)    | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects.                                                              |
+| [`ActivityLog.ts`](../apps/bot/src/ActivityLog.ts)              | The repository: the SQL that writes bot sessions, members, snapshots and effects, and tells outages from bad rows.                                                        |
+| [`OfficeHistory.ts`](../apps/bot/src/OfficeHistory.ts)          | Reads the recorded activity and who's in, and keeps count of the banter posted.                                                                                           |
+| [`Storage.ts`](../apps/bot/src/Storage.ts)                      | Sets up the database once for recording and reading, or turns both off without `DATABASE_URL`.                                                                            |
+| [`Database.ts`](../apps/bot/src/Database.ts)                    | Connects to Postgres and runs the migrations in the background, retrying until it works.                                                                                  |
+| [`migrations.ts`](../libs/recording-requests/src/migrations.ts) | The tables and the `voice_activity` and `office_activity` views, bundled into the app. They live in the `recording-requests` library so its tests run on the real schema. |
+| [`SupabaseCa.ts`](../apps/bot/src/SupabaseCa.ts)                | Supabase's root certificate, which Node doesn't trust by default.                                                                                                         |
 
 **Recording on demand**
 
