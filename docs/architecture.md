@@ -122,17 +122,20 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 
 **Recording on demand**
 
-| Module                                                   | Responsibility                                                                                                              |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| [`Recorder.ts`](../apps/bot/src/Recorder.ts)             | Acts on recording requests and recording edits, stores the clips, transcribes them in the background and posts the summary. |
-| [`Recording.ts`](../apps/bot/src/Recording.ts)           | Why a recording stopped, and the clip rules: the shortest clip worth transcribing and how often to retry one.               |
-| [`RecordingStore.ts`](../apps/bot/src/RecordingStore.ts) | The repository for recordings and their clips.                                                                              |
-| [`VoiceCapture.ts`](../apps/bot/src/VoiceCapture.ts)     | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses.                                     |
-| [`ClipCutter.ts`](../apps/bot/src/ClipCutter.ts)         | Cuts one speaker's packets into clips: a clip ends at a pause or at 5 minutes.                                              |
-| [`Speaking.ts`](../apps/bot/src/Speaking.ts)             | Who the bot hears speaking right now, holding each person for 2 seconds after they stop so brief pauses don't flicker.      |
-| [`OggOpus.ts`](../apps/bot/src/OggOpus.ts)               | Writes Opus packets into an Ogg file without transcoding.                                                                   |
-| [`ClipArchive.ts`](../apps/bot/src/ClipArchive.ts)       | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back.                                           |
-| [`Transcriber.ts`](../apps/bot/src/Transcriber.ts)       | Whisper on Workers AI.                                                                                                      |
+| Module                                                   | Responsibility                                                                                                                                          |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`Recorder.ts`](../apps/bot/src/Recorder.ts)             | Acts on recording requests and recording edits, follows the office, publishes the recording status, and hands the work to the three modules below.      |
+| [`Capture.ts`](../apps/bot/src/Capture.ts)               | Begins, pauses and ends capture for a running recording, saves each clip, and knows who is speaking.                                                    |
+| [`Transcription.ts`](../apps/bot/src/Transcription.ts)   | Transcribes pending clips one at a time in the background, from memory or the archive, waiting out Whisper's daily limit.                               |
+| [`Publication.ts`](../apps/bot/src/Publication.ts)       | Takes a stopped recording to Finished or Silent: writes the summary and action items, posts it once, rewrites it on request and keeps the post current. |
+| [`Recording.ts`](../apps/bot/src/Recording.ts)           | Why a recording stopped, and the clip rules: the shortest clip worth transcribing and how often to retry one.                                           |
+| [`RecordingStore.ts`](../apps/bot/src/RecordingStore.ts) | The repository for recordings and their clips.                                                                                                          |
+| [`VoiceCapture.ts`](../apps/bot/src/VoiceCapture.ts)     | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses.                                                                 |
+| [`ClipCutter.ts`](../apps/bot/src/ClipCutter.ts)         | Cuts one speaker's packets into clips: a clip ends at a pause or at 5 minutes.                                                                          |
+| [`Speaking.ts`](../apps/bot/src/Speaking.ts)             | Who the bot hears speaking right now, holding each person for 2 seconds after they stop so brief pauses don't flicker.                                  |
+| [`OggOpus.ts`](../apps/bot/src/OggOpus.ts)               | Writes Opus packets into an Ogg file without transcoding.                                                                                               |
+| [`ClipArchive.ts`](../apps/bot/src/ClipArchive.ts)       | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back.                                                                       |
+| [`Transcriber.ts`](../apps/bot/src/Transcriber.ts)       | Whisper on Workers AI.                                                                                                                                  |
 
 ## Workspace layout
 

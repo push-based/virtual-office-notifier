@@ -32,13 +32,8 @@ import type { Clip } from "../src/ClipCutter.ts";
 import { columnNaming, Database, reconnectDelay } from "../src/Database.ts";
 import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
-import {
-  FINISH_POLL,
-  FINISH_RETRY,
-  POLL_INTERVAL,
-  startRecorder,
-  STATUS_INTERVAL,
-} from "../src/Recorder.ts";
+import { FINISH_POLL, FINISH_RETRY } from "../src/Publication.ts";
+import { POLL_INTERVAL, startRecorder, STATUS_INTERVAL } from "../src/Recorder.ts";
 import { RecordingStore, StoreUnavailable } from "../src/RecordingStore.ts";
 import { InvalidPayload } from "../src/SlackClient.ts";
 import { SummaryWriter, type WrittenSummary } from "../src/SummaryWriter.ts";
