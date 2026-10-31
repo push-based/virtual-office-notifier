@@ -82,6 +82,7 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 
 | Module                                                 | Responsibility                                                                                        |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| [`OfficeTime.ts`](../apps/bot/src/OfficeTime.ts)       | Office time: the UTC+2 zone, the office day and week, office hours and the office clock.              |
 | [`Reminder.ts`](../apps/bot/src/Reminder.ts)           | The weekday reminder schedule.                                                                        |
 | [`Banter.ts`](../apps/bot/src/Banter.ts)               | When to post banter, which stretch of activity it covers, and the log the AI model reads.             |
 | [`SlackMessage.ts`](../apps/bot/src/SlackMessage.ts)   | Builds the Block Kit message, including the fixed phrasings.                                          |

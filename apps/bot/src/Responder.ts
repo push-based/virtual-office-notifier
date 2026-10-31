@@ -16,11 +16,12 @@ import {
   String,
 } from "effect";
 
-import { isBanterTime, periodRange, startOfOfficeDay } from "./Banter.ts";
+import { periodRange } from "./Banter.ts";
 import { BotPosts } from "./BotPosts.ts";
 import { SlackConfig } from "./Config.ts";
 import type { BanterContext } from "./OfficeEvent.ts";
 import { OfficeHistory } from "./OfficeHistory.ts";
+import { isOfficeHours, startOfOfficeDay } from "./OfficeTime.ts";
 import { type ClefState, ReplyDecider } from "./ReplyDecider.ts";
 import { type ThreadLine, ReplyWriter } from "./ReplyWriter.ts";
 import { isRetryable, type SlackError, SlackClient, type ThreadMessage } from "./SlackClient.ts";
@@ -300,7 +301,7 @@ export const respondToSlack = Effect.gen(function* () {
     const { message, receivedAt } = pending;
     const now = yield* DateTime.now;
 
-    if (!isBanterTime(now)) return verdictOf("ignored", "outside_hours");
+    if (!isOfficeHours(now)) return verdictOf("ignored", "outside_hours");
 
     if (Duration.isGreaterThan(DateTime.distance(receivedAt, now), settings.staleAfter)) {
       return verdictOf("ignored", "stale");
