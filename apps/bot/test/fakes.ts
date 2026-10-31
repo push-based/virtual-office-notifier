@@ -25,6 +25,7 @@ import {
 } from "effect/http";
 
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
+import { BotPosts } from "../src/BotPosts.ts";
 import { HeadlineWriter } from "../src/HeadlineWriter.ts";
 import { HistoryUnavailable } from "../src/OfficeHistory.ts";
 import type { SlackMessage } from "../src/SlackMessage.ts";
@@ -141,6 +142,7 @@ export const makeFakeSlack = Effect.fnUntraced(function* (
   const fakeHistory = yield* makeFakeSlackHistory();
 
   const layer = SlackNotifier.layerNoDeps.pipe(
+    Layer.provide(BotPosts.layer),
     Layer.provideMerge(SlackClient.layerNoDeps),
     Layer.provide(http.layer),
     Layer.provide(headlines),

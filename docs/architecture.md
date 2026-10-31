@@ -84,7 +84,8 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 | [`Reminder.ts`](../apps/bot/src/Reminder.ts)           | The weekday reminder schedule.                                                                        |
 | [`Banter.ts`](../apps/bot/src/Banter.ts)               | When to post banter, which stretch of activity it covers, and the log the AI model reads.             |
 | [`SlackMessage.ts`](../apps/bot/src/SlackMessage.ts)   | Builds the Block Kit message, including the fixed phrasings.                                          |
-| [`SlackNotifier.ts`](../apps/bot/src/SlackNotifier.ts) | Posts the announcements, reminders and banter, and records each post.                                 |
+| [`SlackNotifier.ts`](../apps/bot/src/SlackNotifier.ts) | Posts the announcements, reminders and banter.                                                        |
+| [`BotPosts.ts`](../apps/bot/src/BotPosts.ts)           | Every post the bot makes in Slack: posts it and records it, and a failed record never hides the post. |
 | [`SlackClient.ts`](../apps/bot/src/SlackClient.ts)     | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification. |
 
 **Answering in Slack**

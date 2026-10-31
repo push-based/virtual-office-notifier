@@ -25,6 +25,7 @@ import { RecordingEdits } from "recording-requests/RecordingEdits";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
+import { BotPosts } from "../src/BotPosts.ts";
 import { ownedBy, type PulledItem } from "../src/ActionItems.ts";
 import type { Written } from "../src/AiWriting.ts";
 import { ClipArchive } from "../src/ClipArchive.ts";
@@ -184,6 +185,7 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
     writer,
     slack.layer,
     history.layer,
+    BotPosts.layer.pipe(Layer.provide([slack.layer, history.layer])),
     SecureRandom.layerWebCrypto,
   ).pipe(
     Layer.provideMerge(

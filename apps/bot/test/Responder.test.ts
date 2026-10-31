@@ -13,6 +13,7 @@ import {
 } from "effect";
 import { TestClock } from "effect/testing";
 
+import { BotPosts } from "../src/BotPosts.ts";
 import { OfficeHistory } from "../src/OfficeHistory.ts";
 import {
   ClefFailed,
@@ -157,6 +158,7 @@ const start = Effect.fnUntraced(function* (setup: Setup = {}) {
   const layer = Layer.mergeAll(
     slack.layer,
     history.layer,
+    BotPosts.layer.pipe(Layer.provide([slack.layer, history.layer])),
     Layer.succeed(SlackSocket, SlackSocket.of({ envelopes: Stream.fromQueue(incoming) })),
     Layer.succeed(
       ReplyDecider,
