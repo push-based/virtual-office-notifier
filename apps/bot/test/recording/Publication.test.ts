@@ -4,12 +4,16 @@ import { DateTime, Effect, Fiber, Layer, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
-import { BotPosts } from "../src/BotPosts.ts";
-import { columnNaming, Database } from "../src/Database.ts";
-import { FINISH_RETRY, Publication } from "../src/Publication.ts";
-import { type NewClip, RecordingStore, StoreUnavailable } from "../src/RecordingStore.ts";
-import { RecordingWriter } from "../src/RecordingWriter.ts";
-import { makeFakeSlackClient, makeFakeSlackHistory, permalinkOf, pollUntil } from "./fakes.ts";
+import { BotPosts } from "../../src/BotPosts.ts";
+import { columnNaming, Database } from "../../src/Database.ts";
+import { FINISH_RETRY, Publication } from "../../src/recording/Publication.ts";
+import {
+  type NewClip,
+  RecordingStore,
+  StoreUnavailable,
+} from "../../src/recording/RecordingStore.ts";
+import { RecordingWriter } from "../../src/recording/RecordingWriter.ts";
+import { makeFakeSlackClient, makeFakeSlackHistory, permalinkOf, pollUntil } from "../fakes.ts";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 

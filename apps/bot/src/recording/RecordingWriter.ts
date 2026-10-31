@@ -9,7 +9,7 @@ import {
   ownedBy,
   type PulledActionItems,
 } from "./ActionItems.ts";
-import { orReportedNone, type Providers, writerLayer, writeWithProviders } from "./AiWriting.ts";
+import { orReportedNone, type Providers, writerLayer, writeWithProviders } from "../AiWriting.ts";
 import type { ClipLine, PauseLine, RecordingDetails } from "./RecordingStore.ts";
 import {
   NoAiSummary,
@@ -42,7 +42,7 @@ export class RecordingWriter extends Context.Service<
       attendees: ReadonlyArray<Member>,
     ): Effect.Effect<Option.Option<PulledActionItems>>;
   }
->()("bot/RecordingWriter") {
+>()("bot/recording/RecordingWriter") {
   static readonly layerProviders = (providers: Providers) =>
     Layer.succeed(
       RecordingWriter,

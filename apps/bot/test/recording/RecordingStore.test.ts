@@ -3,17 +3,17 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Effect, Layer, Option, String } from "effect";
 import { Migrator, SqlClient } from "effect/sql";
 
-import { ActionItemList } from "../src/ActionItems.ts";
-import { columnNaming, Database } from "../src/Database.ts";
+import { ActionItemList } from "../../src/recording/ActionItems.ts";
+import { columnNaming, Database } from "../../src/Database.ts";
 import { migrations } from "recording-requests/migrations";
-import { MAX_TRANSCRIPTION_ATTEMPTS } from "../src/Recording.ts";
+import { MAX_TRANSCRIPTION_ATTEMPTS } from "../../src/recording/Recording.ts";
 import {
   type FinishedRecording,
   type NewClip,
   type NewRecording,
   type RecordingDetails,
   RecordingStore,
-} from "../src/RecordingStore.ts";
+} from "../../src/recording/RecordingStore.ts";
 
 const TestLayer = RecordingStore.layer.pipe(
   Layer.provideMerge(Database.layerNoDeps()),

@@ -25,24 +25,32 @@ import { RecordingEdits } from "recording-requests/RecordingEdits";
 import type { RecordingChange } from "recording-requests/RecordingEdit";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
-import { BotPosts } from "../src/BotPosts.ts";
-import { ownedBy, type PulledItem } from "../src/ActionItems.ts";
-import type { Written } from "../src/AiWriting.ts";
-import { ClipArchive } from "../src/ClipArchive.ts";
-import type { Clip } from "../src/ClipCutter.ts";
-import { columnNaming, Database, reconnectDelay } from "../src/Database.ts";
-import { DiscordGateway } from "../src/DiscordGateway.ts";
-import { OfficeSeat, type RecordingMode } from "../src/OfficeSeat.ts";
-import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
-import { FINISH_POLL, FINISH_RETRY } from "../src/Publication.ts";
-import { POLL_INTERVAL, startRecorder, STATUS_INTERVAL } from "../src/Recorder.ts";
-import { RecordingStore, StoreUnavailable } from "../src/RecordingStore.ts";
-import { InvalidPayload } from "../src/SlackClient.ts";
-import { actionItemsRequestOf, RecordingWriter, summaryRequestOf } from "../src/RecordingWriter.ts";
-import type { WrittenSummary } from "../src/SummaryWriter.ts";
-import { type Transcript, Transcriber, TranscriptionError } from "../src/Transcriber.ts";
-import { SPEAKING_HOLD } from "../src/Speaking.ts";
-import { type CaptureError, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
+import { BotPosts } from "../../src/BotPosts.ts";
+import { ownedBy, type PulledItem } from "../../src/recording/ActionItems.ts";
+import type { Written } from "../../src/AiWriting.ts";
+import { ClipArchive } from "../../src/recording/ClipArchive.ts";
+import type { Clip } from "../../src/recording/audio/ClipCutter.ts";
+import { columnNaming, Database, reconnectDelay } from "../../src/Database.ts";
+import { DiscordGateway } from "../../src/DiscordGateway.ts";
+import { OfficeSeat, type RecordingMode } from "../../src/OfficeSeat.ts";
+import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../../src/OfficeEvent.ts";
+import { FINISH_POLL, FINISH_RETRY } from "../../src/recording/Publication.ts";
+import { POLL_INTERVAL, startRecorder, STATUS_INTERVAL } from "../../src/recording/Recorder.ts";
+import { RecordingStore, StoreUnavailable } from "../../src/recording/RecordingStore.ts";
+import { InvalidPayload } from "../../src/SlackClient.ts";
+import {
+  actionItemsRequestOf,
+  RecordingWriter,
+  summaryRequestOf,
+} from "../../src/recording/RecordingWriter.ts";
+import type { WrittenSummary } from "../../src/recording/SummaryWriter.ts";
+import {
+  type Transcript,
+  Transcriber,
+  TranscriptionError,
+} from "../../src/recording/Transcriber.ts";
+import { SPEAKING_HOLD } from "../../src/recording/audio/Speaking.ts";
+import { type CaptureError, Heard, VoiceCapture } from "../../src/recording/audio/VoiceCapture.ts";
 import {
   captureReports,
   type FakeSlackClientOptions,
@@ -52,7 +60,7 @@ import {
   pollUntil,
   SLACK_ENV,
   withEnv,
-} from "./fakes.ts";
+} from "../fakes.ts";
 
 const OFFICE = "office";
 

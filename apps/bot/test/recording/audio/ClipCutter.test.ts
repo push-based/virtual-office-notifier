@@ -9,7 +9,7 @@ import {
   MAX_CLIP,
   type PartialClip,
   startClip,
-} from "../src/ClipCutter.ts";
+} from "../../../src/recording/audio/ClipCutter.ts";
 
 const at = DateTime.makeUnsafe("2026-10-30T12:00:00Z");
 

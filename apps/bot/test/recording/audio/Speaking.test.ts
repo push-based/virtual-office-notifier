@@ -7,7 +7,7 @@ import {
   speakingAt,
   startedSpeaking,
   stoppedSpeaking,
-} from "../src/Speaking.ts";
+} from "../../../src/recording/audio/Speaking.ts";
 
 const at = DateTime.makeUnsafe("2026-10-30T12:00:00Z");
 

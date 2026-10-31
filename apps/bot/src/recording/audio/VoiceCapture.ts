@@ -24,8 +24,8 @@ import {
 } from "effect";
 
 import { addPacket, type Clip, type Cut, flush, startClip } from "./ClipCutter.ts";
-import { DiscordGateway } from "./DiscordGateway.ts";
-import type { OfficeLocation } from "./OfficeEvent.ts";
+import { DiscordGateway } from "../../DiscordGateway.ts";
+import type { OfficeLocation } from "../../OfficeEvent.ts";
 import { OPUS_SAMPLE_RATE, opusPacketSamples } from "./OggOpus.ts";
 
 export type Heard = Data.TaggedEnum<{
@@ -59,7 +59,7 @@ export class VoiceCapture extends Context.Service<
   {
     capture(office: OfficeLocation, until: Effect.Effect<void>): Stream.Stream<Heard, CaptureError>;
   }
->()("bot/VoiceCapture") {
+>()("bot/recording/audio/VoiceCapture") {
   static readonly layer = Layer.effect(
     VoiceCapture,
     Effect.gen(function* () {

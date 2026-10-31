@@ -13,11 +13,11 @@ import {
 } from "effect";
 import { AiError } from "effect/ai";
 
-import type { Member } from "../src/ActionItems.ts";
-import type { ClipLine, RecordingDetails } from "../src/RecordingStore.ts";
-import { RecordingWriter, type RecordingToWrite } from "../src/RecordingWriter.ts";
-import { DETAILED_OUTPUT_TOKENS, MAX_SUMMARY_LENGTH } from "../src/SummaryWriter.ts";
-import { captureReports, scriptedModel } from "./fakes.ts";
+import type { Member } from "../../src/recording/ActionItems.ts";
+import type { ClipLine, RecordingDetails } from "../../src/recording/RecordingStore.ts";
+import { RecordingWriter, type RecordingToWrite } from "../../src/recording/RecordingWriter.ts";
+import { DETAILED_OUTPUT_TOKENS, MAX_SUMMARY_LENGTH } from "../../src/recording/SummaryWriter.ts";
+import { captureReports, scriptedModel } from "../fakes.ts";
 
 const start = DateTime.makeUnsafe("2026-10-23T08:00:00Z");
 

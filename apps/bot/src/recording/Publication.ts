@@ -16,8 +16,8 @@ import {
 import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 
 import { ActionItemList } from "./ActionItems.ts";
-import { BotPosts } from "./BotPosts.ts";
-import type { OfficeLocation } from "./OfficeEvent.ts";
+import { BotPosts } from "../BotPosts.ts";
+import type { OfficeLocation } from "../OfficeEvent.ts";
 import {
   type PostedSummary,
   type RecordingDetails,
@@ -25,8 +25,9 @@ import {
   type StoreUnavailable,
   type UnlinkedPost,
 } from "./RecordingStore.ts";
-import { slackDidNotAct, type PostedMessage, SlackClient } from "./SlackClient.ts";
-import { rewriteNote, type SlackMessage, summaryMessage } from "./SlackMessage.ts";
+import { slackDidNotAct, type PostedMessage, SlackClient } from "../SlackClient.ts";
+import type { SlackMessage } from "../SlackMessage.ts";
+import { rewriteNote, summaryMessage } from "./SummaryPost.ts";
 import { SummaryRewriter } from "./SummaryRewriter.ts";
 import { RecordingWriter, type RecordingToWrite } from "./RecordingWriter.ts";
 import { hasSpeech, speakersOf, transcriptText, type WrittenSummary } from "./SummaryWriter.ts";

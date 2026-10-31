@@ -1,9 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Array, Effect, Layer, Logger, Predicate, References } from "effect";
 
-import { StoreUnavailable } from "../src/RecordingStore.ts";
-import { StoreHealth } from "../src/StoreHealth.ts";
-import { captureReports } from "./fakes.ts";
+import { StoreUnavailable } from "../../src/recording/RecordingStore.ts";
+import { StoreHealth } from "../../src/recording/StoreHealth.ts";
+import { captureReports } from "../fakes.ts";
 
 interface LogEntry {
   readonly level: string;

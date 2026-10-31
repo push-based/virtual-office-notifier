@@ -24,9 +24,9 @@ import {
 } from "./ActionItems.ts";
 import { guardChange, guardQuery, type QueryGuard } from "recording-requests/Query";
 
-import { memberUpsert } from "./ActivityLog.ts";
+import { memberUpsert } from "../ActivityLog.ts";
 
-import { Database, describeError } from "./Database.ts";
+import { Database, describeError } from "../Database.ts";
 import { MAX_TRANSCRIPTION_ATTEMPTS, type ResumeReason, TranscriptionStatus } from "./Recording.ts";
 
 export class StoreUnavailable extends Schema.TaggedError<
@@ -334,7 +334,7 @@ export class RecordingStore extends Context.Service<
     readonly unlinkedPosts: Effect.Effect<ReadonlyArray<UnlinkedPost>, StoreUnavailable>;
     linkPost(id: string, permalink: string): Effect.Effect<void, StoreUnavailable>;
   }
->()("bot/RecordingStore") {
+>()("bot/recording/RecordingStore") {
   static readonly layer = Layer.effect(
     RecordingStore,
     Effect.gen(function* () {

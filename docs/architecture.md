@@ -103,14 +103,14 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 
 **AI writing**
 
-| Module                                                     | Responsibility                                                                                                                                     |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`AiWriting.ts`](../apps/bot/src/AiWriting.ts)             | The model fallback, timeouts and daily-limit handling shared by every writer.                                                                      |
-| [`HeadlineWriter.ts`](../apps/bot/src/HeadlineWriter.ts)   | Asks the AI providers for a headline or banter and a button label, and checks the reply.                                                           |
-| [`ReplyWriter.ts`](../apps/bot/src/ReplyWriter.ts)         | Asks the AI providers for a reply, and checks it.                                                                                                  |
-| [`RecordingWriter.ts`](../apps/bot/src/RecordingWriter.ts) | Takes a recording and asks the AI providers for its summary in its summary style, and for its action items with each owner matched to an attendee. |
-| [`SummaryWriter.ts`](../apps/bot/src/SummaryWriter.ts)     | The transcript, the summary styles' instructions and the checks on a summary.                                                                      |
-| [`ActionItems.ts`](../apps/bot/src/ActionItems.ts)         | The action items' instructions and reply format, and matching an owner's name to someone in the office.                                            |
+| Module                                                               | Responsibility                                                                                                                                     |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`AiWriting.ts`](../apps/bot/src/AiWriting.ts)                       | The model fallback, timeouts and daily-limit handling shared by every writer.                                                                      |
+| [`HeadlineWriter.ts`](../apps/bot/src/HeadlineWriter.ts)             | Asks the AI providers for a headline or banter and a button label, and checks the reply.                                                           |
+| [`ReplyWriter.ts`](../apps/bot/src/ReplyWriter.ts)                   | Asks the AI providers for a reply, and checks it.                                                                                                  |
+| [`RecordingWriter.ts`](../apps/bot/src/recording/RecordingWriter.ts) | Takes a recording and asks the AI providers for its summary in its summary style, and for its action items with each owner matched to an attendee. |
+| [`SummaryWriter.ts`](../apps/bot/src/recording/SummaryWriter.ts)     | The transcript, the summary styles' instructions and the checks on a summary.                                                                      |
+| [`ActionItems.ts`](../apps/bot/src/recording/ActionItems.ts)         | The action items' instructions and reply format, and matching an owner's name to someone in the office.                                            |
 
 **The activity record and the database**
 
@@ -124,22 +124,24 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 | [`migrations.ts`](../libs/recording-requests/src/migrations.ts) | The tables and the `voice_activity` and `office_activity` views, bundled into the app. They live in the `recording-requests` library so its tests run on the real schema. |
 | [`SupabaseCa.ts`](../apps/bot/src/SupabaseCa.ts)                | Supabase's root certificate, which Node doesn't trust by default.                                                                                                         |
 
-**Recording on demand**
+**Recording on demand**, in [`apps/bot/src/recording/`](../apps/bot/src/recording), with the audio pieces in `audio/`. The rest of the bot only uses its `index.ts`.
 
-| Module                                                   | Responsibility                                                                                                                                          |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`Recorder.ts`](../apps/bot/src/Recorder.ts)             | Acts on recording requests and recording edits, follows the office, publishes the recording status, and hands the work to the three modules below.      |
-| [`Capture.ts`](../apps/bot/src/Capture.ts)               | Begins, pauses and ends capture for a running recording, saves each clip, and knows who is speaking.                                                    |
-| [`Transcription.ts`](../apps/bot/src/Transcription.ts)   | Transcribes pending clips one at a time in the background, from memory or the archive, waiting out Whisper's daily limit.                               |
-| [`Publication.ts`](../apps/bot/src/Publication.ts)       | Takes a stopped recording to Finished or Silent: writes the summary and action items, posts it once, rewrites it on request and keeps the post current. |
-| [`Recording.ts`](../apps/bot/src/Recording.ts)           | Why a recording stopped, and the clip rules: the shortest clip worth transcribing and how often to retry one.                                           |
-| [`RecordingStore.ts`](../apps/bot/src/RecordingStore.ts) | The repository for recordings and their clips.                                                                                                          |
-| [`VoiceCapture.ts`](../apps/bot/src/VoiceCapture.ts)     | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses.                                                                 |
-| [`ClipCutter.ts`](../apps/bot/src/ClipCutter.ts)         | Cuts one speaker's packets into clips: a clip ends at a pause or at 5 minutes.                                                                          |
-| [`Speaking.ts`](../apps/bot/src/Speaking.ts)             | Who the bot hears speaking right now, holding each person for 2 seconds after they stop so brief pauses don't flicker.                                  |
-| [`OggOpus.ts`](../apps/bot/src/OggOpus.ts)               | Writes Opus packets into an Ogg file without transcoding.                                                                                               |
-| [`ClipArchive.ts`](../apps/bot/src/ClipArchive.ts)       | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back.                                                                       |
-| [`Transcriber.ts`](../apps/bot/src/Transcriber.ts)       | Whisper on Workers AI.                                                                                                                                  |
+| Module                                                               | Responsibility                                                                                                                                          |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`index.ts`](../apps/bot/src/recording/index.ts)                     | The folder's interface: `RecordingLayer`, with the recorder's adapters already provided, and `RecordingStore` for the storage setup.                    |
+| [`Recorder.ts`](../apps/bot/src/recording/Recorder.ts)               | Acts on recording requests and recording edits, follows the office, publishes the recording status, and hands the work to the three modules below.      |
+| [`Capture.ts`](../apps/bot/src/recording/Capture.ts)                 | Begins, pauses and ends capture for a running recording, saves each clip, and knows who is speaking.                                                    |
+| [`Transcription.ts`](../apps/bot/src/recording/Transcription.ts)     | Transcribes pending clips one at a time in the background, from memory or the archive, waiting out Whisper's daily limit.                               |
+| [`Publication.ts`](../apps/bot/src/recording/Publication.ts)         | Takes a stopped recording to Finished or Silent: writes the summary and action items, posts it once, rewrites it on request and keeps the post current. |
+| [`SummaryPost.ts`](../apps/bot/src/recording/SummaryPost.ts)         | The recording's Slack post and the note in its thread when the summary is rewritten.                                                                    |
+| [`Recording.ts`](../apps/bot/src/recording/Recording.ts)             | The clip rules: the shortest clip worth transcribing and how often to retry one.                                                                        |
+| [`RecordingStore.ts`](../apps/bot/src/recording/RecordingStore.ts)   | The repository for recordings and their clips.                                                                                                          |
+| [`VoiceCapture.ts`](../apps/bot/src/recording/audio/VoiceCapture.ts) | The audio connection: one stream of Opus packets per speaker, cut into clips at pauses.                                                                 |
+| [`ClipCutter.ts`](../apps/bot/src/recording/audio/ClipCutter.ts)     | Cuts one speaker's packets into clips: a clip ends at a pause or at 5 minutes.                                                                          |
+| [`Speaking.ts`](../apps/bot/src/recording/audio/Speaking.ts)         | Who the bot hears speaking right now, holding each person for 2 seconds after they stop so brief pauses don't flicker.                                  |
+| [`OggOpus.ts`](../apps/bot/src/recording/audio/OggOpus.ts)           | Writes Opus packets into an Ogg file without transcoding.                                                                                               |
+| [`ClipArchive.ts`](../apps/bot/src/recording/ClipArchive.ts)         | Uploads clips to Cloud Storage with the VM's own identity, and fetches them back.                                                                       |
+| [`Transcriber.ts`](../apps/bot/src/recording/Transcriber.ts)         | Whisper on Workers AI.                                                                                                                                  |
 
 ## Workspace layout
 

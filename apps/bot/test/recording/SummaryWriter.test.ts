@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Effect, Exit, pipe, Schema, String } from "effect";
 
-import type { ClipLine, PauseLine, RecordingDetails } from "../src/RecordingStore.ts";
+import type { ClipLine, PauseLine, RecordingDetails } from "../../src/recording/RecordingStore.ts";
 import {
   DetailedSummaryText,
   hasSpeech,
@@ -13,7 +13,7 @@ import {
   summaryRequest,
   transcriptLines,
   transcriptText,
-} from "../src/SummaryWriter.ts";
+} from "../../src/recording/SummaryWriter.ts";
 
 // 2026-10-23T08:00:00Z, a Friday, 10:00 in the office.
 const start = DateTime.makeUnsafe("2026-10-23T08:00:00Z");

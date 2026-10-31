@@ -1,8 +1,8 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Redacted, Schema } from "effect";
 
-import { Transcriber } from "../src/Transcriber.ts";
-import { makeFakeSlackHttp, type Reply, requestJson, respond } from "./fakes.ts";
+import { Transcriber } from "../../src/recording/Transcriber.ts";
+import { makeFakeSlackHttp, type Reply, requestJson, respond } from "../fakes.ts";
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 

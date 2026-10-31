@@ -4,7 +4,7 @@ import { Buffer } from "node:buffer";
 import { Array, Context, Duration, Effect, Layer, Option, Redacted, Schema, String } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
-import { AiConfig, RecordingConfig } from "./Config.ts";
+import { AiConfig, RecordingConfig } from "../Config.ts";
 
 export const TranscriptionFailure = Schema.Literals([
   "DailyLimit",
@@ -108,7 +108,7 @@ export class Transcriber extends Context.Service<
   {
     transcribe(audio: Uint8Array): Effect.Effect<Transcript, TranscriptionError>;
   }
->()("bot/Transcriber") {
+>()("bot/recording/Transcriber") {
   static readonly layerOptions = (options: TranscriberOptions) =>
     Layer.effect(
       Transcriber,

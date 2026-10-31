@@ -16,8 +16,8 @@ import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEd
 import type { ActiveRecording } from "recording-requests/RecordingRequest";
 import { RecordingRequests, type RequestHandler } from "recording-requests/RecordingRequests";
 
-import { columnNaming, Database } from "../src/Database.ts";
-import { RecordingStore, StoreUnavailable } from "../src/RecordingStore.ts";
+import { columnNaming, Database } from "../../src/Database.ts";
+import { RecordingStore, StoreUnavailable } from "../../src/recording/RecordingStore.ts";
 
 const ada = { id: "u1", name: "Ada" };
 
