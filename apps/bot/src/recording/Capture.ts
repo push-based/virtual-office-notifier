@@ -18,20 +18,23 @@ import {
 import type { ActiveRecording } from "recording-requests/RecordingRequest";
 
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
-import type { Clip } from "./audio/ClipCutter.ts";
-import { DiscordGateway, type OfficeLocation, OfficeSeat } from "../office/index.ts";
-import { oggOpusFile, opusPacketsDuration } from "./audio/OggOpus.ts";
-import { MIN_CLIP_DURATION } from "./Recording.ts";
-import { RecordingStore } from "./RecordingStore.ts";
 import {
+  type CaptureError,
+  type Clip,
+  Heard,
   noVoices,
+  oggOpusFile,
+  opusPacketsDuration,
   speakingAt,
   startedSpeaking,
   stoppedSpeaking,
+  VoiceCapture,
   type Voices,
-} from "./audio/Speaking.ts";
+} from "./audio/index.ts";
+import { DiscordGateway, type OfficeLocation, OfficeSeat } from "../office/index.ts";
+import { MIN_CLIP_DURATION } from "./Recording.ts";
+import { RecordingStore } from "./RecordingStore.ts";
 import type { Transcription } from "./Transcription.ts";
-import { type CaptureError, Heard, VoiceCapture } from "./audio/VoiceCapture.ts";
 
 const SAVING_LIMIT = Duration.seconds(30);
 

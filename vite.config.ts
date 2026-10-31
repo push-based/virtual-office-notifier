@@ -115,6 +115,30 @@ export default defineConfig({
         },
       },
       {
+        files: ["apps/bot/src/**"],
+        rules: {
+          "no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                {
+                  group: [
+                    "./*/**",
+                    "!./*/index.ts",
+                    "../*/**",
+                    "!../*/index.ts",
+                    "../../*/**",
+                    "!../../*/index.ts",
+                  ],
+                  message:
+                    "Import another folder of the bot through its index.ts, which is its interface.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
         files: ["**/test/**", "**/scripts/**", "apps/bot/src/main.ts"],
         rules: { "effecttsgo/strict-effect-provide": "off" },
       },

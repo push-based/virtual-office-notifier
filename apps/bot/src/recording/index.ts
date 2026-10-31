@@ -1,6 +1,6 @@
 import { Layer } from "effect";
 
-import { VoiceCapture } from "./audio/VoiceCapture.ts";
+import { VoiceCapture } from "./audio/index.ts";
 import { ClipArchive } from "./ClipArchive.ts";
 import { RecorderLayer } from "./Recorder.ts";
 import { RecordingWriter } from "./RecordingWriter.ts";

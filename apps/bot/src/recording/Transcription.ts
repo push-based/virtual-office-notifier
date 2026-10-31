@@ -1,7 +1,7 @@
 import { Data, DateTime, Duration, Effect, Match, Option, Queue, Schedule } from "effect";
 
 import { ClipArchive } from "./ClipArchive.ts";
-import { ClipAudio } from "./audio/ClipAudio.ts";
+import { ClipAudio } from "./audio/index.ts";
 import { reconnectSchedule } from "../database/index.ts";
 import { type PendingClip, RecordingStore } from "./RecordingStore.ts";
 import { StoreHealth } from "./StoreHealth.ts";
