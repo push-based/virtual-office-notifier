@@ -2,7 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, Clock, DateTime, Effect, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
 
-import { OfficeEvent } from "../../src/OfficeEvent.ts";
+import { OfficeEvent } from "../../src/office/OfficeEvent.ts";
 import { reminders } from "../../src/announcing/Reminder.ts";
 
 const office = { guildId: "g1", channelId: "c1" };

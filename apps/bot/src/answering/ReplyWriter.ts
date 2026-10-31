@@ -15,9 +15,9 @@ import {
   unquoted,
   writerLayer,
   writeWithProviders,
-} from "../AiWriting.ts";
+} from "../ai/index.ts";
 import { banterLog } from "../announcing/index.ts";
-import type { BanterContext } from "../OfficeEvent.ts";
+import type { BanterContext } from "../office/index.ts";
 
 export const MAX_REPLY_LENGTH = 600;
 

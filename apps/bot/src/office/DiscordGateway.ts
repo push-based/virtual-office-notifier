@@ -32,7 +32,7 @@ import {
 import type { PersonInOffice } from "recording-requests/RecordingRequest";
 
 import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
-import { DiscordConfig } from "./Config.ts";
+import { DiscordConfig } from "../Config.ts";
 import type { SeatAdapter } from "./OfficeSeat.ts";
 import {
   isOfficeJoin,
@@ -346,7 +346,7 @@ export class DiscordGateway extends Context.Service<
     // None when the office channel wasn't found at startup.
     readonly office: Option.Option<OfficeLocation>;
   }
->()("bot/DiscordGateway") {
+>()("bot/office/DiscordGateway") {
   static readonly layer = Layer.effect(
     DiscordGateway,
     Effect.gen(function* () {

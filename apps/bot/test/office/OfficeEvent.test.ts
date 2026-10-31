@@ -10,7 +10,7 @@ import {
   sessionOf,
   type TimedVoiceStateUpdate,
   trackOccupancy,
-} from "../src/OfficeEvent.ts";
+} from "../../src/office/OfficeEvent.ts";
 
 const OFFICE = "office";
 

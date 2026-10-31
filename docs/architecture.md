@@ -56,7 +56,7 @@ The one exception is a [recording](recording.md): for as long as one is on, the 
 
 ## Modules
 
-Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module per concern.
+Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src). The top level holds the program: `main.ts`, `Program.ts`, `Config.ts`, `Observability.ts` and `Storage.ts`, which sets up every store. Everything else sits in a folder per concern, and each folder's `index.ts` is its interface: code outside a folder only imports its `index.ts`, while tests in [`apps/bot/test/`](../apps/bot/test) mirror the folders and can test the internals.
 
 **Entry point and the program**
 
@@ -67,16 +67,17 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 | [`Config.ts`](../apps/bot/src/Config.ts)               | Environment variables and the default model lists.                                                     |
 | [`Observability.ts`](../apps/bot/src/Observability.ts) | Sends errors, traces and logs to Sentry when it's configured.                                          |
 
-**Discord**
+**The office**, in [`apps/bot/src/office/`](../apps/bot/src/office): the Discord side, and office time.
 
-| Module                                                       | Responsibility                                                                                                                                                                 |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`DiscordGateway.ts`](../apps/bot/src/DiscordGateway.ts)     | Logs in to Discord, finds the office channel, turns voice-state updates into office events and observations to record, and is the Discord side of moving and renaming the bot. |
-| [`OfficeEvent.ts`](../apps/bot/src/OfficeEvent.ts)           | The event types and the occupancy tracking that decides when the office opens or empties.                                                                                      |
-| [`BotPresence.ts`](../apps/bot/src/BotPresence.ts)           | Whether the bot should be in the office, from who's there at startup and the office opening and emptying.                                                                      |
-| [`OfficeSeat.ts`](../apps/bot/src/OfficeSeat.ts)             | Where the bot sits: in or out of the office, stepping out while recording so the audio connection can join, its nickname, and going back after Discord reconnects.             |
-| [`VoiceObservation.ts`](../apps/bot/src/VoiceObservation.ts) | Decides which voice-state updates are worth recording.                                                                                                                         |
-| [`VoiceEffect.ts`](../apps/bot/src/VoiceEffect.ts)           | Soundboard sounds and emoji, and which ones are worth recording.                                                                                                               |
+| Module                                                              | Responsibility                                                                                                                                                                 |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`DiscordGateway.ts`](../apps/bot/src/office/DiscordGateway.ts)     | Logs in to Discord, finds the office channel, turns voice-state updates into office events and observations to record, and is the Discord side of moving and renaming the bot. |
+| [`OfficeEvent.ts`](../apps/bot/src/office/OfficeEvent.ts)           | The event types and the occupancy tracking that decides when the office opens or empties.                                                                                      |
+| [`BotPresence.ts`](../apps/bot/src/office/BotPresence.ts)           | Whether the bot should be in the office, from who's there at startup and the office opening and emptying.                                                                      |
+| [`OfficeSeat.ts`](../apps/bot/src/office/OfficeSeat.ts)             | Where the bot sits: in or out of the office, stepping out while recording so the audio connection can join, its nickname, and going back after Discord reconnects.             |
+| [`VoiceObservation.ts`](../apps/bot/src/office/VoiceObservation.ts) | Decides which voice-state updates are worth recording.                                                                                                                         |
+| [`VoiceEffect.ts`](../apps/bot/src/office/VoiceEffect.ts)           | Soundboard sounds and emoji, and which ones are worth recording.                                                                                                               |
+| [`OfficeTime.ts`](../apps/bot/src/office/OfficeTime.ts)             | Office time: the UTC+2 zone, the office day and week, office hours and the office clock.                                                                                       |
 
 **Slack**, in [`apps/bot/src/slack/`](../apps/bot/src/slack): Slack itself, used by announcing, answering and recording through its `index.ts`.
 
@@ -98,7 +99,6 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 | [`HeadlineWriter.ts`](../apps/bot/src/announcing/HeadlineWriter.ts) | Asks the AI providers for a headline or banter and a button label, and checks the reply.  |
 | [`Reminder.ts`](../apps/bot/src/announcing/Reminder.ts)             | The weekday reminder schedule.                                                            |
 | [`Banter.ts`](../apps/bot/src/announcing/Banter.ts)                 | When to post banter, which stretch of activity it covers, and the log the AI model reads. |
-| [`OfficeTime.ts`](../apps/bot/src/OfficeTime.ts)                    | Office time: the UTC+2 zone, the office day and week, office hours and the office clock.  |
 
 **Answering in Slack**, in [`apps/bot/src/answering/`](../apps/bot/src/answering). Program uses its `index.ts`, which exports `ResponderLayer`.
 
@@ -110,26 +110,26 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 | [`ReplyWriter.ts`](../apps/bot/src/answering/ReplyWriter.ts)                         | Asks the AI providers for a reply, and checks it.                                                              |
 | [`ReplyMessage.ts`](../apps/bot/src/answering/ReplyMessage.ts)                       | The reply's Slack message, crediting the model.                                                                |
 
-**AI writing**: the shared part. Each writer lives with what it writes for, in `announcing/`, `answering/` and `recording/`.
+**AI writing**, in [`apps/bot/src/ai/`](../apps/bot/src/ai): the shared part. Each writer lives with what it writes for, in `announcing/`, `answering/` and `recording/`.
 
 | Module                                                               | Responsibility                                                                                                                                     |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`AiWriting.ts`](../apps/bot/src/AiWriting.ts)                       | The model fallback, timeouts and daily-limit handling shared by every writer.                                                                      |
+| [`AiWriting.ts`](../apps/bot/src/ai/AiWriting.ts)                    | The model fallback, timeouts and daily-limit handling shared by every writer.                                                                      |
 | [`RecordingWriter.ts`](../apps/bot/src/recording/RecordingWriter.ts) | Takes a recording and asks the AI providers for its summary in its summary style, and for its action items with each owner matched to an attendee. |
 | [`SummaryWriter.ts`](../apps/bot/src/recording/SummaryWriter.ts)     | The transcript, the summary styles' instructions and the checks on a summary.                                                                      |
 | [`ActionItems.ts`](../apps/bot/src/recording/ActionItems.ts)         | The action items' instructions and reply format, and matching an owner's name to someone in the office.                                            |
 
-**The activity record and the database**
+**The activity record and the database**, in [`apps/bot/src/activity/`](../apps/bot/src/activity) and [`apps/bot/src/database/`](../apps/bot/src/database), set up by `Storage.ts`.
 
-| Module                                                          | Responsibility                                                                                                                                                            |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`ActivityRecorder.ts`](../apps/bot/src/ActivityRecorder.ts)    | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects.                                                              |
-| [`ActivityLog.ts`](../apps/bot/src/ActivityLog.ts)              | The repository: the SQL that writes bot sessions, members, snapshots and effects, and tells outages from bad rows.                                                        |
-| [`OfficeHistory.ts`](../apps/bot/src/OfficeHistory.ts)          | Reads the recorded activity and who's in, and keeps count of the banter posted.                                                                                           |
-| [`Storage.ts`](../apps/bot/src/Storage.ts)                      | Sets up the database once for recording and reading, or turns both off without `DATABASE_URL`.                                                                            |
-| [`Database.ts`](../apps/bot/src/Database.ts)                    | Connects to Postgres and runs the migrations in the background, retrying until it works.                                                                                  |
-| [`migrations.ts`](../libs/recording-requests/src/migrations.ts) | The tables and the `voice_activity` and `office_activity` views, bundled into the app. They live in the `recording-requests` library so its tests run on the real schema. |
-| [`SupabaseCa.ts`](../apps/bot/src/SupabaseCa.ts)                | Supabase's root certificate, which Node doesn't trust by default.                                                                                                         |
+| Module                                                                | Responsibility                                                                                                                                                            |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`ActivityRecorder.ts`](../apps/bot/src/activity/ActivityRecorder.ts) | Buffers observations and writes them in order, retrying outages and setting aside rows the database rejects.                                                              |
+| [`ActivityLog.ts`](../apps/bot/src/activity/ActivityLog.ts)           | The repository: the SQL that writes bot sessions, members, snapshots and effects, and tells outages from bad rows.                                                        |
+| [`OfficeHistory.ts`](../apps/bot/src/activity/OfficeHistory.ts)       | Reads the recorded activity and who's in, and keeps count of the banter posted.                                                                                           |
+| [`Storage.ts`](../apps/bot/src/Storage.ts)                            | Sets up the database once for recording and reading, or turns both off without `DATABASE_URL`.                                                                            |
+| [`Database.ts`](../apps/bot/src/database/Database.ts)                 | Connects to Postgres and runs the migrations in the background, retrying until it works.                                                                                  |
+| [`migrations.ts`](../libs/recording-requests/src/migrations.ts)       | The tables and the `voice_activity` and `office_activity` views, bundled into the app. They live in the `recording-requests` library so its tests run on the real schema. |
+| [`SupabaseCa.ts`](../apps/bot/src/database/SupabaseCa.ts)             | Supabase's root certificate, which Node doesn't trust by default.                                                                                                         |
 
 **Recording on demand**, in [`apps/bot/src/recording/`](../apps/bot/src/recording), with the audio pieces in `audio/`. The rest of the bot only uses its `index.ts`.
 

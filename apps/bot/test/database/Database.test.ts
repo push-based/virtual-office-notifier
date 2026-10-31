@@ -4,8 +4,8 @@ import { Array, Duration, Effect, Fiber, Layer, Queue, Ref } from "effect";
 import { Migrator, SqlClient, SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
 
-import { Database, describeError, reconnectDelay } from "../src/Database.ts";
-import { captureReports } from "./fakes.ts";
+import { Database, describeError, reconnectDelay } from "../../src/database/Database.ts";
+import { captureReports } from "../fakes.ts";
 
 const createExample = Migrator.fromRecord({
   "0001_create_example": Effect.gen(function* () {

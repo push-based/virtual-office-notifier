@@ -1,6 +1,6 @@
 import { Array, DateTime, pipe, String } from "effect";
 
-import type { ActivityEntry, BanterContext } from "../src/OfficeEvent.ts";
+import type { ActivityEntry, BanterContext } from "../src/office/index.ts";
 
 export interface BanterScenario extends BanterContext {
   readonly name: string;

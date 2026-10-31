@@ -4,7 +4,7 @@ import { DateTime, Effect, Layer, Option, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 
 import { ArchiveError, ClipArchive } from "../../src/recording/ClipArchive.ts";
-import { columnNaming, Database } from "../../src/Database.ts";
+import { columnNaming, Database } from "../../src/database/Database.ts";
 import { RecordingStore } from "../../src/recording/RecordingStore.ts";
 import { Transcriber } from "../../src/recording/Transcriber.ts";
 import { Transcription } from "../../src/recording/Transcription.ts";

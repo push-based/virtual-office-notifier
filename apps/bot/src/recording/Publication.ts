@@ -23,7 +23,7 @@ import {
   slackDidNotAct,
   type SlackMessage,
 } from "../slack/index.ts";
-import type { OfficeLocation } from "../OfficeEvent.ts";
+import type { OfficeLocation } from "../office/index.ts";
 import {
   type PostedSummary,
   type RecordingDetails,

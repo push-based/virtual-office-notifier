@@ -2,11 +2,14 @@ import { Cause, Effect, ErrorReporter, Layer, Option } from "effect";
 import { RecordingEdits } from "recording-requests/RecordingEdits";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
-import { ActivityLog } from "./ActivityLog.ts";
-import { ActivityRecorder, RecordingDisabled } from "./ActivityRecorder.ts";
+import {
+  ActivityLog,
+  ActivityRecorder,
+  OfficeHistory,
+  RecordingDisabled,
+} from "./activity/index.ts";
 import { DatabaseConfig } from "./Config.ts";
-import { Database, describeError } from "./Database.ts";
-import { OfficeHistory } from "./OfficeHistory.ts";
+import { Database, describeError } from "./database/index.ts";
 import { RecordingStore } from "./recording/index.ts";
 import { SlackHistory } from "./slack/index.ts";
 

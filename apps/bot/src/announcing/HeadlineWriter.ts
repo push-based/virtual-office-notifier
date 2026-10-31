@@ -16,13 +16,13 @@ import {
 import {
   type Brief,
   orReportedNone,
-  unquoted,
   type Providers,
+  unquoted,
   writerLayer,
   writeWithProviders,
-} from "../AiWriting.ts";
+} from "../ai/index.ts";
 import { banterLog } from "./Banter.ts";
-import { OfficeEvent } from "../OfficeEvent.ts";
+import { OfficeEvent } from "../office/index.ts";
 import {
   banterExamples,
   emptiedHeadlines,

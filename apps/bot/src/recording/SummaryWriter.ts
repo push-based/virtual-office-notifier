@@ -11,8 +11,8 @@ import {
 } from "effect";
 import type { SummaryStyle } from "recording-requests/Recording";
 
-import { type Brief, unquoted } from "../AiWriting.ts";
-import { officeClock } from "../OfficeTime.ts";
+import { type Brief, unquoted } from "../ai/index.ts";
+import { officeClock } from "../office/index.ts";
 import type { ClipLine, PauseLine, RecordingDetails } from "./RecordingStore.ts";
 import { escapeSlackText, formatDuration } from "../slack/index.ts";
 

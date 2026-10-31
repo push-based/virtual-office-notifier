@@ -24,8 +24,7 @@ import {
 } from "effect";
 
 import { addPacket, type Clip, type Cut, flush, startClip } from "./ClipCutter.ts";
-import { DiscordGateway } from "../../DiscordGateway.ts";
-import type { OfficeLocation } from "../../OfficeEvent.ts";
+import { DiscordGateway, type OfficeLocation } from "../../office/index.ts";
 import { OPUS_SAMPLE_RATE, opusPacketSamples } from "./OggOpus.ts";
 
 export type Heard = Data.TaggedEnum<{

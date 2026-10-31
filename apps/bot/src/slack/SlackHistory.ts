@@ -5,8 +5,8 @@ import { RowId } from "recording-requests/RecordingRequest";
 
 import type { ClefRequest } from "../answering/index.ts";
 
-import { Database, describeError } from "../Database.ts";
-import { HistoryUnavailable } from "../OfficeHistory.ts";
+import { Database, describeError } from "../database/index.ts";
+import { HistoryUnavailable } from "../activity/index.ts";
 
 export interface ResponderSettings {
   readonly enabled: boolean;

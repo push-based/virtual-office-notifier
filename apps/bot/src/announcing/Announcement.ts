@@ -1,6 +1,6 @@
 import { DateTime, Option, pipe, String } from "effect";
 
-import { OfficeEvent, type OfficeLocation, type SessionRecap } from "../OfficeEvent.ts";
+import { OfficeEvent, type OfficeLocation, type SessionRecap } from "../office/index.ts";
 import {
   type ActionsBlock,
   AI_DISCLAIMER,

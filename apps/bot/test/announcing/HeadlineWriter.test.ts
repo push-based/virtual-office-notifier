@@ -9,7 +9,7 @@ import {
   OpenedReply,
   UnnamedReply,
 } from "../../src/announcing/HeadlineWriter.ts";
-import { OfficeEvent } from "../../src/OfficeEvent.ts";
+import { OfficeEvent } from "../../src/office/OfficeEvent.ts";
 import { captureReports, opened, scriptedModel } from "../fakes.ts";
 
 type Reply = Effect.Effect<Array<Response.PartEncoded>, AiError.AiError>;

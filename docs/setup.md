@@ -168,7 +168,7 @@ The views aren't `security_invoker`, so the role reads them without any grant on
 
 ### Hyperdrive
 
-Workers can't open a TLS connection to Supabase themselves, because they only trust public certificate authorities and Supabase signs its database certificates with its own. So the Worker reaches the database through [Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which connects to Supabase as the `activity` role and checks Supabase's certificate against its root CA. From the repo root, with `wrangler login`, upload the CA (the one in [`apps/bot/src/SupabaseCa.ts`](../apps/bot/src/SupabaseCa.ts), saved as a `.pem`) and create the config with caching off, so the Console always sees the current state:
+Workers can't open a TLS connection to Supabase themselves, because they only trust public certificate authorities and Supabase signs its database certificates with its own. So the Worker reaches the database through [Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which connects to Supabase as the `activity` role and checks Supabase's certificate against its root CA. From the repo root, with `wrangler login`, upload the CA (the one in [`apps/bot/src/database/SupabaseCa.ts`](../apps/bot/src/database/SupabaseCa.ts), saved as a `.pem`) and create the config with caching off, so the Console always sees the current state:
 
 ```bash
 pnpm --filter console exec wrangler cert upload certificate-authority --name supabase-root-2021 --ca-cert supabase-root.pem

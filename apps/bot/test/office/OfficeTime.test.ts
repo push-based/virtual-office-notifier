@@ -6,7 +6,7 @@ import {
   officeClock,
   startOfOfficeDay,
   startOfOfficeWeek,
-} from "../src/OfficeTime.ts";
+} from "../../src/office/OfficeTime.ts";
 
 // Office time is UTC+2, so 2026-10-02T14:05+02:00 is a Friday afternoon.
 const officeTime = (iso: string) => DateTime.makeUnsafe(`${iso}+02:00`);

@@ -23,14 +23,14 @@ import { SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
-import { ActivityLog, ActivityLogError, BadRow, Outage } from "../src/ActivityLog.ts";
-import { ActivityRecorder, BUFFER_SIZE } from "../src/ActivityRecorder.ts";
-import { columnNaming, Database } from "../src/Database.ts";
-import { NO_VOICE_DETAILS } from "../src/OfficeEvent.ts";
-import { StorageLayer } from "../src/Storage.ts";
-import type { TimedVoiceEffect } from "../src/VoiceEffect.ts";
-import type { VoiceObservation } from "../src/VoiceObservation.ts";
-import { captureReports, pollUntil, withEnv } from "./fakes.ts";
+import { ActivityLog, ActivityLogError, BadRow, Outage } from "../../src/activity/ActivityLog.ts";
+import { ActivityRecorder, BUFFER_SIZE } from "../../src/activity/ActivityRecorder.ts";
+import { columnNaming, Database } from "../../src/database/Database.ts";
+import { NO_VOICE_DETAILS } from "../../src/office/OfficeEvent.ts";
+import { StorageLayer } from "../../src/Storage.ts";
+import type { TimedVoiceEffect } from "../../src/office/VoiceEffect.ts";
+import type { VoiceObservation } from "../../src/office/VoiceObservation.ts";
+import { captureReports, pollUntil, withEnv } from "../fakes.ts";
 
 const observation = (userId: string): VoiceObservation => ({
   source: "update",

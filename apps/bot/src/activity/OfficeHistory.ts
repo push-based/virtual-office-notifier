@@ -3,8 +3,8 @@ import { SqlClient, SqlSchema } from "effect/sql";
 
 import { guardQuery } from "recording-requests/Query";
 
-import { Database, describeError } from "./Database.ts";
-import type { ActivityEntry, BanterPeriod } from "./OfficeEvent.ts";
+import { Database, describeError } from "../database/index.ts";
+import type { ActivityEntry, BanterPeriod } from "../office/index.ts";
 
 export const MAX_ACTIVITY_ENTRIES = 400;
 
@@ -48,7 +48,7 @@ export class OfficeHistory extends Context.Service<
       period: BanterPeriod,
     ): Effect.Effect<void, HistoryUnavailable>;
   }
->()("bot/OfficeHistory") {
+>()("bot/activity/OfficeHistory") {
   static readonly layer = Layer.effect(
     OfficeHistory,
     Effect.gen(function* () {

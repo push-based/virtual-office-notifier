@@ -4,10 +4,10 @@ import { Array, DateTime, Effect, Layer, Schema } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { SqlClient, SqlError } from "effect/sql";
 
-import { ActivityLog, BadRow, classify, Outage } from "../src/ActivityLog.ts";
-import { columnNaming, Database } from "../src/Database.ts";
-import { NO_VOICE_DETAILS, type VoiceDetails } from "../src/OfficeEvent.ts";
-import type { VoiceObservation } from "../src/VoiceObservation.ts";
+import { ActivityLog, BadRow, classify, Outage } from "../../src/activity/ActivityLog.ts";
+import { columnNaming, Database } from "../../src/database/Database.ts";
+import { NO_VOICE_DETAILS, type VoiceDetails } from "../../src/office/OfficeEvent.ts";
+import type { VoiceObservation } from "../../src/office/VoiceObservation.ts";
 
 const OFFICE = "office";
 

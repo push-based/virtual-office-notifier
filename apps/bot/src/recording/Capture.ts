@@ -19,9 +19,7 @@ import type { ActiveRecording } from "recording-requests/RecordingRequest";
 
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
 import type { Clip } from "./audio/ClipCutter.ts";
-import { DiscordGateway } from "../DiscordGateway.ts";
-import type { OfficeLocation } from "../OfficeEvent.ts";
-import { OfficeSeat } from "../OfficeSeat.ts";
+import { DiscordGateway, type OfficeLocation, OfficeSeat } from "../office/index.ts";
 import { oggOpusFile, opusPacketsDuration } from "./audio/OggOpus.ts";
 import { MIN_CLIP_DURATION } from "./Recording.ts";
 import { RecordingStore } from "./RecordingStore.ts";

@@ -21,7 +21,7 @@ import {
 } from "effect";
 import { AiError, LanguageModel, Model, type Response } from "effect/ai";
 
-import { AiConfig } from "./Config.ts";
+import { AiConfig } from "../Config.ts";
 
 const MODEL_TIMEOUT = "1 minute";
 
@@ -251,7 +251,7 @@ export class AiProviders extends Context.Service<
   {
     readonly configured: Option.Option<ConfiguredProviders>;
   }
->()("bot/AiWriting/AiProviders") {
+>()("bot/ai/AiWriting/AiProviders") {
   static readonly layer = Layer.effect(
     AiProviders,
     Effect.gen(function* () {

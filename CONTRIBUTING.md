@@ -60,7 +60,7 @@ The bot's tests live in `apps/bot/test/` and use [`@effect/vitest`](https://www.
 - [`apps/bot/test/fakes.ts`](apps/bot/test/fakes.ts) has a fake Slack Web API that serves scripted replies and records every request, in-memory Slack, history and Clef stand-ins for the responder, and a helper that pins the random phrasing so tests can assert the exact text.
 - `DiscordGateway.layerTest` feeds voice-state updates from a queue through the same occupancy tracking the real gateway uses.
 - `HeadlineWriter.layerProviders` takes fake language models, so the provider fallback can be tested without calling a real one.
-- Database code runs against [PGlite](https://pglite.dev), an in-process Postgres, with the real migrations. Give it `columnNaming` from `apps/bot/src/Database.ts` so column names convert the same way as in production. `apps/bot/test/fakes.ts` also has a fake recorder for program tests.
+- Database code runs against [PGlite](https://pglite.dev), an in-process Postgres, with the real migrations. Give it `columnNaming` from `apps/bot/src/database/Database.ts` so column names convert the same way as in production. `apps/bot/test/fakes.ts` also has a fake recorder for program tests.
 
 ### Adding a configuration variable
 

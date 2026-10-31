@@ -14,7 +14,7 @@ import {
 import { TestClock } from "effect/testing";
 
 import { BotPosts } from "../../src/slack/BotPosts.ts";
-import { OfficeHistory } from "../../src/OfficeHistory.ts";
+import { OfficeHistory } from "../../src/activity/OfficeHistory.ts";
 import {
   ClefFailed,
   type ClefState,

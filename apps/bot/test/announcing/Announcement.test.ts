@@ -1,7 +1,7 @@
 import { Array, DateTime, Duration, Option } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
-import { OfficeEvent } from "../../src/OfficeEvent.ts";
+import { OfficeEvent } from "../../src/office/OfficeEvent.ts";
 import {
   formatMessage,
   reminderHeadlines,

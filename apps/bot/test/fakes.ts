@@ -24,12 +24,12 @@ import {
   HttpClientResponse,
 } from "effect/http";
 
-import { ActivityRecorder } from "../src/ActivityRecorder.ts";
+import { ActivityRecorder } from "../src/activity/ActivityRecorder.ts";
 import { BotPosts } from "../src/slack/BotPosts.ts";
-import { DiscordGateway, type TestGateway } from "../src/DiscordGateway.ts";
+import { DiscordGateway, type TestGateway } from "../src/office/DiscordGateway.ts";
 import { HeadlineWriter } from "../src/announcing/HeadlineWriter.ts";
-import { HistoryUnavailable } from "../src/OfficeHistory.ts";
-import { OfficeSeat } from "../src/OfficeSeat.ts";
+import { HistoryUnavailable } from "../src/activity/OfficeHistory.ts";
+import { OfficeSeat } from "../src/office/OfficeSeat.ts";
 import type { SlackMessage } from "../src/slack/SlackMessage.ts";
 import {
   type FileUpload,
@@ -50,9 +50,9 @@ import {
   type SlackPost,
 } from "../src/slack/SlackHistory.ts";
 import { SlackNotifier } from "../src/announcing/SlackNotifier.ts";
-import { OfficeEvent } from "../src/OfficeEvent.ts";
-import type { TimedVoiceEffect } from "../src/VoiceEffect.ts";
-import type { VoiceObservation } from "../src/VoiceObservation.ts";
+import { OfficeEvent } from "../src/office/OfficeEvent.ts";
+import type { TimedVoiceEffect } from "../src/office/VoiceEffect.ts";
+import type { VoiceObservation } from "../src/office/VoiceObservation.ts";
 
 export const SLACK_ENV = {
   SLACK_BOT_TOKEN: "xoxb-bot-secret",
