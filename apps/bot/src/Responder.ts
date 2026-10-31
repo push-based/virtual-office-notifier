@@ -261,14 +261,22 @@ export const respondToSlack = Effect.gen(function* () {
       ...replyMessage(text, model),
     });
 
-    yield* history.recordPost({
-      channel: posted.channel,
-      ts: posted.ts,
-      threadTs: message.threadTs,
-      kind: "Reply",
-      model,
-      postedAt: yield* DateTime.now,
-    });
+    yield* history
+      .recordPost({
+        channel: posted.channel,
+        ts: posted.ts,
+        threadTs: message.threadTs,
+        kind: "Reply",
+        model,
+        postedAt: yield* DateTime.now,
+      })
+      .pipe(
+        Effect.catchTag("HistoryUnavailable", (error) =>
+          Effect.logWarning("Couldn't record the Slack reply").pipe(
+            Effect.annotateLogs({ reason: error.reason }),
+          ),
+        ),
+      );
 
     return true;
   });

@@ -244,6 +244,7 @@ export const DEFAULT_SETTINGS: ResponderSettings = {
 export interface FakeHistoryOptions {
   readonly settings?: ResponderSettings | undefined;
   readonly members?: ReadonlyMap<string, LinkedMember> | undefined;
+  readonly postsUnavailable?: boolean | undefined;
 }
 
 // Keeps what would be stored in memory, and counts caps the way the database does.
@@ -270,7 +271,10 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
           }),
         ),
       ),
-      recordPost: (post) => Ref.update(posts, (all) => [...all, post]),
+      recordPost: (post) =>
+        options.postsUnavailable === true
+          ? Effect.fail(HistoryUnavailable.make({ reason: "The database is down" }))
+          : Ref.update(posts, (all) => [...all, post]),
       recordMessage: (message) =>
         Ref.modify(messages, (all) => [all.length + 1, [...all, message]]),
       recordDecision: (decision) => Ref.update(decisions, (all) => [...all, decision]),
