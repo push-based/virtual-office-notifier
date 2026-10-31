@@ -100,13 +100,14 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 
 **AI writing**
 
-| Module                                                   | Responsibility                                                                                                           |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| [`AiWriting.ts`](../apps/bot/src/AiWriting.ts)           | The model fallback, timeouts and daily-limit handling shared by every writer.                                            |
-| [`HeadlineWriter.ts`](../apps/bot/src/HeadlineWriter.ts) | Asks the AI providers for a headline or banter and a button label, and checks the reply.                                 |
-| [`ReplyWriter.ts`](../apps/bot/src/ReplyWriter.ts)       | Asks the AI providers for a reply, and checks it.                                                                        |
-| [`SummaryWriter.ts`](../apps/bot/src/SummaryWriter.ts)   | Builds the transcript and asks the AI providers for a summary.                                                           |
-| [`ActionItems.ts`](../apps/bot/src/ActionItems.ts)       | Asks the AI providers for a recording's action items as a checked list, and matches each owner to someone in the office. |
+| Module                                                     | Responsibility                                                                                                                                     |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`AiWriting.ts`](../apps/bot/src/AiWriting.ts)             | The model fallback, timeouts and daily-limit handling shared by every writer.                                                                      |
+| [`HeadlineWriter.ts`](../apps/bot/src/HeadlineWriter.ts)   | Asks the AI providers for a headline or banter and a button label, and checks the reply.                                                           |
+| [`ReplyWriter.ts`](../apps/bot/src/ReplyWriter.ts)         | Asks the AI providers for a reply, and checks it.                                                                                                  |
+| [`RecordingWriter.ts`](../apps/bot/src/RecordingWriter.ts) | Takes a recording and asks the AI providers for its summary in its summary style, and for its action items with each owner matched to an attendee. |
+| [`SummaryWriter.ts`](../apps/bot/src/SummaryWriter.ts)     | The transcript, the summary styles' instructions and the checks on a summary.                                                                      |
+| [`ActionItems.ts`](../apps/bot/src/ActionItems.ts)         | The action items' instructions and reply format, and matching an owner's name to someone in the office.                                            |
 
 **The activity record and the database**
 

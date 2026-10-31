@@ -12,8 +12,10 @@ import {
   Ref,
   Schedule,
   Schema,
+  Stream,
   String,
 } from "effect";
+import { LanguageModel, Model } from "effect/ai";
 import {
   HttpBody,
   HttpClient,
@@ -195,6 +197,21 @@ export const makeFakeRecorder = Effect.fnUntraced(function* () {
     awaitRecorded: (count: number) => Queue.takeN(observed, count).pipe(Effect.asVoid),
   };
 });
+
+// A language model that answers with whatever `generateText` says, so tests can
+// script replies and see what each call was sent.
+export const scriptedModel = (
+  name: string,
+  generateText: Parameters<typeof LanguageModel.make>[0]["generateText"],
+) =>
+  Model.make(
+    "test",
+    name,
+    Layer.effect(
+      LanguageModel.LanguageModel,
+      LanguageModel.make({ generateText, streamText: () => Stream.empty }),
+    ),
+  );
 
 export const withEnv = (env: Record<string, string>) =>
   Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env }));

@@ -15,7 +15,7 @@ import {
 } from "effect";
 import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 
-import { ActionItemList, ActionItemWriter, actionItemsRequest, ownedBy } from "./ActionItems.ts";
+import { ActionItemList } from "./ActionItems.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
 import {
   type PostedSummary,
@@ -28,14 +28,8 @@ import { slackDidNotAct, type PostedMessage, SlackClient } from "./SlackClient.t
 import { SlackHistory } from "./SlackHistory.ts";
 import { rewriteNote, type SlackMessage, summaryMessage } from "./SlackMessage.ts";
 import { SummaryRewriter } from "./SummaryRewriter.ts";
-import {
-  hasSpeech,
-  speakersOf,
-  summaryRequest,
-  SummaryWriter,
-  transcriptText,
-  type WrittenSummary,
-} from "./SummaryWriter.ts";
+import { RecordingWriter, type RecordingToWrite } from "./RecordingWriter.ts";
+import { hasSpeech, speakersOf, transcriptText, type WrittenSummary } from "./SummaryWriter.ts";
 
 export const FINISH_POLL = Duration.seconds(15);
 
@@ -100,8 +94,7 @@ export interface PublishTo {
 const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
   const scope = yield* Scope.Scope;
   const store = yield* RecordingStore;
-  const summaries = yield* SummaryWriter;
-  const actionItemWriter = yield* ActionItemWriter;
+  const writer = yield* RecordingWriter;
   const slack = yield* SlackClient;
   const history = yield* SlackHistory;
   const updatingPost = yield* Semaphore.make(1);
@@ -187,42 +180,30 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
 
   const pullActionItems = Effect.fn("Publication.pullActionItems")(function* (
     id: string,
-    request: string,
+    recording: RecordingToWrite,
   ) {
     const known = yield* store.actionItemsOf(id);
 
     if (!ActionItemList.$is("NotTried")(known)) return known;
 
-    const members = yield* store.presentDuring(id);
-    const pulled = yield* actionItemWriter.pull(actionItemsRequest(members, request));
+    const pulled = yield* writer.pullActionItems(recording, yield* store.presentDuring(id));
 
-    yield* store.recordActionItems(
-      id,
-      Option.map(pulled, ({ value, model }) => ({ model, items: ownedBy(members, value) })),
-      yield* DateTime.now,
-    );
+    yield* store.recordActionItems(id, pulled, yield* DateTime.now);
 
     return yield* store.actionItemsOf(id);
   });
 
   const repullActionItems = Effect.fn("Publication.repullActionItems")(function* (
     id: string,
-    request: string,
+    recording: RecordingToWrite,
   ) {
     if (yield* store.actionItemsTouched(id)) return;
 
-    const members = yield* store.presentDuring(id);
-    const pulled = yield* actionItemWriter.pull(actionItemsRequest(members, request));
+    const pulled = yield* writer.pullActionItems(recording, yield* store.presentDuring(id));
 
     if (Option.isNone(pulled)) return;
 
-    const { value, model } = pulled.value;
-
-    yield* store.replaceActionItems(
-      id,
-      { model, items: ownedBy(members, value) },
-      yield* DateTime.now,
-    );
+    yield* store.replaceActionItems(id, pulled.value, yield* DateTime.now);
   });
 
   const noteRewrite = (id: string, note: SlackMessage) =>
@@ -259,13 +240,14 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
         return;
       }
 
-      const lines = yield* store.clipsOf(id);
-      const pauses = yield* store.pausesOf(id);
-      const transcript = transcriptText(details.value, lines, pauses);
-      const style = details.value.summaryStyle;
+      const recording: RecordingToWrite = {
+        details: details.value,
+        lines: yield* store.clipsOf(id),
+        pauses: yield* store.pausesOf(id),
+      };
 
-      const request = summaryRequest(details.value, transcript);
-      const summary = yield* summaries.write(request, style);
+      const style = details.value.summaryStyle;
+      const summary = yield* writer.summarize(recording);
 
       if (Option.isNone(summary)) {
         yield* store.dropRewrite(id, editId);
@@ -274,7 +256,7 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
         return;
       }
 
-      yield* repullActionItems(id, request);
+      yield* repullActionItems(id, recording);
 
       yield* store.saveRewrite(id, {
         editId,
@@ -342,11 +324,11 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
       return Option.none<Draft>();
     }
 
-    const { startedAt, stoppedAt, startedByName, title, summaryStyle } = details.value;
+    const { startedAt, stoppedAt, startedByName, title } = details.value;
 
-    const request = summaryRequest(details.value, transcript);
-    const summary = yield* summaries.write(request, summaryStyle);
-    const actionItems = yield* pullActionItems(id, request);
+    const recording: RecordingToWrite = { details: details.value, lines, pauses };
+    const summary = yield* writer.summarize(recording);
+    const actionItems = yield* pullActionItems(id, recording);
     const speakers = speakersOf(lines);
 
     const message = summaryMessage({

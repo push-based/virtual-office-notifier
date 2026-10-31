@@ -1,11 +1,8 @@
 import {
   Array,
-  Context,
   Data,
-  Effect,
   ErrorReporter,
   identity,
-  Layer,
   type LogLevel,
   Option,
   pipe,
@@ -13,14 +10,6 @@ import {
   SchemaTransformation,
   String,
 } from "effect";
-
-import {
-  orReportedNone,
-  type Providers,
-  type Written,
-  writerLayer,
-  writeWithProviders,
-} from "./AiWriting.ts";
 
 export const MAX_ACTION_ITEMS = 10;
 
@@ -114,7 +103,7 @@ export class NoAiActionItems extends Schema.TaggedError<
   }
 }
 
-const ACTION_ITEMS_PROMPT = Array.join(
+export const ACTION_ITEMS_PROMPT = Array.join(
   [
     "You pull the action items out of a recorded conversation from a team's virtual office, a Discord voice channel where people work alongside each other. The transcript was made by speech recognition, one line per stretch of speech, each with the time in UTC+2 and who spoke.",
     "An action item is a piece of follow-up work someone took on, or was asked to do, during the conversation. Leave out anything that was only talked about, and anything already done before the conversation ended.",
@@ -167,46 +156,3 @@ export const ownedBy = (
   items: ReadonlyArray<PulledItem>,
 ): ReadonlyArray<OwnedItem> =>
   Array.map(items, ({ text, ownerName }) => ({ text, owner: ownerOf(members, ownerName) }));
-
-export class ActionItemWriter extends Context.Service<
-  ActionItemWriter,
-  {
-    pull(request: string): Effect.Effect<Option.Option<Written<ReadonlyArray<PulledItem>>>>;
-  }
->()("bot/ActionItems/ActionItemWriter") {
-  static readonly layerProviders = (providers: Providers) =>
-    Layer.succeed(
-      ActionItemWriter,
-      ActionItemWriter.of({
-        pull: Effect.fn("ActionItemWriter.pull")(
-          function* (request: string) {
-            const { value, model } = yield* writeWithProviders(
-              { prompt: ACTION_ITEMS_PROMPT, request, reply: ActionItemsReply },
-              providers,
-            );
-
-            const items = Array.map(value, ({ text, owner }) => ({
-              text,
-              ownerName: owner ?? null,
-            }));
-
-            return { value: items, model };
-          },
-          orReportedNone("pull out the recording's action items", (reason) =>
-            NoAiActionItems.make({ reason }),
-          ),
-        ),
-      }),
-    );
-
-  static readonly layerNone = Layer.succeed(
-    ActionItemWriter,
-    ActionItemWriter.of({ pull: () => Effect.succeedNone }),
-  );
-
-  static readonly layer = writerLayer({
-    withProviders: ({ banter }) => ActionItemWriter.layerProviders(banter),
-    withoutProviders: ActionItemWriter.layerNone,
-    withoutProvidersNote: "No AI provider configured, so recordings get no action items",
-  });
-}

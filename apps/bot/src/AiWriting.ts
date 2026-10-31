@@ -8,18 +8,27 @@ import {
   Effect,
   ErrorReporter,
   ExecutionPlan,
+  identity,
   Layer,
   Match,
   Option,
+  pipe,
   Random,
   Redacted,
   Schema,
+  SchemaTransformation,
+  String,
 } from "effect";
 import { AiError, LanguageModel, Model, type Response } from "effect/ai";
 
 import { AiConfig } from "./Config.ts";
 
 const MODEL_TIMEOUT = "1 minute";
+
+export const unquoted = SchemaTransformation.transform<string, string>({
+  decode: (text) => pipe(text, String.trim, String.replace(/^["'“]+|["'”]+$/g, ""), String.trim),
+  encode: identity,
+});
 
 export class UnusableHeadline extends Schema.TaggedError<
   UnusableHeadline,

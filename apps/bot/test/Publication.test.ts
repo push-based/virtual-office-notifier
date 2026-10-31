@@ -4,11 +4,10 @@ import { DateTime, Effect, Fiber, Layer, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
-import { ActionItemWriter } from "../src/ActionItems.ts";
 import { columnNaming, Database } from "../src/Database.ts";
 import { FINISH_RETRY, Publication } from "../src/Publication.ts";
 import { type NewClip, RecordingStore, StoreUnavailable } from "../src/RecordingStore.ts";
-import { SummaryWriter } from "../src/SummaryWriter.ts";
+import { RecordingWriter } from "../src/RecordingWriter.ts";
 import { makeFakeSlackClient, makeFakeSlackHistory, permalinkOf, pollUntil } from "./fakes.ts";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
@@ -64,14 +63,16 @@ const setUp = Effect.fnUntraced(function* (options: Options = {}) {
     slack.layer,
     history.layer,
     Layer.succeed(
-      SummaryWriter,
-      SummaryWriter.of({
-        write: (_, style) => Effect.succeedSome({ text: "• They said hello", model: "m", style }),
+      RecordingWriter,
+      RecordingWriter.of({
+        summarize: ({ details }) =>
+          Effect.succeedSome({
+            text: "• They said hello",
+            model: "m",
+            style: details.summaryStyle,
+          }),
+        pullActionItems: () => Effect.succeedSome({ items: [], model: "m" }),
       }),
-    ),
-    Layer.succeed(
-      ActionItemWriter,
-      ActionItemWriter.of({ pull: () => Effect.succeedSome({ value: [], model: "m" }) }),
     ),
   ).pipe(
     Layer.provideMerge(Database.layerNoDeps()),
