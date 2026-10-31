@@ -32,6 +32,7 @@ import {
   SLACK_ENV,
   slackError,
   withEnv,
+  gatewayWithSeat,
 } from "./fakes.ts";
 
 const OFFICE = "office";
@@ -117,7 +118,7 @@ const runProgram = Effect.fnUntraced(function* (
   yield* program.pipe(
     Effect.provide(
       Layer.mergeAll(
-        DiscordGateway.layerTest({
+        gatewayWithSeat({
           updates: queue,
           occupants: new Set(Array.map(present, (update) => update.userId)),
           guildId: GUILD,
@@ -373,7 +374,7 @@ describe("recording", () => {
       const fiber = yield* program.pipe(
         Effect.provide(
           Layer.mergeAll(
-            DiscordGateway.layerTest({ updates: queue }),
+            gatewayWithSeat({ updates: queue }),
             slack.layer,
             recorder.layer,
             OfficeHistory.layerDisabled,
@@ -450,7 +451,7 @@ describe("daily reminder", () => {
       const fiber = yield* program.pipe(
         Effect.provide(
           Layer.mergeAll(
-            DiscordGateway.layerTest({ updates: queue }),
+            gatewayWithSeat({ updates: queue }),
             slack.layer,
             recorder.layer,
             OfficeHistory.layerDisabled,

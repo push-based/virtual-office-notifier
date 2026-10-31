@@ -69,13 +69,14 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src), one module 
 
 **Discord**
 
-| Module                                                       | Responsibility                                                                                                                                                     |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`DiscordGateway.ts`](../apps/bot/src/DiscordGateway.ts)     | Logs in to Discord, finds the office channel, turns voice-state updates into office events and observations to record, and moves the bot in and out of the office. |
-| [`OfficeEvent.ts`](../apps/bot/src/OfficeEvent.ts)           | The event types and the occupancy tracking that decides when the office opens or empties.                                                                          |
-| [`BotPresence.ts`](../apps/bot/src/BotPresence.ts)           | Whether the bot should be in the office, from who's there at startup and the office opening and emptying.                                                          |
-| [`VoiceObservation.ts`](../apps/bot/src/VoiceObservation.ts) | Decides which voice-state updates are worth recording.                                                                                                             |
-| [`VoiceEffect.ts`](../apps/bot/src/VoiceEffect.ts)           | Soundboard sounds and emoji, and which ones are worth recording.                                                                                                   |
+| Module                                                       | Responsibility                                                                                                                                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`DiscordGateway.ts`](../apps/bot/src/DiscordGateway.ts)     | Logs in to Discord, finds the office channel, turns voice-state updates into office events and observations to record, and is the Discord side of moving and renaming the bot. |
+| [`OfficeEvent.ts`](../apps/bot/src/OfficeEvent.ts)           | The event types and the occupancy tracking that decides when the office opens or empties.                                                                                      |
+| [`BotPresence.ts`](../apps/bot/src/BotPresence.ts)           | Whether the bot should be in the office, from who's there at startup and the office opening and emptying.                                                                      |
+| [`OfficeSeat.ts`](../apps/bot/src/OfficeSeat.ts)             | Where the bot sits: in or out of the office, stepping out while recording so the audio connection can join, its nickname, and going back after Discord reconnects.             |
+| [`VoiceObservation.ts`](../apps/bot/src/VoiceObservation.ts) | Decides which voice-state updates are worth recording.                                                                                                                         |
+| [`VoiceEffect.ts`](../apps/bot/src/VoiceEffect.ts)           | Soundboard sounds and emoji, and which ones are worth recording.                                                                                                               |
 
 **Posting to Slack**
 

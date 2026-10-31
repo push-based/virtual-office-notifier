@@ -8,7 +8,8 @@ import { Capture } from "../src/Capture.ts";
 import { ClipArchive } from "../src/ClipArchive.ts";
 import type { Clip } from "../src/ClipCutter.ts";
 import { columnNaming, Database } from "../src/Database.ts";
-import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
+import { DiscordGateway } from "../src/DiscordGateway.ts";
+import { OfficeSeat, type RecordingMode } from "../src/OfficeSeat.ts";
 import { RecordingStore } from "../src/RecordingStore.ts";
 import type { Transcription } from "../src/Transcription.ts";
 import { type CaptureError, Heard, VoiceCapture } from "../src/VoiceCapture.ts";
@@ -44,7 +45,14 @@ const setUp = Effect.gen(function* () {
     RecordingStore.layer,
     ClipArchive.layerDisabled,
     VoiceCapture.layerTest(heard),
-    DiscordGateway.layerTest({ updates, recordings: modes }),
+    DiscordGateway.layerTest({ updates }),
+    Layer.succeed(
+      OfficeSeat,
+      OfficeSeat.of({
+        want: () => Effect.void,
+        record: (mode) => Queue.offer(modes, mode).pipe(Effect.asVoid),
+      }),
+    ),
   ).pipe(
     Layer.provideMerge(Database.layerNoDeps()),
     Layer.provideMerge(PgliteClient.layer(columnNaming)),

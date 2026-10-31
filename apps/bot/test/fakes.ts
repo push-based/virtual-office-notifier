@@ -26,8 +26,10 @@ import {
 
 import { ActivityRecorder } from "../src/ActivityRecorder.ts";
 import { BotPosts } from "../src/BotPosts.ts";
+import { DiscordGateway, type TestGateway } from "../src/DiscordGateway.ts";
 import { HeadlineWriter } from "../src/HeadlineWriter.ts";
 import { HistoryUnavailable } from "../src/OfficeHistory.ts";
+import { OfficeSeat } from "../src/OfficeSeat.ts";
 import type { SlackMessage } from "../src/SlackMessage.ts";
 import {
   type FileUpload,
@@ -214,6 +216,9 @@ export const scriptedModel = (
       LanguageModel.make({ generateText, streamText: () => Stream.empty }),
     ),
   );
+
+export const gatewayWithSeat = (options: TestGateway) =>
+  OfficeSeat.layer.pipe(Layer.provideMerge(DiscordGateway.layerTest(options)));
 
 export const withEnv = (env: Record<string, string>) =>
   Effect.provideService(ConfigProvider.ConfigProvider, ConfigProvider.fromEnv({ env }));

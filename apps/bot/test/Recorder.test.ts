@@ -31,7 +31,8 @@ import type { Written } from "../src/AiWriting.ts";
 import { ClipArchive } from "../src/ClipArchive.ts";
 import type { Clip } from "../src/ClipCutter.ts";
 import { columnNaming, Database, reconnectDelay } from "../src/Database.ts";
-import { DiscordGateway, type RecordingMode } from "../src/DiscordGateway.ts";
+import { DiscordGateway } from "../src/DiscordGateway.ts";
+import { OfficeSeat, type RecordingMode } from "../src/OfficeSeat.ts";
 import { NO_VOICE_DETAILS, type VoiceStateUpdate } from "../src/OfficeEvent.ts";
 import { FINISH_POLL, FINISH_RETRY } from "../src/Publication.ts";
 import { POLL_INTERVAL, startRecorder, STATUS_INTERVAL } from "../src/Recorder.ts";
@@ -193,8 +194,16 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
         updates,
         present,
         occupants: new Set(Array.map(present, (member) => member.userId)),
-        recordings,
       }),
+    ),
+    Layer.provideMerge(
+      Layer.succeed(
+        OfficeSeat,
+        OfficeSeat.of({
+          want: () => Effect.void,
+          record: (mode) => Queue.offer(recordings, mode).pipe(Effect.asVoid),
+        }),
+      ),
     ),
     Layer.provideMerge(
       options.store === undefined
