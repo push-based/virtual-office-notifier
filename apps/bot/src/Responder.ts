@@ -17,6 +17,7 @@ import {
 } from "effect";
 
 import { isBanterTime, periodRange, startOfOfficeDay } from "./Banter.ts";
+import { BotPosts } from "./BotPosts.ts";
 import { SlackConfig } from "./Config.ts";
 import type { BanterContext } from "./OfficeEvent.ts";
 import { OfficeHistory } from "./OfficeHistory.ts";
@@ -104,6 +105,7 @@ export const respondToSlack = Effect.gen(function* () {
   const slack = yield* SlackClient;
   const socket = yield* SlackSocket;
   const history = yield* SlackHistory;
+  const posts = yield* BotPosts;
   const decider = yield* ReplyDecider;
   const writer = yield* ReplyWriter;
   const office = yield* OfficeHistory;
@@ -255,28 +257,11 @@ export const respondToSlack = Effect.gen(function* () {
 
     const { text, model } = written.value;
 
-    const posted = yield* slack.postMessage({
-      channel: message.channel,
-      threadTs: message.threadTs,
-      ...replyMessage(text, model),
-    });
-
-    yield* history
-      .recordPost({
-        channel: posted.channel,
-        ts: posted.ts,
-        threadTs: message.threadTs,
-        kind: "Reply",
-        model,
-        postedAt: yield* DateTime.now,
-      })
-      .pipe(
-        Effect.catchTag("HistoryUnavailable", (error) =>
-          Effect.logWarning("Couldn't record the Slack reply").pipe(
-            Effect.annotateLogs({ reason: error.reason }),
-          ),
-        ),
-      );
+    yield* posts.post(
+      "Reply",
+      { channel: message.channel, threadTs: message.threadTs, ...replyMessage(text, model) },
+      model,
+    );
 
     return true;
   });

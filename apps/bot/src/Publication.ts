@@ -16,6 +16,7 @@ import {
 import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 
 import { ActionItemList } from "./ActionItems.ts";
+import { BotPosts } from "./BotPosts.ts";
 import type { OfficeLocation } from "./OfficeEvent.ts";
 import {
   type PostedSummary,
@@ -25,7 +26,6 @@ import {
   type UnlinkedPost,
 } from "./RecordingStore.ts";
 import { slackDidNotAct, type PostedMessage, SlackClient } from "./SlackClient.ts";
-import { SlackHistory } from "./SlackHistory.ts";
 import { rewriteNote, type SlackMessage, summaryMessage } from "./SlackMessage.ts";
 import { SummaryRewriter } from "./SummaryRewriter.ts";
 import { RecordingWriter, type RecordingToWrite } from "./RecordingWriter.ts";
@@ -96,7 +96,7 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
   const store = yield* RecordingStore;
   const writer = yield* RecordingWriter;
   const slack = yield* SlackClient;
-  const history = yield* SlackHistory;
+  const posts = yield* BotPosts;
   const updatingPost = yield* Semaphore.make(1);
 
   const awaitClips = Effect.fn("Publication.awaitClips")(
@@ -354,8 +354,12 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
   });
 
   const postSummary = Effect.fn("Publication.postSummary")(function* (id: string, draft: Draft) {
-    const posted = yield* slack
-      .postMessage({ channel: slackChannel, ...draft.message })
+    const posted = yield* posts
+      .post(
+        "Recording",
+        { channel: slackChannel, ...draft.message },
+        Option.getOrNull(Option.map(draft.summary, ({ model }) => model)),
+      )
       .pipe(Effect.retry({ schedule: finishRetry, while: slackDidNotAct }));
 
     yield* store
@@ -375,23 +379,6 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
           Effect.logWarning("Couldn't attach the transcript to the summary").pipe(
             Effect.annotateLogs({ reason: error.reason._tag }),
             Effect.andThen(report(error)),
-          ),
-        ),
-      );
-
-    yield* history
-      .recordPost({
-        channel: posted.channel,
-        ts: posted.ts,
-        threadTs: null,
-        kind: "Recording",
-        model: Option.getOrNull(Option.map(draft.summary, ({ model }) => model)),
-        postedAt: draft.at,
-      })
-      .pipe(
-        Effect.catchTag("HistoryUnavailable", (error) =>
-          Effect.logWarning("Couldn't record the Slack post").pipe(
-            Effect.annotateLogs({ reason: error.reason }),
           ),
         ),
       );

@@ -4,6 +4,7 @@ import { DateTime, Effect, Fiber, Layer, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
+import { BotPosts } from "../src/BotPosts.ts";
 import { columnNaming, Database } from "../src/Database.ts";
 import { FINISH_RETRY, Publication } from "../src/Publication.ts";
 import { type NewClip, RecordingStore, StoreUnavailable } from "../src/RecordingStore.ts";
@@ -62,6 +63,7 @@ const setUp = Effect.fnUntraced(function* (options: Options = {}) {
     store,
     slack.layer,
     history.layer,
+    BotPosts.layer.pipe(Layer.provide([slack.layer, history.layer])),
     Layer.succeed(
       RecordingWriter,
       RecordingWriter.of({
