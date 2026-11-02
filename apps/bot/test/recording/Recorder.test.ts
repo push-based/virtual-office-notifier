@@ -177,9 +177,9 @@ const makeHarness = Effect.fnUntraced(function* (options: HarnessOptions = {}) {
       const fake = yield* VoiceCapture;
 
       return VoiceCapture.of({
-        capture: (office, until) =>
+        capture: (until) =>
           fake
-            .capture(office, until)
+            .capture(until)
             .pipe(Stream.ensuring(Ref.update(capturesEnded, (ended) => ended + 1))),
       });
     }),

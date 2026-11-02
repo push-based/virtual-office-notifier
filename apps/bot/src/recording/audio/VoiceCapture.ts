@@ -1,9 +1,7 @@
 import {
-  type DiscordGatewayAdapterCreator,
+  type AudioReceiveStream,
   EndBehaviorType,
   entersState,
-  joinVoiceChannel,
-  type VoiceConnection,
   VoiceConnectionStatus,
 } from "@discordjs/voice";
 import type { Buffer } from "node:buffer";
@@ -28,14 +26,7 @@ import {
 } from "effect";
 
 import { addPacket, type Clip, type Cut, flush, startClip } from "./ClipCutter.ts";
-import {
-  connectionStep,
-  describeVoiceServer,
-  describeVoiceState,
-  type JoinHistory,
-  startJoinHistory,
-} from "./JoinHistory.ts";
-import { DiscordGateway, type OfficeLocation } from "../../office/index.ts";
+import { connectionStep, DiscordGateway } from "../../office/index.ts";
 import { OPUS_SAMPLE_RATE, opusPacketSamples } from "./OggOpus.ts";
 
 export type Heard = Data.TaggedEnum<{
@@ -66,39 +57,16 @@ export class CaptureError extends Schema.TaggedError<
   }
 }
 
-export const recordingGateway =
-  (
-    adapterCreator: DiscordGatewayAdapterCreator,
-    history: JoinHistory,
-  ): DiscordGatewayAdapterCreator =>
-  (methods) =>
-    adapterCreator({
-      ...methods,
-      onVoiceServerUpdate: (data) => {
-        history.record(describeVoiceServer(data));
-        methods.onVoiceServerUpdate(data);
-      },
-      onVoiceStateUpdate: (data) => {
-        history.record(describeVoiceState(data));
-        methods.onVoiceStateUpdate(data);
-      },
-    });
-
 export const SILENCE_ENDS_CLIP = Duration.millis(1500);
 
 const CONNECT_TIMEOUT = 20_000;
 
 const RECONNECT_TIMEOUT = Duration.seconds(5);
 
-const destroy = (connection: VoiceConnection) =>
-  Effect.sync(() => {
-    if (connection.state.status !== VoiceConnectionStatus.Destroyed) connection.destroy();
-  });
-
 export class VoiceCapture extends Context.Service<
   VoiceCapture,
   {
-    capture(office: OfficeLocation, until: Effect.Effect<void>): Stream.Stream<Heard, CaptureError>;
+    capture(until: Effect.Effect<void>): Stream.Stream<Heard, CaptureError>;
   }
 >()("bot/recording/audio/VoiceCapture") {
   static readonly layer = Layer.effect(
@@ -106,60 +74,22 @@ export class VoiceCapture extends Context.Service<
     Effect.gen(function* () {
       const gateway = yield* DiscordGateway;
 
-      const capture = (office: OfficeLocation, until: Effect.Effect<void>) =>
+      const capture = (until: Effect.Effect<void>) =>
         Stream.callback<Heard, CaptureError>(
           Effect.fnUntraced(function* (queue) {
-            const adapterCreator = yield* Effect.fromOption(gateway.voiceAdapter, () =>
+            const officeVoice = yield* Effect.fromOption(gateway.voice, () =>
               CaptureError.make({ reason: "The office voice channel wasn't found" }),
             );
 
-            const clock = yield* Clock.Clock;
-            const history = startJoinHistory(() => clock.currentTimeMillisUnsafe());
-
-            const connection = yield* Effect.acquireRelease(
-              Effect.sync(() => {
-                history.record("asked Discord to join the office");
-
-                return joinVoiceChannel({
-                  channelId: office.channelId,
-                  guildId: office.guildId,
-                  adapterCreator: recordingGateway(adapterCreator, history),
-                  selfDeaf: false,
-                  selfMute: true,
-                });
-              }),
-              destroy,
+            const { connection, history } = yield* officeVoice.current.pipe(
+              Effect.flatMap(Effect.fromOption),
+              Effect.mapError(() =>
+                CaptureError.make({ reason: "The bot isn't in the office voice channel" }),
+              ),
             );
 
-            const watched = new WeakSet<object>();
-
-            connection.on("stateChange", (_, next) => {
-              history.step(next);
-
-              if ("networking" in next && !watched.has(next.networking)) {
-                watched.add(next.networking);
-                next.networking.on("close", (code) =>
-                  history.record(`voice WebSocket closed with ${code}`),
-                );
-              }
-            });
-
-            const flushes = new Set<() => void>();
-
-            const leave = Effect.gen(function* () {
-              yield* destroy(connection);
-
-              for (const flushPartial of flushes) flushPartial();
-
-              yield* Queue.end(queue);
-            });
-
-            yield* until.pipe(Effect.andThen(leave), Effect.forkScoped);
-
+            const clock = yield* Clock.Clock;
             const now = () => DateTime.makeUnsafe(clock.currentTimeMillisUnsafe());
-
-            const reconnects = yield* FiberSet.make();
-            const runFork = yield* FiberSet.runtime(reconnects)();
 
             const failure = (reason: string) =>
               CaptureError.make({ reason, history: history.entries() });
@@ -167,6 +97,18 @@ export class VoiceCapture extends Context.Service<
             const fail = (reason: string) => {
               Queue.failCauseUnsafe(queue, Cause.fail(failure(reason)));
             };
+
+            const flushes = new Set<() => void>();
+            const streams = new Set<AudioReceiveStream>();
+
+            const stop = Effect.sync(() => {
+              for (const flushPartial of flushes) flushPartial();
+            }).pipe(Effect.andThen(Queue.end(queue)));
+
+            yield* until.pipe(Effect.andThen(stop), Effect.forkScoped);
+
+            const reconnects = yield* FiberSet.make();
+            const runFork = yield* FiberSet.runtime(reconnects)();
 
             const reaches = (status: VoiceConnectionStatus) =>
               Effect.tryPromise((signal) => entersState(connection, status, signal));
@@ -183,12 +125,21 @@ export class VoiceCapture extends Context.Service<
               ),
             );
 
-            connection.on("error", (error) => {
-              history.record(`error: ${error.message}`);
-              fail(`Voice connection error: ${error.message}`);
-            });
+            const onError = (error: Error) => fail(`Voice connection error: ${error.message}`);
+            const onDisconnected = () => runFork(reconnect);
+            const onDestroyed = () => fail("The office voice connection closed");
 
-            connection.on(VoiceConnectionStatus.Disconnected, () => runFork(reconnect));
+            connection.on("error", onError);
+            connection.on(VoiceConnectionStatus.Disconnected, onDisconnected);
+            connection.on(VoiceConnectionStatus.Destroyed, onDestroyed);
+
+            yield* Effect.addFinalizer(() =>
+              Effect.sync(() => {
+                connection.off("error", onError);
+                connection.off(VoiceConnectionStatus.Disconnected, onDisconnected);
+                connection.off(VoiceConnectionStatus.Destroyed, onDestroyed);
+              }),
+            );
 
             yield* Effect.tryPromise({
               try: () => entersState(connection, VoiceConnectionStatus.Ready, CONNECT_TIMEOUT),
@@ -236,10 +187,12 @@ export class VoiceCapture extends Context.Service<
               const flushPartial = () => take(flush(partial));
 
               const close = () => {
+                streams.delete(stream);
                 flushes.delete(flushPartial);
                 flushPartial();
               };
 
+              streams.add(stream);
               flushes.add(flushPartial);
 
               stream.on("data", (packet: Buffer) =>
@@ -269,6 +222,8 @@ export class VoiceCapture extends Context.Service<
               Effect.sync(() => {
                 receiver.speaking.off("start", onSpeakingStart);
                 receiver.speaking.off("end", onSpeakingEnd);
+
+                for (const stream of streams) stream.destroy();
               }),
             );
           }),
@@ -282,7 +237,7 @@ export class VoiceCapture extends Context.Service<
     Layer.succeed(
       VoiceCapture,
       VoiceCapture.of({
-        capture: (_office, until) => Stream.fromQueue(heard).pipe(Stream.interruptWhen(until)),
+        capture: (until) => Stream.fromQueue(heard).pipe(Stream.interruptWhen(until)),
       }),
     );
 }

@@ -1,42 +1,22 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Fiber, Queue, Ref, Stream } from "effect";
-import { TestClock } from "effect/testing";
+import { Effect, Queue, Ref, Stream } from "effect";
 
-import { BotMoveError } from "../../src/office/DiscordGateway.ts";
 import {
-  LEAVE_TIMEOUT,
   OfficeSeat,
   PAUSED_NICKNAME,
   RECORDING_NICKNAME,
   type SeatAdapter,
 } from "../../src/office/OfficeSeat.ts";
 
-const OFFICE = "office";
-
-interface Options {
-  readonly confirmsLeaving?: boolean;
-  readonly connected?: boolean;
-}
-
-const setUp = Effect.fnUntraced(function* (options: Options = {}) {
-  const moves = yield* Ref.make<ReadonlyArray<string | null>>([]);
+const setUp = Effect.gen(function* () {
+  const moves = yield* Ref.make<ReadonlyArray<string>>([]);
   const nicknames = yield* Ref.make<ReadonlyArray<string | null>>([]);
-  const channel = yield* Ref.make<string | null>(null);
   const reconnects = yield* Queue.unbounded<void>();
 
   const adapter: SeatAdapter = {
-    officeChannelId: OFFICE,
-    move: (channelId) =>
-      options.connected === false
-        ? Effect.fail(BotMoveError.make({ reason: "Discord isn't connected" }))
-        : Ref.update(moves, (all) => [...all, channelId]).pipe(
-            Effect.andThen(
-              channelId === null && options.confirmsLeaving === false
-                ? Effect.void
-                : Ref.set(channel, channelId),
-            ),
-          ),
-    inVoice: Effect.map(Ref.get(channel), (current) => current !== null),
+    join: (listening) =>
+      Ref.update(moves, (all) => [...all, listening ? "listen" : "join deafened"]),
+    leave: Ref.update(moves, (all) => [...all, "leave"]),
     rename: (nickname) => Ref.update(nicknames, (all) => [...all, nickname]),
     reconnected: Stream.fromQueue(reconnects),
   };
@@ -52,85 +32,57 @@ const setUp = Effect.fnUntraced(function* (options: Options = {}) {
 });
 
 describe("OfficeSeat", () => {
-  it.effect("joins the office when it's wanted there and leaves when it's not", () =>
+  it.effect("joins the office deafened when it's wanted there and leaves when it's not", () =>
     Effect.gen(function* () {
-      const { seat, moves } = yield* setUp();
+      const { seat, moves } = yield* setUp;
 
       yield* seat.want("InOffice");
       yield* seat.want("Away");
 
-      assert.deepStrictEqual(yield* moves, [OFFICE, null]);
+      assert.deepStrictEqual(yield* moves, ["join deafened", "leave"]);
     }),
   );
 
-  it.effect("steps out and is renamed while recording, so the audio connection can join", () =>
+  it.effect("listens on the same seat while recording, and is renamed", () =>
     Effect.gen(function* () {
-      const { seat, moves, nicknames } = yield* setUp();
+      const { seat, moves, nicknames } = yield* setUp;
 
       yield* seat.want("InOffice");
       yield* seat.record("Capturing");
 
-      assert.deepStrictEqual(yield* moves, [OFFICE, null]);
+      assert.deepStrictEqual(yield* moves, ["join deafened", "listen"]);
       assert.deepStrictEqual(yield* nicknames, [RECORDING_NICKNAME]);
     }),
   );
 
-  it.effect(
-    "stays put while capturing, then goes where it's wanted when recording pauses or stops",
-    () =>
-      Effect.gen(function* () {
-        const { seat, moves, nicknames } = yield* setUp();
+  it.effect("keeps listening while capturing, then deafens or leaves when it pauses or stops", () =>
+    Effect.gen(function* () {
+      const { seat, moves, nicknames } = yield* setUp;
 
-        yield* seat.want("InOffice");
-        yield* seat.record("Capturing");
-        yield* seat.want("InOffice");
-        yield* seat.record("Paused");
-        yield* seat.record("Off");
+      yield* seat.want("InOffice");
+      yield* seat.record("Capturing");
+      yield* seat.want("Away");
+      yield* seat.record("Paused");
+      yield* seat.record("Off");
 
-        assert.deepStrictEqual(yield* moves, [OFFICE, null, OFFICE, OFFICE]);
-        assert.deepStrictEqual(yield* nicknames, [RECORDING_NICKNAME, PAUSED_NICKNAME, null]);
-      }),
+      assert.deepStrictEqual(yield* moves, ["join deafened", "listen", "listen", "leave", "leave"]);
+      assert.deepStrictEqual(yield* nicknames, [RECORDING_NICKNAME, PAUSED_NICKNAME, null]);
+    }),
   );
 
-  it.effect("goes back where it should be when Discord reconnects, unless it's capturing", () =>
+  it.effect("goes back where it should be when Discord reconnects, listening if it was", () =>
     Effect.gen(function* () {
-      const { seat, moves, reconnect } = yield* setUp();
+      const { seat, moves, reconnect } = yield* setUp;
 
       yield* seat.want("InOffice");
       yield* reconnect;
 
-      assert.deepStrictEqual(yield* moves, [OFFICE, OFFICE]);
+      assert.deepStrictEqual(yield* moves, ["join deafened", "join deafened"]);
 
       yield* seat.record("Capturing");
       yield* reconnect;
 
-      assert.deepStrictEqual(yield* moves, [OFFICE, OFFICE, null]);
-    }),
-  );
-
-  it.effect("starts recording anyway when Discord doesn't confirm the bot left", () =>
-    Effect.gen(function* () {
-      const { seat, nicknames } = yield* setUp({ confirmsLeaving: false });
-
-      yield* seat.want("InOffice");
-
-      const recording = yield* Effect.forkChild(seat.record("Capturing"));
-
-      yield* TestClock.adjust(LEAVE_TIMEOUT);
-      yield* Fiber.join(recording);
-
-      assert.deepStrictEqual(yield* nicknames, [RECORDING_NICKNAME]);
-    }),
-  );
-
-  it.effect("carries on when Discord isn't connected", () =>
-    Effect.gen(function* () {
-      const { seat, moves } = yield* setUp({ connected: false });
-
-      yield* seat.want("InOffice");
-      yield* seat.record("Capturing");
-
-      assert.deepStrictEqual(yield* moves, []);
+      assert.deepStrictEqual(yield* moves, ["join deafened", "join deafened", "listen", "listen"]);
     }),
   );
 });

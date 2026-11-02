@@ -1,20 +1,17 @@
-import { Context, Duration, Effect, Layer, Option, Ref, Schedule, Semaphore, Stream } from "effect";
+import { Context, Effect, Layer, Option, Ref, Semaphore, Stream } from "effect";
 
 import type { BotPresence } from "./BotPresence.ts";
-import { type BotMoveError, DiscordGateway } from "./DiscordGateway.ts";
+import { DiscordGateway } from "./DiscordGateway.ts";
 
 export const RECORDING_NICKNAME = "🔴 Recording";
 
 export const PAUSED_NICKNAME = "⏸️ Recording paused";
 
-export const LEAVE_TIMEOUT = Duration.seconds(5);
-
 export type RecordingMode = "Off" | "Capturing" | "Paused";
 
 export interface SeatAdapter {
-  readonly officeChannelId: string;
-  move(channelId: string | null): Effect.Effect<void, BotMoveError>;
-  readonly inVoice: Effect.Effect<boolean>;
+  join(listening: boolean): Effect.Effect<void>;
+  readonly leave: Effect.Effect<void>;
   rename(nickname: string | null): Effect.Effect<void>;
   readonly reconnected: Stream.Stream<void>;
 }
@@ -41,46 +38,21 @@ export class OfficeSeat extends Context.Service<
     const wanted = yield* Ref.make<BotPresence>("Away");
     const recording = yield* Ref.make<RecordingMode>("Off");
     const moving = yield* Semaphore.make(1);
-    const oneMoveAtATime = moving.withPermits(1);
 
-    const moveTo = (presence: BotPresence) =>
-      adapter.move(presence === "InOffice" ? adapter.officeChannelId : null).pipe(
-        Effect.andThen(Effect.logInfo("Moved the bot")),
-        Effect.catchTag("BotMoveError", (error) =>
-          Effect.logWarning("Couldn't move the bot").pipe(
-            Effect.annotateLogs({ reason: error.reason }),
-          ),
-        ),
-        Effect.annotateLogs({ presence }),
-      );
+    const sit = (presence: BotPresence, mode: RecordingMode) => {
+      if (mode === "Capturing") return adapter.join(true);
+
+      return presence === "InOffice" ? adapter.join(false) : adapter.leave;
+    };
 
     const goWhereWanted = Effect.all([Ref.get(wanted), Ref.get(recording)]).pipe(
-      Effect.flatMap(([presence, mode]) => (mode === "Capturing" ? Effect.void : moveTo(presence))),
-      oneMoveAtATime,
-    );
-
-    const stepOut = adapter.move(null).pipe(
-      Effect.andThen(
-        adapter.inVoice.pipe(
-          Effect.repeat({
-            until: (inVoice) => !inVoice,
-            schedule: Schedule.spaced("100 millis"),
-          }),
-          Effect.timeoutOption(LEAVE_TIMEOUT),
+      Effect.flatMap(([presence, mode]) =>
+        sit(presence, mode).pipe(
+          Effect.andThen(Effect.logInfo("Moved the bot")),
+          Effect.annotateLogs({ presence, listening: mode === "Capturing" }),
         ),
       ),
-      Effect.flatMap(
-        Option.match({
-          onNone: () =>
-            Effect.logWarning("Discord didn't confirm the bot left the office before recording"),
-          onSome: () => Effect.void,
-        }),
-      ),
-      Effect.catchTag("BotMoveError", (error) =>
-        Effect.logWarning("Couldn't step out of the office before recording").pipe(
-          Effect.annotateLogs({ reason: error.reason }),
-        ),
-      ),
+      moving.withPermits(1),
     );
 
     const want = (presence: BotPresence) =>
@@ -89,7 +61,7 @@ export class OfficeSeat extends Context.Service<
     const record = (mode: RecordingMode) =>
       Ref.set(recording, mode).pipe(
         Effect.andThen(adapter.rename(nicknameFor(mode))),
-        Effect.andThen(mode === "Capturing" ? oneMoveAtATime(stepOut) : goWhereWanted),
+        Effect.andThen(goWhereWanted),
       );
 
     yield* Stream.runForEach(adapter.reconnected, () => goWhereWanted).pipe(Effect.forkScoped);
