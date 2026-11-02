@@ -3,17 +3,25 @@ import { HttpTestingController, provideHttpClientTesting } from "@angular/common
 import { signal } from "@angular/core";
 import { TestBed } from "@angular/core/testing";
 import { firstValueFrom } from "rxjs";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { apiErrorInterceptor, sessionInterceptor } from "./interceptors";
+import {
+  apiErrorInterceptor,
+  RETRY_TIMING,
+  retryInterceptor,
+  sessionInterceptor,
+} from "./interceptors";
 import { RecorderSession } from "./session";
 
 const setup = (token: string | null) => {
   TestBed.configureTestingModule({
     providers: [
-      provideHttpClient(withInterceptors([sessionInterceptor, apiErrorInterceptor])),
+      provideHttpClient(
+        withInterceptors([sessionInterceptor, apiErrorInterceptor, retryInterceptor]),
+      ),
       provideHttpClientTesting(),
       { provide: RecorderSession, useValue: { token: signal(token) } },
+      { provide: RETRY_TIMING, useValue: { retries: 2, retryMs: 1000 } },
     ],
   });
 
@@ -45,17 +53,86 @@ describe("apiErrorInterceptor", () => {
     const { http, backend } = setup(null);
     const response = firstValueFrom(http.get("/api/status"));
 
-    backend.expectOne("/api/status").flush(null, { status: 502, statusText: "Bad Gateway" });
+    backend.expectOne("/api/status").flush(null, { status: 500, statusText: "Server Error" });
 
-    await expect(response).rejects.toThrow("/api/status answered 502");
+    await expect(response).rejects.toThrow("/api/status answered 500");
   });
 
   it("says when the endpoint didn't answer at all", async () => {
+    vi.useFakeTimers();
+
     const { http, backend } = setup(null);
     const response = firstValueFrom(http.get("/api/status"));
 
     backend.expectOne("/api/status").error(new ProgressEvent("error"));
+    await vi.advanceTimersByTimeAsync(1000);
+    backend.expectOne("/api/status").error(new ProgressEvent("error"));
+    await vi.advanceTimersByTimeAsync(1000);
+    backend.expectOne("/api/status").error(new ProgressEvent("error"));
 
     await expect(response).rejects.toThrow("/api/status didn't answer");
+
+    vi.useRealTimers();
+  });
+});
+
+const unavailable = { status: 503, statusText: "Service Unavailable" };
+
+describe("retryInterceptor", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks again when Discord's proxy briefly answers 503", async () => {
+    const { http, backend } = setup(null);
+    const response = firstValueFrom(http.get("/api/status"));
+
+    backend.expectOne("/api/status").flush(null, unavailable);
+    await vi.advanceTimersByTimeAsync(999);
+    backend.expectNone("/api/status");
+    await vi.advanceTimersByTimeAsync(1);
+    backend.expectOne("/api/status").flush({ botInOffice: true });
+
+    await expect(response).resolves.toEqual({ botInOffice: true });
+  });
+
+  it("gives up with the last failure once the retries are used up", async () => {
+    const { http, backend } = setup(null);
+    const response = firstValueFrom(http.get("/api/status"));
+
+    backend.expectOne("/api/status").flush(null, unavailable);
+    await vi.advanceTimersByTimeAsync(1000);
+    backend.expectOne("/api/status").flush(null, unavailable);
+    await vi.advanceTimersByTimeAsync(1000);
+    backend.expectOne("/api/status").flush(null, unavailable);
+
+    await expect(response).rejects.toThrow("/api/status answered 503");
+    backend.verify();
+  });
+
+  it("doesn't ask again when the Worker itself refused", async () => {
+    const { http, backend } = setup(null);
+    const response = firstValueFrom(http.get("/api/status"));
+
+    backend.expectOne("/api/status").flush(null, { status: 401, statusText: "Unauthorized" });
+
+    await expect(response).rejects.toThrow("/api/status answered 401");
+    await vi.advanceTimersByTimeAsync(5000);
+    backend.verify();
+  });
+
+  it("never sends a request that changes something twice", async () => {
+    const { http, backend } = setup(null);
+    const response = firstValueFrom(http.post("/api/requests", { action: "start" }));
+
+    backend.expectOne("/api/requests").flush(null, unavailable);
+
+    await expect(response).rejects.toThrow("/api/requests answered 503");
+    await vi.advanceTimersByTimeAsync(5000);
+    backend.verify();
   });
 });
