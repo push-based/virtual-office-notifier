@@ -114,6 +114,8 @@ The Console's page and the design system are compiled by [vite-plugin-ngp](https
 
 Running the Console locally needs a Postgres for its `DATABASE` Hyperdrive binding, with a password in the URL, even if you never record. Set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE`, for example to `postgres://postgres:postgres@localhost:5432/postgres` (the `console` preview in [`.claude/launch.json`](.claude/launch.json) uses that), and put the Worker's secrets in `apps/console/.dev.vars`.
 
+`@discordjs/voice` is patched with [`patches/@discordjs__voice@0.19.2.patch`](patches/@discordjs__voice@0.19.2.patch), registered under `patchedDependencies` in [`pnpm-workspace.yaml`](pnpm-workspace.yaml). It backports [discordjs/discord.js#11581](https://github.com/discordjs/discord.js/pull/11581): when Discord sends the voice server before the voice state, 0.19.2 never connects and the bot's join times out after 20 seconds. Drop the patch once a release includes that fix; the test in [`VoiceCapture.test.ts`](apps/bot/test/recording/audio/VoiceCapture.test.ts) fails if the fix goes missing.
+
 The lint rules in `tools/oxlint/anti-slop` are vendored from [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop). [`UPSTREAM.md`](tools/oxlint/anti-slop/UPSTREAM.md) records the commit they were copied from.
 
 ## Commits and pull requests

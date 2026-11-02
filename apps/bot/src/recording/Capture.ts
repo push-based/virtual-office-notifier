@@ -67,6 +67,7 @@ const captureRetry = Schedule.spaced("5 seconds").pipe(
   Schedule.tap(({ input, attempt }) =>
     Effect.logWarning("Lost the voice connection, rejoining").pipe(
       Effect.annotateLogs({ reason: input.reason, attempt }),
+      Effect.andThen(attempt === 1 ? ErrorReporter.report(Cause.fail(input)) : Effect.void),
     ),
   ),
 );

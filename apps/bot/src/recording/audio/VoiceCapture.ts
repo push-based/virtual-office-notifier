@@ -2,6 +2,7 @@ import {
   EndBehaviorType,
   entersState,
   joinVoiceChannel,
+  NetworkingStatusCode,
   type VoiceConnection,
   VoiceConnectionStatus,
 } from "@discordjs/voice";
@@ -15,8 +16,10 @@ import {
   DateTime,
   Duration,
   Effect,
+  ErrorReporter,
   FiberSet,
   Layer,
+  type LogLevel,
   Option,
   Queue,
   Schema,
@@ -40,7 +43,37 @@ export class CaptureError extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()("CaptureError", {
   reason: Schema.String,
-}) {}
+}) {
+  override get message(): string {
+    return this.reason;
+  }
+
+  override get [ErrorReporter.severity](): LogLevel.Severity {
+    return "Warn";
+  }
+
+  override get [ErrorReporter.attributes]() {
+    return { reason: this.reason };
+  }
+}
+
+const NETWORKING_STEPS: Record<NetworkingStatusCode, string> = {
+  [NetworkingStatusCode.OpeningWs]: "opening the voice WebSocket",
+  [NetworkingStatusCode.Identifying]: "identifying",
+  [NetworkingStatusCode.UdpHandshaking]: "UDP handshake",
+  [NetworkingStatusCode.SelectingProtocol]: "selecting the protocol",
+  [NetworkingStatusCode.Ready]: "ready",
+  [NetworkingStatusCode.Resuming]: "resuming",
+  [NetworkingStatusCode.Closed]: "closed",
+};
+
+export interface ConnectionProgress {
+  readonly status: VoiceConnectionStatus;
+  readonly networking?: { readonly state: { readonly code: NetworkingStatusCode } };
+}
+
+export const connectionStep = ({ status, networking }: ConnectionProgress): string =>
+  networking === undefined ? status : `${status} (${NETWORKING_STEPS[networking.state.code]})`;
 
 export const SILENCE_ENDS_CLIP = Duration.millis(1500);
 
@@ -125,7 +158,7 @@ export class VoiceCapture extends Context.Service<
               try: () => entersState(connection, VoiceConnectionStatus.Ready, CONNECT_TIMEOUT),
               catch: (cause) =>
                 CaptureError.make({
-                  reason: `Couldn't connect to the voice channel: ${String(cause)}`,
+                  reason: `Couldn't connect to the voice channel, stuck at ${connectionStep(connection.state)}: ${String(cause)}`,
                 }),
             });
 
