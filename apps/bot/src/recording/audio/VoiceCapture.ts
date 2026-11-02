@@ -1,14 +1,15 @@
 import {
+  type DiscordGatewayAdapterCreator,
   EndBehaviorType,
   entersState,
   joinVoiceChannel,
-  NetworkingStatusCode,
   type VoiceConnection,
   VoiceConnectionStatus,
 } from "@discordjs/voice";
 import type { Buffer } from "node:buffer";
 
 import {
+  Array,
   Cause,
   Clock,
   Context,
@@ -27,6 +28,13 @@ import {
 } from "effect";
 
 import { addPacket, type Clip, type Cut, flush, startClip } from "./ClipCutter.ts";
+import {
+  connectionStep,
+  describeVoiceServer,
+  describeVoiceState,
+  type JoinHistory,
+  startJoinHistory,
+} from "./JoinHistory.ts";
 import { DiscordGateway, type OfficeLocation } from "../../office/index.ts";
 import { OPUS_SAMPLE_RATE, opusPacketSamples } from "./OggOpus.ts";
 
@@ -43,6 +51,7 @@ export class CaptureError extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()("CaptureError", {
   reason: Schema.String,
+  history: Schema.Array(Schema.String).pipe(Schema.withConstructorDefault(Effect.succeed([]))),
 }) {
   override get message(): string {
     return this.reason;
@@ -53,27 +62,27 @@ export class CaptureError extends Schema.TaggedError<
   }
 
   override get [ErrorReporter.attributes]() {
-    return { reason: this.reason };
+    return { reason: this.reason, history: Array.join(this.history, "\n") };
   }
 }
 
-const NETWORKING_STEPS: Record<NetworkingStatusCode, string> = {
-  [NetworkingStatusCode.OpeningWs]: "opening the voice WebSocket",
-  [NetworkingStatusCode.Identifying]: "identifying",
-  [NetworkingStatusCode.UdpHandshaking]: "UDP handshake",
-  [NetworkingStatusCode.SelectingProtocol]: "selecting the protocol",
-  [NetworkingStatusCode.Ready]: "ready",
-  [NetworkingStatusCode.Resuming]: "resuming",
-  [NetworkingStatusCode.Closed]: "closed",
-};
-
-export interface ConnectionProgress {
-  readonly status: VoiceConnectionStatus;
-  readonly networking?: { readonly state: { readonly code: NetworkingStatusCode } };
-}
-
-export const connectionStep = ({ status, networking }: ConnectionProgress): string =>
-  networking === undefined ? status : `${status} (${NETWORKING_STEPS[networking.state.code]})`;
+export const recordingGateway =
+  (
+    adapterCreator: DiscordGatewayAdapterCreator,
+    history: JoinHistory,
+  ): DiscordGatewayAdapterCreator =>
+  (methods) =>
+    adapterCreator({
+      ...methods,
+      onVoiceServerUpdate: (data) => {
+        history.record(describeVoiceServer(data));
+        methods.onVoiceServerUpdate(data);
+      },
+      onVoiceStateUpdate: (data) => {
+        history.record(describeVoiceState(data));
+        methods.onVoiceStateUpdate(data);
+      },
+    });
 
 export const SILENCE_ENDS_CLIP = Duration.millis(1500);
 
@@ -104,18 +113,36 @@ export class VoiceCapture extends Context.Service<
               CaptureError.make({ reason: "The office voice channel wasn't found" }),
             );
 
+            const clock = yield* Clock.Clock;
+            const history = startJoinHistory(() => clock.currentTimeMillisUnsafe());
+
             const connection = yield* Effect.acquireRelease(
-              Effect.sync(() =>
-                joinVoiceChannel({
+              Effect.sync(() => {
+                history.record("asked Discord to join the office");
+
+                return joinVoiceChannel({
                   channelId: office.channelId,
                   guildId: office.guildId,
-                  adapterCreator,
+                  adapterCreator: recordingGateway(adapterCreator, history),
                   selfDeaf: false,
                   selfMute: true,
-                }),
-              ),
+                });
+              }),
               destroy,
             );
+
+            const watched = new WeakSet<object>();
+
+            connection.on("stateChange", (_, next) => {
+              history.step(next);
+
+              if ("networking" in next && !watched.has(next.networking)) {
+                watched.add(next.networking);
+                next.networking.on("close", (code) =>
+                  history.record(`voice WebSocket closed with ${code}`),
+                );
+              }
+            });
 
             const flushes = new Set<() => void>();
 
@@ -129,14 +156,16 @@ export class VoiceCapture extends Context.Service<
 
             yield* until.pipe(Effect.andThen(leave), Effect.forkScoped);
 
-            const clock = yield* Clock.Clock;
             const now = () => DateTime.makeUnsafe(clock.currentTimeMillisUnsafe());
 
             const reconnects = yield* FiberSet.make();
             const runFork = yield* FiberSet.runtime(reconnects)();
 
+            const failure = (reason: string) =>
+              CaptureError.make({ reason, history: history.entries() });
+
             const fail = (reason: string) => {
-              Queue.failCauseUnsafe(queue, Cause.fail(CaptureError.make({ reason })));
+              Queue.failCauseUnsafe(queue, Cause.fail(failure(reason)));
             };
 
             const reaches = (status: VoiceConnectionStatus) =>
@@ -147,20 +176,37 @@ export class VoiceCapture extends Context.Service<
               reaches(VoiceConnectionStatus.Connecting),
             ).pipe(
               Effect.timeout(RECONNECT_TIMEOUT),
-              Effect.catch(() => Effect.sync(() => fail("Disconnected from the voice channel"))),
+              Effect.catch(() =>
+                Effect.sync(() =>
+                  fail(`Lost the voice channel, stuck at ${connectionStep(connection.state)}`),
+                ),
+              ),
             );
 
-            connection.on("error", (error) => fail(`Voice connection error: ${error.message}`));
+            connection.on("error", (error) => {
+              history.record(`error: ${error.message}`);
+              fail(`Voice connection error: ${error.message}`);
+            });
 
             connection.on(VoiceConnectionStatus.Disconnected, () => runFork(reconnect));
 
             yield* Effect.tryPromise({
               try: () => entersState(connection, VoiceConnectionStatus.Ready, CONNECT_TIMEOUT),
               catch: (cause) =>
-                CaptureError.make({
-                  reason: `Couldn't connect to the voice channel, stuck at ${connectionStep(connection.state)}: ${String(cause)}`,
-                }),
-            });
+                failure(
+                  `Couldn't connect to the voice channel, stuck at ${connectionStep(connection.state)}: ${String(cause)}`,
+                ),
+            }).pipe(
+              Effect.ensuring(
+                Effect.suspend(() =>
+                  Effect.annotateCurrentSpan({
+                    "voice.step": connectionStep(connection.state),
+                    "voice.history": Array.join(history.entries(), "\n"),
+                  }),
+                ),
+              ),
+              Effect.withSpan("VoiceCapture.connect"),
+            );
 
             const receiver = connection.receiver;
 
