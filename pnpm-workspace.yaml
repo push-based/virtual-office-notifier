@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - libs/*
+  - infra
 
 catalog:
   effect: 4.1.0
