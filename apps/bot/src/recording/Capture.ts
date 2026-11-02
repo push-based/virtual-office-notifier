@@ -166,7 +166,7 @@ const make = Effect.fnUntraced(function* (
         Effect.forkScoped,
       );
 
-      yield* voice.capture(office, Deferred.await(stop)).pipe(
+      yield* voice.capture(Deferred.await(stop)).pipe(
         Stream.runForEach((heard) =>
           Heard.$match(heard, {
             Spoke: ({ clip }) => Queue.offer(clips, clip),

@@ -2,6 +2,8 @@ export type { BotPresence } from "./BotPresence.ts";
 
 export { DiscordGateway } from "./DiscordGateway.ts";
 
+export { connectionStep } from "./JoinHistory.ts";
+
 export {
   type ActivityEntry,
   type BanterContext,

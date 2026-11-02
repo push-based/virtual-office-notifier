@@ -24,7 +24,7 @@ The summary's link in Slack is stored with the recording, from Slack's `chat.get
 
 ## What the bot captures
 
-While recording, the bot un-deafens, opens an audio connection and is renamed `🔴 Recording`, so everyone in the channel can see it's listening. Discord gives it one stream per speaker, so each stretch of speech becomes a clip of that one person with no speaker detection needed. A clip ends after 1.5 seconds of silence, or at 5 minutes.
+While recording, the bot un-deafens on the voice connection it already has in the office, listens to it and is renamed `🔴 Recording`, so everyone in the channel can see it's listening. Discord gives it one stream per speaker, so each stretch of speech becomes a clip of that one person with no speaker detection needed. A clip ends after 1.5 seconds of silence, or at 5 minutes.
 
 - Each clip is written as Ogg/Opus, exactly as Discord sent it, and uploaded to `RECORDINGS_BUCKET` under `recordings/<recording>/<user>/<time>.ogg` with the VM's own identity. Clips are never deleted.
 - Clips under half a second are kept but never transcribed, since that's where Whisper makes things up.
@@ -33,7 +33,7 @@ While recording, the bot un-deafens, opens an audio connection and is renamed `�
 
 ## Pausing
 
-Anyone in the office can press **Pause** to go off the record, and anyone can press **Resume**. While paused the bot captures nothing: it drops the audio connection, deafens and is renamed `⏸️ Recording paused`, and the Console shows who paused it and for how long. Each pause leaves one line such as `14:20–14:35 Paused by Ben` in the transcript, which the summary model reads too.
+Anyone in the office can press **Pause** to go off the record, and anyone can press **Resume**. While paused the bot captures nothing: it stops listening, deafens and is renamed `⏸️ Recording paused`, and the Console shows who paused it and for how long. Each pause leaves one line such as `14:20–14:35 Paused by Ben` in the transcript, which the summary model reads too.
 
 ## Title and agenda
 

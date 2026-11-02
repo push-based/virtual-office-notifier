@@ -22,7 +22,7 @@ When [answering in Slack](slack.md#answering-in-slack) is on, the bot reads ment
 
 ## Recording
 
-While anyone is in the office, the bot is in the channel too. It's muted and deafened and never opens an audio connection, so it doesn't hear or record anything anyone says.
+While anyone is in the office, the bot is in the channel too. It's muted and deafened. It keeps a voice connection open so a recording can start without rejoining, but outside a recording it stays deafened and never listens to anyone's audio, so it doesn't hear or record anything anyone says.
 
 The exception is a [recording](recording.md), which someone in the office has to start on purpose. For as long as it's on, the bot is un-deafened and renamed `🔴 Recording`, everything said is kept as audio in the bucket and as text in the database, the audio goes to Whisper on Cloudflare, the transcript goes to the free AI models for a summary and its action items, and the summary, action items and transcript are posted to Slack. The Console's [recording history](recording.md#recording-history) shows every recording, its summary and its transcript to anyone who can open the Console, as everyone in the Slack channel already sees them. Nothing is ever deleted. Tell the team how it works before turning it on.
 

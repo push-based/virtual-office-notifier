@@ -10,7 +10,7 @@ import {
   describeVoiceServer,
   describeVoiceState,
   startJoinHistory,
-} from "../../../src/recording/audio/JoinHistory.ts";
+} from "../../src/office/JoinHistory.ts";
 
 const clockAt = (times: ReadonlyArray<number>) => {
   let next = 0;
