@@ -1,0 +1,16 @@
+{
+  "name": "infra",
+  "private": true,
+  "description": "The infrastructure the bot and the Console run on, as one Alchemy program",
+  "type": "module",
+  "devDependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.84",
+    "@effect/platform-node": "catalog:",
+    "@types/node": "26.6.5",
+    "alchemy": "2.0.0-beta.84",
+    "effect": "catalog:",
+    "typescript": "7.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

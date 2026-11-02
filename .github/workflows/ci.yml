@@ -103,3 +103,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_DEPLOY_TOKEN }}
           SENTRY_DSN: ${{ secrets.SENTRY_CONSOLE_DSN }}
+
+      # Last until it owns something, so a problem with Alchemy never holds back the bot or the Console.
+      - run: vp run infra#deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_DEPLOY_TOKEN }}
+          ALCHEMY_TELEMETRY_DISABLED: "1"

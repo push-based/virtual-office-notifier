@@ -81,12 +81,12 @@ The process exits at startup with an error naming the variable if a required one
 
 In production, GitHub repository secrets are the source of truth for every variable above, and the deploy writes them to the VM. [Deploying from CI](operations.md#deploying-from-ci) covers how to change one. The Console has a few secrets of its own, which aren't environment variables of the bot:
 
-| Secret                                                   | Where it's set                                   | What it's for                                                                                                                                                                     |
-| -------------------------------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_DEPLOY_TOKEN`                                | GitHub repository secret                         | A Cloudflare API token that lets the deploy job run `wrangler deploy` for the Console's Worker. Without it, the deploy job fails before shipping anything. See [Worker](#worker). |
-| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`             | The Worker's secrets, with `wrangler secret put` | The Discord application's OAuth2 credentials, for signing people in to the Console. See [Worker](#worker).                                                                        |
-| `SESSION_SECRET`                                         | The Worker's secrets, with `wrangler secret put` | Any long random string. It signs the sessions the page gets after Discord's login. See [Worker](#worker).                                                                         |
-| `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE` | Your shell, for `pnpm --filter console dev`      | A local Postgres for the Worker's `DATABASE` binding. See [Toolchain](../CONTRIBUTING.md#toolchain).                                                                              |
+| Secret                                                   | Where it's set                                   | What it's for                                                                                                                                                                                                                 |
+| -------------------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_DEPLOY_TOKEN`                                | GitHub repository secret                         | A Cloudflare API token that lets the deploy job run `wrangler deploy` for the Console's Worker and `alchemy deploy` for the infrastructure. Without it, the deploy job fails before shipping anything. See [Worker](#worker). |
+| `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`             | The Worker's secrets, with `wrangler secret put` | The Discord application's OAuth2 credentials, for signing people in to the Console. See [Worker](#worker).                                                                                                                    |
+| `SESSION_SECRET`                                         | The Worker's secrets, with `wrangler secret put` | Any long random string. It signs the sessions the page gets after Discord's login. See [Worker](#worker).                                                                                                                     |
+| `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE` | Your shell, for `pnpm --filter console dev`      | A local Postgres for the Worker's `DATABASE` binding. See [Toolchain](../CONTRIBUTING.md#toolchain).                                                                                                                          |
 
 ## AI providers
 
@@ -182,7 +182,7 @@ Put the new config's ID under `hyperdrive` in [`apps/console/wrangler.jsonc`](..
 
 ### Worker
 
-The Worker lives in [`apps/console/worker/`](../apps/console/worker) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Without it, the deploy job fails before shipping anything, so the bot and the Console always go out together. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
+The Worker lives in [`apps/console/worker/`](../apps/console/worker) and is deployed by CI with `wrangler`. Create an API token in Cloudflare with the **Edit Cloudflare Workers** template, add **Account → Secrets Store: Edit** (for Alchemy's state store), **Account → Hyperdrive: Edit** and **Account → SSL and Certificates: Edit**, and store it as the `CLOUDFLARE_DEPLOY_TOKEN` repository secret; the Workers AI token stays as it is. Without it, the deploy job fails before shipping anything, so the bot and the Console always go out together. Then set the Worker's own secrets once, from the repo root with `wrangler login`:
 
 ```bash
 for name in DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET SESSION_SECRET; do pnpm --filter console exec wrangler secret put $name; done

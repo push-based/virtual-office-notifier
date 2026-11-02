@@ -81,7 +81,9 @@ The `deploy` job builds the Console first, page and Worker, so nothing ships if 
 4. Installs them under `/opt/virtual-office-notifier` and `/etc`, replacing the previous `node_modules`, reloads systemd, enables the service and restarts it.
 5. Waits 15 seconds and fails, printing the last 50 log lines, if the service isn't running.
 
-Last, the Console's `deploy` task runs `wrangler deploy`, which picks up the Worker and page that were just built through the `wrangler.json` the build generates. It sets the Worker's `SENTRY_DSN` from the `SENTRY_CONSOLE_DSN` secret, `SENTRY_ENVIRONMENT` to `production` and `SENTRY_RELEASE` to the commit SHA.
+Then the Console's `deploy` task runs `wrangler deploy`, which picks up the Worker and page that were just built through the `wrangler.json` the build generates. It sets the Worker's `SENTRY_DSN` from the `SENTRY_CONSOLE_DSN` secret, `SENTRY_ENVIRONMENT` to `production` and `SENTRY_RELEASE` to the commit SHA.
+
+Last, the `infra` package's `deploy` task runs `alchemy deploy --stage prod` on [`infra/alchemy.run.ts`](../infra/alchemy.run.ts), the infrastructure described in code with [Alchemy](https://alchemy.run). It's being moved there one piece at a time ([issue #137](https://github.com/push-based/virtual-office-notifier/issues/137)); until a piece moves, it's still set up the way these docs describe. Alchemy keeps what it owns in a state store in the Cloudflare account, the `alchemy-state-store` Worker, and creates it on the first deploy if it's missing. Telemetry to Alchemy is turned off.
 
 The [unit](../apps/bot/deploy/virtual-office-notifier.service) runs as the unprivileged `notifier` user with systemd's sandboxing turned on. It restarts 30 seconds after a crash and gives up after 5 failed starts in 10 minutes, so a bad token doesn't keep hammering Discord's login.
 
