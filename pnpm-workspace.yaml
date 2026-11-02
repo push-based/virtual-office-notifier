@@ -29,6 +29,9 @@ overrides:
   vite@*: "catalog:"
   vitest@*: "catalog:"
 
+patchedDependencies:
+  "@discordjs/voice@0.19.2": patches/@discordjs__voice@0.19.2.patch
+
 peerDependencyRules:
   allowAny:
     - vite

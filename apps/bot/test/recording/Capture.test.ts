@@ -1,7 +1,8 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Array, type Cause, DateTime, Effect, Layer, Option, Queue, Ref } from "effect";
+import { Array, type Cause, DateTime, Effect, Layer, Option, Queue, Ref, Stream } from "effect";
 import { SqlClient } from "effect/sql";
+import { TestClock } from "effect/testing";
 import type { ActiveRecording } from "recording-requests/RecordingRequest";
 
 import { Capture } from "../../src/recording/Capture.ts";
@@ -12,8 +13,8 @@ import { DiscordGateway } from "../../src/office/DiscordGateway.ts";
 import { OfficeSeat, type RecordingMode } from "../../src/office/OfficeSeat.ts";
 import { RecordingStore } from "../../src/recording/RecordingStore.ts";
 import type { Transcription } from "../../src/recording/Transcription.ts";
-import { type CaptureError, Heard, VoiceCapture } from "../../src/recording/audio/VoiceCapture.ts";
-import { pollUntil, withEnv } from "../fakes.ts";
+import { CaptureError, Heard, VoiceCapture } from "../../src/recording/audio/VoiceCapture.ts";
+import { captureReports, pollUntil, withEnv } from "../fakes.ts";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 
@@ -34,7 +35,7 @@ const recording: ActiveRecording = {
   pause: Option.none(),
 };
 
-const setUp = Effect.gen(function* () {
+const setUp = Effect.fnUntraced(function* (voice?: VoiceCapture["Service"]) {
   const heard = yield* Queue.unbounded<Heard, Cause.Done | CaptureError>();
   const modes = yield* Queue.unbounded<RecordingMode>();
   const updates = yield* Queue.unbounded<never, Cause.Done>();
@@ -44,7 +45,7 @@ const setUp = Effect.gen(function* () {
   const layer = Layer.mergeAll(
     RecordingStore.layer,
     ClipArchive.layerDisabled,
-    VoiceCapture.layerTest(heard),
+    voice === undefined ? VoiceCapture.layerTest(heard) : Layer.succeed(VoiceCapture, voice),
     DiscordGateway.layerTest({ updates }),
     Layer.succeed(
       OfficeSeat,
@@ -109,7 +110,7 @@ const setUp = Effect.gen(function* () {
 describe("Capture", () => {
   it.effect("saves each clip it hears and hands it to transcription with its audio", () =>
     Effect.gen(function* () {
-      const { capture, clips, hear, queued } = yield* setUp;
+      const { capture, clips, hear, queued } = yield* setUp();
 
       yield* capture.begin(recording);
       yield* hear(Heard.Spoke({ clip: clip(2) }));
@@ -126,7 +127,7 @@ describe("Capture", () => {
 
   it.effect("keeps a clip too short to transcribe without queueing it", () =>
     Effect.gen(function* () {
-      const { capture, clips, hear, queued } = yield* setUp;
+      const { capture, clips, hear, queued } = yield* setUp();
 
       yield* capture.begin(recording);
       yield* hear(Heard.Spoke({ clip: clip(0.2) }));
@@ -140,7 +141,7 @@ describe("Capture", () => {
 
   it.effect("keeps the clip still being saved when the recording ends", () =>
     Effect.gen(function* () {
-      const { capture, clips, hear } = yield* setUp;
+      const { capture, clips, hear } = yield* setUp();
 
       yield* capture.begin(recording);
       yield* hear(Heard.Spoke({ clip: clip(2) }));
@@ -157,7 +158,7 @@ describe("Capture", () => {
 
   it.effect("tells the bot to listen, go quiet while paused and stop at the end", () =>
     Effect.gen(function* () {
-      const { capture, modes } = yield* setUp;
+      const { capture, modes } = yield* setUp();
 
       yield* capture.begin(recording);
       yield* capture.hold(recording);
@@ -170,7 +171,7 @@ describe("Capture", () => {
 
   it.effect("knows who is speaking, and forgets them once capture stops", () =>
     Effect.gen(function* () {
-      const { capture, hear, changes } = yield* setUp;
+      const { capture, hear, changes } = yield* setUp();
 
       yield* capture.begin(recording);
       yield* hear(Heard.StartedSpeaking({ userId: "u1" }));
@@ -186,4 +187,38 @@ describe("Capture", () => {
       assert.isAbove(yield* changes, 1);
     }),
   );
+
+  it.effect("reports the first lost voice connection of a recording, not every rejoin", () => {
+    const { reports, layer } = captureReports();
+
+    return Effect.gen(function* () {
+      const { capture } = yield* setUp(
+        VoiceCapture.of({
+          capture: () =>
+            Stream.failSync(() =>
+              CaptureError.make({
+                reason: "Couldn't connect to the voice channel, stuck at signalling",
+              }),
+            ),
+        }),
+      );
+
+      yield* capture.begin(recording);
+      yield* pollUntil(
+        Effect.sync(() => reports.length),
+        (count) => count > 0,
+      );
+      yield* Effect.repeat(TestClock.adjust("5 seconds").pipe(Effect.andThen(Effect.yieldNow)), {
+        times: 5,
+      });
+
+      assert.deepStrictEqual(reports, [
+        {
+          name: "CaptureError",
+          message: "Couldn't connect to the voice channel, stuck at signalling",
+          severity: "Warn",
+        },
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
 });
