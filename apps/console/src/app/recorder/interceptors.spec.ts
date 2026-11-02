@@ -11,9 +11,21 @@ import {
   retryInterceptor,
   sessionInterceptor,
 } from "./interceptors";
+import { GATEWAY_FAILURES, type GatewayFailures } from "../telemetry/gateway-failures";
 import { RecorderSession } from "./session";
 
-const setup = (token: string | null) => {
+const fakeFailures = () => {
+  const noted: Array<string> = [];
+
+  const failures: GatewayFailures = {
+    retrying: (url, error) => noted.push(`retrying ${url} ${error.status}`),
+    gaveUp: (url, error) => noted.push(`gave up ${url} ${error.status}`),
+  };
+
+  return { noted, failures };
+};
+
+const setup = (token: string | null, failures = fakeFailures().failures) => {
   TestBed.configureTestingModule({
     providers: [
       provideHttpClient(
@@ -22,6 +34,7 @@ const setup = (token: string | null) => {
       provideHttpClientTesting(),
       { provide: RecorderSession, useValue: { token: signal(token) } },
       { provide: RETRY_TIMING, useValue: { retries: 2, retryMs: 1000 } },
+      { provide: GATEWAY_FAILURES, useValue: failures },
     ],
   });
 
@@ -134,5 +147,51 @@ describe("retryInterceptor", () => {
     await expect(response).rejects.toThrow("/api/requests answered 503");
     await vi.advanceTimersByTimeAsync(5000);
     backend.verify();
+  });
+
+  it("notes each retry and reports giving up, so the proxy's answer reaches Sentry", async () => {
+    const { noted, failures } = fakeFailures();
+    const { http, backend } = setup(null, failures);
+    const response = firstValueFrom(http.get("/api/status"));
+
+    backend.expectOne("/api/status").flush(null, unavailable);
+    await vi.advanceTimersByTimeAsync(1000);
+    backend.expectOne("/api/status").flush(null, unavailable);
+    await vi.advanceTimersByTimeAsync(1000);
+    backend.expectOne("/api/status").flush(null, unavailable);
+
+    await expect(response).rejects.toThrow("/api/status answered 503");
+    expect(noted).toEqual([
+      "retrying /api/status 503",
+      "retrying /api/status 503",
+      "gave up /api/status 503",
+    ]);
+  });
+
+  it("reports nothing when a retry gets through", async () => {
+    const { noted, failures } = fakeFailures();
+    const { http, backend } = setup(null, failures);
+    const response = firstValueFrom(http.get("/api/status"));
+
+    backend.expectOne("/api/status").flush(null, unavailable);
+    await vi.advanceTimersByTimeAsync(1000);
+    backend.expectOne("/api/status").flush({ botInOffice: true });
+
+    await response;
+    expect(noted).toEqual(["retrying /api/status 503"]);
+  });
+
+  it("reports a request that changes something failing at the proxy, and the Worker's own errors not at all", async () => {
+    const { noted, failures } = fakeFailures();
+    const { http, backend } = setup(null, failures);
+    const started = firstValueFrom(http.post("/api/requests", { action: "start" }));
+    const status = firstValueFrom(http.get("/api/status"));
+
+    backend.expectOne("/api/requests").flush(null, unavailable);
+    backend.expectOne("/api/status").flush(null, { status: 500, statusText: "Server Error" });
+
+    await expect(started).rejects.toThrow();
+    await expect(status).rejects.toThrow();
+    expect(noted).toEqual(["gave up /api/requests 503"]);
   });
 });

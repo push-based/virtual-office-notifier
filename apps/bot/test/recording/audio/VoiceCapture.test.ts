@@ -1,13 +1,10 @@
-import {
-  type DiscordGatewayAdapterLibraryMethods,
-  NetworkingStatusCode,
-  VoiceConnectionStatus,
-} from "@discordjs/voice";
+import { type DiscordGatewayAdapterLibraryMethods, VoiceConnectionStatus } from "@discordjs/voice";
 import { assert, describe, it } from "@effect/vitest";
 import { Cause, Effect, ErrorReporter } from "effect";
 import { createRequire } from "node:module";
 
-import { CaptureError, connectionStep } from "../../../src/recording/audio/VoiceCapture.ts";
+import { startJoinHistory } from "../../../src/recording/audio/JoinHistory.ts";
+import { CaptureError, recordingGateway } from "../../../src/recording/audio/VoiceCapture.ts";
 import { captureReports } from "../../fakes.ts";
 
 const OFFICE = { guildId: "guild", channelId: "office" };
@@ -35,22 +32,53 @@ const joinWithFakeGateway = () => {
 };
 
 describe("VoiceCapture", () => {
-  it("names the step a connection is stuck at", () => {
-    assert.strictEqual(connectionStep({ status: VoiceConnectionStatus.Signalling }), "signalling");
-    assert.strictEqual(
-      connectionStep({
-        status: VoiceConnectionStatus.Connecting,
-        networking: { state: { code: NetworkingStatusCode.UdpHandshaking } },
-      }),
-      "connecting (UDP handshake)",
-    );
-    assert.strictEqual(
-      connectionStep({
-        status: VoiceConnectionStatus.Connecting,
-        networking: { state: { code: NetworkingStatusCode.Identifying } },
-      }),
-      "connecting (identifying)",
-    );
+  it("sends how the join went along with the reason", () => {
+    const error = CaptureError.make({
+      reason: "Couldn't connect, stuck at signalling",
+      history: ["+0ms asked Discord to join the office", "+20000ms signalling"],
+    });
+
+    assert.deepStrictEqual(error[ErrorReporter.attributes], {
+      reason: "Couldn't connect, stuck at signalling",
+      history: "+0ms asked Discord to join the office\n+20000ms signalling",
+    });
+  });
+
+  it("notes what Discord sends the voice connection and still passes it on", () => {
+    const history = startJoinHistory(() => 0);
+    const received: Array<string> = [];
+    const gateway: Array<DiscordGatewayAdapterLibraryMethods> = [];
+
+    recordingGateway((methods) => {
+      gateway.push(methods);
+
+      return { sendPayload: () => true, destroy: () => undefined };
+    }, history)({
+      onVoiceServerUpdate: ({ endpoint }) => received.push(`server ${endpoint}`),
+      onVoiceStateUpdate: ({ channel_id }) => received.push(`state ${channel_id}`),
+      destroy: () => undefined,
+    });
+
+    gateway[0]?.onVoiceServerUpdate({ guild_id: OFFICE.guildId, token: "token", endpoint: null });
+    gateway[0]?.onVoiceStateUpdate({
+      guild_id: OFFICE.guildId,
+      channel_id: OFFICE.channelId,
+      user_id: "bot",
+      session_id: "session",
+      deaf: false,
+      mute: false,
+      self_deaf: false,
+      self_mute: true,
+      self_video: false,
+      suppress: false,
+      request_to_speak_timestamp: null,
+    });
+
+    assert.deepStrictEqual(received, ["server null", "state office"]);
+    assert.deepStrictEqual(history.entries(), [
+      "+0ms Discord sent the voice server without an endpoint",
+      "+0ms Discord sent the voice state, in the channel",
+    ]);
   });
 
   it.effect("reports a lost voice connection as a warning with its reason", () => {
