@@ -1,0 +1,28 @@
+diff --git a/dist/index.js b/dist/index.js
+index 63c6dfbaeb145f4ec332784ce5a80bb534fb8905..21a7435913efb433c095c78a5897fc5f02f0a4ce 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2318,6 +2318,9 @@ var VoiceConnection = class extends import_node_events8.EventEmitter {
+     if (packet.self_deaf !== void 0) this.joinConfig.selfDeaf = packet.self_deaf;
+     if (packet.self_mute !== void 0) this.joinConfig.selfMute = packet.self_mute;
+     if (packet.channel_id) this.joinConfig.channelId = packet.channel_id;
++    if (packet.channel_id && this.state.status === "signalling" /* Signalling */) {
++      this.configureNetworking();
++    }
+   }
+   /**
+    * Called when the networking state changes, and the new ws/udp packet/message handlers need to be rebound
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 4a5678cf6efbd76a00efaa0c1218aa6fb8cccffe..adbee1c53045725f60b20a1c53f91a4c22c25170 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -2258,6 +2258,9 @@ var VoiceConnection = class extends EventEmitter8 {
+     if (packet.self_deaf !== void 0) this.joinConfig.selfDeaf = packet.self_deaf;
+     if (packet.self_mute !== void 0) this.joinConfig.selfMute = packet.self_mute;
+     if (packet.channel_id) this.joinConfig.channelId = packet.channel_id;
++    if (packet.channel_id && this.state.status === "signalling" /* Signalling */) {
++      this.configureNetworking();
++    }
+   }
+   /**
+    * Called when the networking state changes, and the new ws/udp packet/message handlers need to be rebound
