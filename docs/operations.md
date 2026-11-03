@@ -13,7 +13,7 @@ Deploys only happen from CI: merging a pull request into `main` runs the checks 
 
 ## The VM
 
-The VM itself is in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): a Debian 12 `e2-micro` in `us-central1-a`, with the default compute service account, the `default` and `storage-rw` scopes, OS Login on and deletion protection on. The deploy keeps it that way. A change that would replace it, such as another machine type, fails the deploy instead, because deletion protection stops the old VM from being deleted and Alchemy keeps it even if it's taken out of the program. Changing the machine type or the scopes needs a stopped VM, which is done by hand.
+The VM itself is in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): a Debian 12 `e2-micro` in `us-central1-a`, with the default compute service account, the `default` and `storage-rw` scopes, an external IP (it reaches Discord, Slack and the AI providers through it, as there's no Cloud NAT), OS Login on and deletion protection on. The deploy keeps it that way. A change that would replace it, such as another machine type, fails the deploy instead, because deletion protection stops the old VM from being deleted and Alchemy keeps it even if it's taken out of the program. Changing the machine type or the scopes needs a stopped VM, which is done by hand.
 
 What runs on it is set up by hand once:
 
