@@ -4,8 +4,12 @@ export default defineConfig({
   run: {
     tasks: {
       typecheck: "tsc --noEmit",
+      plan: {
+        command: "alchemy plan --stage prod --adopt",
+        cache: false,
+      },
       deploy: {
-        command: "alchemy deploy --stage prod --yes",
+        command: "alchemy deploy --stage prod --adopt --yes",
         cache: false,
       },
       "admin-plan": {
