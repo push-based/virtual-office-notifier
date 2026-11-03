@@ -1,9 +1,10 @@
 import { PgClient } from "@effect/sql-pg";
 import * as Sentry from "@sentry/cloudflare";
+import { env } from "cloudflare:workers";
 import { DiscordOAuth } from "activity-sign-in/DiscordOAuth";
 import { Sessions } from "activity-sign-in/Sessions";
 import { SignInSettings } from "activity-sign-in/SignInSettings";
-import { ConfigProvider, Layer, Redacted } from "effect";
+import { ConfigProvider, Function, Layer, Redacted } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { OfficeStatsReader } from "recording-requests/OfficeStats";
@@ -29,12 +30,18 @@ import {
 } from "./Observability.ts";
 import { TelemetryRoutes } from "./Telemetry.ts";
 
-interface Env extends SentryEnv {
-  readonly DISCORD_CLIENT_ID: string;
-  readonly DISCORD_CLIENT_SECRET: string;
-  readonly DATABASE: Hyperdrive;
-  readonly SESSION_SECRET: string;
+declare global {
+  namespace Cloudflare {
+    interface Env extends SentryEnv {
+      readonly DISCORD_CLIENT_ID: string;
+      readonly DISCORD_CLIENT_SECRET: string;
+      readonly DATABASE: Hyperdrive;
+      readonly SESSION_SECRET: string;
+    }
+  }
 }
+
+type Env = Cloudflare.Env;
 
 const connectionTo = (env: Env) =>
   PgClient.layer({
@@ -66,22 +73,10 @@ const routes = (env: Env) =>
     Layer.provideMerge(ObservabilityLayer),
   );
 
-const makeApp = (env: Env) => HttpRouter.toWebHandler(routes(env), { disableLogger: true });
-
-const apps = new WeakMap<Env, ReturnType<typeof makeApp>>();
-
-const appFor = (env: Env) => {
-  const existing = apps.get(env);
-
-  if (existing !== undefined) return existing;
-
-  const app = makeApp(env);
-
-  apps.set(env, app);
-
-  return app;
-};
+const appFor = Function.memoize((bindings: Env) =>
+  HttpRouter.toWebHandler(routes(bindings), { disableLogger: true }),
+);
 
 export default Sentry.withSentry<Env>(sentryOptions, {
-  fetch: (request, env) => appFor(env).handler(request),
+  fetch: (request) => appFor(env).handler(request),
 });
