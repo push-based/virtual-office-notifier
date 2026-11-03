@@ -70,11 +70,17 @@ jobs:
 
       # A read-only account: it can see the VM and the bucket, and change nothing.
       - uses: google-github-actions/auth@v3
+        id: gcp
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_PLAN_SERVICE_ACCOUNT }}
+          token_format: access_token
 
+      # Alchemy reads an access token, not the federated credentials file the step writes.
       - run: vp run infra#plan
+        env:
+          GOOGLE_ACCESS_TOKEN: ${{ steps.gcp.outputs.access_token }}
+          GOOGLE_PROJECT_ID: virtual-office-notifier
 
   deploy:
     needs: check
@@ -109,9 +115,11 @@ jobs:
       - run: vp run console#build
 
       - uses: google-github-actions/auth@v3
+        id: gcp
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
 
       - uses: google-github-actions/setup-gcloud@v3
 
@@ -138,3 +146,5 @@ jobs:
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
           SENTRY_CONSOLE_DSN: ${{ secrets.SENTRY_CONSOLE_DSN }}
           ACTIVITY_DATABASE_PASSWORD: ${{ secrets.ACTIVITY_DATABASE_PASSWORD }}
+          GOOGLE_ACCESS_TOKEN: ${{ steps.gcp.outputs.access_token }}
+          GOOGLE_PROJECT_ID: virtual-office-notifier
