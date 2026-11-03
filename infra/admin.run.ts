@@ -58,7 +58,7 @@ export default Stack(
         "attribute.repository": "assertion.repository",
         "attribute.ref": "assertion.ref",
       },
-      attributeCondition: `assertion.repository == '${OWNER}/${REPOSITORY}' && assertion.ref == 'refs/heads/main'`,
+      attributeCondition: `assertion.repository == '${OWNER}/${REPOSITORY}'`,
     }).pipe(RemovalPolicy.retain());
 
     const projectReader = yield* CustomRole("ProjectReader", {
@@ -75,7 +75,7 @@ export default Stack(
       kind: "iam.serviceAccount",
       name: deployer.name,
       role: "roles/iam.workloadIdentityUser",
-      member: Output.interpolate`principalSet://iam.googleapis.com/${pool.name}/attribute.repository/${OWNER}/${REPOSITORY}`,
+      member: Output.interpolate`principalSet://iam.googleapis.com/${pool.name}/attribute.ref/refs/heads/main`,
     });
 
     yield* GCP.IAM.Member("DeployerReadsProject", {
@@ -113,6 +113,40 @@ export default Stack(
       member: deployerMember,
     });
 
+    const planner = yield* GCP.IAM.ServiceAccount("Planner", {
+      project: PROJECT,
+      accountId: "github-plan",
+      displayName: "GitHub Actions plan",
+    }).pipe(RemovalPolicy.retain());
+
+    const planReader = yield* CustomRole("PlanReader", {
+      project: PROJECT,
+      roleId: "githubPlanReader",
+      title: "GitHub plan reader",
+      description: "Lets pull requests plan the infrastructure without changing it",
+      permissions: [
+        "compute.instances.get",
+        "compute.instances.list",
+        "storage.buckets.get",
+        "storage.buckets.getIamPolicy",
+        "storage.buckets.list",
+      ],
+    }).pipe(RemovalPolicy.retain());
+
+    yield* GCP.IAM.Member("RepositoryActsAsPlanner", {
+      kind: "iam.serviceAccount",
+      name: planner.name,
+      role: "roles/iam.workloadIdentityUser",
+      member: Output.interpolate`principalSet://iam.googleapis.com/${pool.name}/attribute.repository/${OWNER}/${REPOSITORY}`,
+    });
+
+    yield* GCP.IAM.Member("PlannerReadsInfrastructure", {
+      kind: "project",
+      name: PROJECT,
+      role: planReader.name,
+      member: Output.interpolate`serviceAccount:${planner.email}`,
+    });
+
     yield* GitHub.Secret("WorkloadIdentityProviderSecret", {
       owner: OWNER,
       repository: REPOSITORY,
@@ -127,6 +161,17 @@ export default Stack(
       value: Output.map(deployer.email, Redacted.make),
     });
 
-    return { deployer: deployer.email, workloadIdentityProvider: oidc.name };
+    yield* GitHub.Secret("PlanServiceAccountSecret", {
+      owner: OWNER,
+      repository: REPOSITORY,
+      name: "GCP_PLAN_SERVICE_ACCOUNT",
+      value: Output.map(planner.email, Redacted.make),
+    });
+
+    return {
+      deployer: deployer.email,
+      planner: planner.email,
+      workloadIdentityProvider: oidc.name,
+    };
   }),
 );

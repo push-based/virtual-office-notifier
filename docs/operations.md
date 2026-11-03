@@ -13,31 +13,25 @@ Deploys only happen from CI: merging a pull request into `main` runs the checks 
 
 ## The VM
 
-One-time setup:
+The VM itself is in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): a Debian 12 `e2-micro` in `us-central1-a`, with the default compute service account, the `default` and `storage-rw` scopes, OS Login on and deletion protection on. The deploy keeps it that way. A change that would replace it, such as another machine type, fails the deploy instead, because deletion protection stops the old VM from being deleted and Alchemy keeps it even if it's taken out of the program. Changing the machine type or the scopes needs a stopped VM, which is done by hand.
 
-1. Create the VM (Debian 12, `e2-micro`, `us-central1`):
+What runs on it is set up by hand once:
 
-   ```bash
-   gcloud compute instances create virtual-office-notifier \
-     --machine-type=e2-micro --zone=us-central1-a \
-     --image-family=debian-12 --image-project=debian-cloud
-   ```
-
-2. SSH in (`gcloud compute ssh virtual-office-notifier --zone=us-central1-a`) and install Node 26 from NodeSource:
+1. SSH in (`gcloud compute ssh virtual-office-notifier --zone=us-central1-a`) and install Node 26 from NodeSource:
 
    ```bash
    curl -fsSL https://deb.nodesource.com/setup_26.x | sudo bash -
    sudo apt-get install -y nodejs
    ```
 
-3. Create the service user and app directory:
+2. Create the service user and app directory:
 
    ```bash
    sudo useradd --system --no-create-home --shell /usr/sbin/nologin notifier
    sudo mkdir -p /opt/virtual-office-notifier
    ```
 
-The deploy writes the env file and installs the systemd unit, so there's nothing else to do on the VM. Set up CI below; the first deploy starts the service. For [recording](recording.md), the VM also needs access to the clips bucket, which means a scope change and one restart: see [Cloud Storage](setup.md#cloud-storage).
+The deploy writes the env file and installs the systemd unit, so there's nothing else to do on the VM. Set up CI below; the first deploy starts the service.
 
 ## Deploying from CI
 
@@ -47,8 +41,9 @@ Who the deploy is, and what it may do, is a second Alchemy stack, [`infra/admin.
 
 - the `github-deploy` service account;
 - the `github` Workload Identity pool and its OIDC provider, which only trust pushes to `main` on `push-based/virtual-office-notifier`;
-- what `github-deploy` may do: act as the VM's service account, SSH and sudo on the VM through OS Login, read the project's metadata through the custom `githubDeployProjectReader` role, and manage the recordings bucket;
-- the `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT` repository secrets.
+- what `github-deploy` may do: act as the VM's service account, SSH and sudo on the VM through OS Login, read the project's metadata through the custom `githubDeployProjectReader` role, and manage the recordings bucket. Only pushes to `main` can act as it;
+- the read-only `github-plan` service account the `plan` job on pull requests acts as, with the custom `githubPlanReader` role: it can read the VM and the bucket, and change nothing;
+- the `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` and `GCP_PLAN_SERVICE_ACCOUNT` repository secrets.
 
 Deploy it from your machine whenever it changes, logged in to `gcloud` as a project owner and to `gh` as a repo admin, with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_DEPLOY_TOKEN` in the root `.env` for the state store. Look at the plan first:
 
