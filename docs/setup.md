@@ -86,6 +86,7 @@ In production, GitHub repository secrets are the source of truth for every varia
 | `CLOUDFLARE_DEPLOY_TOKEN`                                | GitHub repository secret                    | A Cloudflare API token that lets the deploy job run `alchemy deploy`, which deploys the Console's Worker. Without it, the deploy job fails before shipping anything. See [Worker](#worker). |
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`             | GitHub repository secrets                   | The Discord application's OAuth2 credentials, for signing people in to the Console. See [Worker](#worker).                                                                                  |
 | `SESSION_SECRET`                                         | GitHub repository secret                    | Any long random string. It signs the sessions the page gets after Discord's login. See [Worker](#worker).                                                                                   |
+| `ACTIVITY_DATABASE_PASSWORD`                             | GitHub repository secret                    | The `activity` role's password, which Hyperdrive connects to Supabase with. See [Hyperdrive](#hyperdrive).                                                                                  |
 | `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_DATABASE` | Your shell, for `pnpm --filter console dev` | A local Postgres for the Worker's `DATABASE` binding. See [Toolchain](../CONTRIBUTING.md#toolchain).                                                                                        |
 
 ## AI providers
@@ -168,17 +169,17 @@ The views aren't `security_invoker`, so the role reads them without any grant on
 
 ### Hyperdrive
 
-Workers can't open a TLS connection to Supabase themselves, because they only trust public certificate authorities and Supabase signs its database certificates with its own. So the Worker reaches the database through [Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which connects to Supabase as the `activity` role and checks Supabase's certificate against its root CA. From the repo root, with `wrangler login`, upload the CA (the one in [`apps/bot/src/database/SupabaseCa.ts`](../apps/bot/src/database/SupabaseCa.ts), saved as a `.pem`) and create the config with caching off, so the Console always sees the current state:
+Workers can't open a TLS connection to Supabase themselves, because they only trust public certificate authorities and Supabase signs its database certificates with its own. So the Worker reaches the database through [Hyperdrive](https://developers.cloudflare.com/hyperdrive/), which connects to Supabase as the `activity` role and checks Supabase's certificate against its root CA.
+
+Both are in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): the `supabase-root-2021` CA, uploaded from [`apps/bot/src/database/SupabaseCa.ts`](../apps/bot/src/database/SupabaseCa.ts) so the bot and Hyperdrive trust the same certificate, and the `virtual-office-recorder-db` config with `verify-full` against it and caching off, so the Console always sees the current state. The pooler host and project ref in it are the ones in the bot's `DATABASE_URL`. The deploy reads the `activity` role's password from the `ACTIVITY_DATABASE_PASSWORD` repository secret:
 
 ```bash
-pnpm --filter console exec wrangler cert upload certificate-authority --name supabase-root-2021 --ca-cert supabase-root.pem
+gh secret set ACTIVITY_DATABASE_PASSWORD
 ```
 
-```bash
-pnpm --filter console exec wrangler hyperdrive create virtual-office-recorder-db --origin-host <pooler host> --origin-port 5432 --database postgres --origin-user activity.<ref> --origin-password <password> --sslmode verify-full --ca-certificate-id <CA ID> --caching-disabled
-```
+To rotate the password, change it in the Supabase SQL editor, update the secret and re-run the latest `CI` workflow on `main`. Until the deploy finishes, the Console can't reach the database. Right after the role's password changes the pooler can refuse it for a few seconds, and Alchemy retries the Hyperdrive update while it does.
 
-Put the new config's ID under `hyperdrive` in [`apps/console/wrangler.jsonc`](../apps/console/wrangler.jsonc). The pooler host and `<ref>` are the ones in the bot's `DATABASE_URL`. Right after the role's password changes, the pooler can refuse it for a few seconds, so a failed create is worth retrying.
+[`apps/console/wrangler.jsonc`](../apps/console/wrangler.jsonc) keeps the config's ID for local development, where the `DATABASE` binding points at a local Postgres instead.
 
 ### Worker
 
