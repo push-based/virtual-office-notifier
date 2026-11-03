@@ -193,6 +193,7 @@ const banter = OfficeEvent.Banter({
   activityOldestFirst: [{ at: opened.at, who: "Ada", event: "Joined" }],
   olderEntriesLeftOut: 0,
   present: ["Ada"],
+  alreadyPostedOldestFirst: [],
 });
 
 const reminder = OfficeEvent.Reminder({ guildId: "g1", channelId: "c1", at: opened.at });

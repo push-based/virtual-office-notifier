@@ -1,4 +1,4 @@
-export { banter, banterLog, periodRange } from "./Banter.ts";
+export { banter, banterLog, banterRequest, periodRange } from "./Banter.ts";
 
 export { briefFor, HeadlineWriter } from "./HeadlineWriter.ts";
 

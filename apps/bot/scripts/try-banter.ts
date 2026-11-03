@@ -29,7 +29,7 @@ const program = Effect.gen(function* () {
 
   const events = Array.map(scenarios, ({ name, ...context }) => ({
     name,
-    event: OfficeEvent.Banter({ ...office, ...context }),
+    event: OfficeEvent.Banter({ alreadyPostedOldestFirst: [], ...office, ...context }),
   }));
 
   if (!callAi) {

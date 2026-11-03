@@ -25,6 +25,11 @@ export interface ActivityEntry {
   readonly event: string;
 }
 
+export interface PastBanter {
+  readonly at: DateTime.Utc;
+  readonly text: string;
+}
+
 export type BanterPeriod = "Today" | "SinceYesterday" | "ThisWeek" | "LastWeek";
 
 export interface BanterContext {
@@ -47,7 +52,8 @@ export type OfficeEvent = Data.TaggedEnum<{
     readonly recap: Option.Option<SessionRecap>;
   };
   Reminder: OfficeLocation & { readonly at: DateTime.Utc };
-  Banter: OfficeLocation & BanterContext;
+  Banter: OfficeLocation &
+    BanterContext & { readonly alreadyPostedOldestFirst: ReadonlyArray<PastBanter> };
 }>;
 
 export const OfficeEvent = Data.taggedEnum<OfficeEvent>();

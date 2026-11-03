@@ -6,6 +6,7 @@ import {
   BANTER_PERIODS,
   banter,
   banterLog,
+  banterRequest,
   MAX_BANTER_PER_DAY,
   periodRange,
 } from "../../src/announcing/Banter.ts";
@@ -95,6 +96,34 @@ describe("banterLog", () => {
     );
   });
 
+  it("follows the log with the banter already posted, so the model doesn't retell it", () => {
+    assert.strictEqual(
+      banterRequest({
+        ...context,
+        alreadyPostedOldestFirst: [
+          { at: officeTime("2026-10-01T10:30:00"), text: "📯 Ada's airhorn strikes again." },
+          { at: officeTime("2026-10-02T11:45:00"), text: "📸 Grace's camera made a cameo." },
+        ],
+      }),
+      Array.join(
+        [
+          banterLog(context),
+          "Banter already posted, oldest first, with times in UTC+2:",
+          "Thu 1 Oct 10:30 📯 Ada's airhorn strikes again.",
+          "Fri 2 Oct 11:45 📸 Grace's camera made a cameo.",
+        ],
+        "\n",
+      ),
+    );
+  });
+
+  it("is just the log when no banter has been posted yet", () => {
+    assert.strictEqual(
+      banterRequest({ ...context, alreadyPostedOldestFirst: [] }),
+      banterLog(context),
+    );
+  });
+
   it("says how many earlier entries were left out", () => {
     assert.include(
       banterLog({ ...context, olderEntriesLeftOut: 12 }),
@@ -102,6 +131,8 @@ describe("banterLog", () => {
     );
   });
 });
+
+const pastBanter = [{ at: DateTime.makeUnsafe(0), text: "📯 Ada's airhorn strikes again." }];
 
 interface FakeHistory {
   readonly postsAlreadyToday?: number;
@@ -129,6 +160,7 @@ const makeFakeHistory = Effect.fnUntraced(function* ({
               olderEntriesLeftOut: 3,
             }),
       presentSinceBotStarted: unavailable ? fail : Effect.succeed(["Ada"]),
+      latestBanter: unavailable ? fail : Effect.succeed(pastBanter),
       banterPostsSince: (from) =>
         unavailable
           ? fail
@@ -185,7 +217,7 @@ describe("banter", () => {
     }),
   );
 
-  it.effect("hands the model the period's activity and who's in", () =>
+  it.effect("hands the model the period's activity, who's in and the banter already posted", () =>
     Effect.gen(function* () {
       const { emitted } = yield* collectBanter({}, "8 hours");
 
@@ -197,6 +229,7 @@ describe("banter", () => {
         period: BANTER_PERIODS[0],
         olderEntriesLeftOut: 3,
         present: ["Ada"],
+        alreadyPostedOldestFirst: pastBanter,
       });
     }),
   );

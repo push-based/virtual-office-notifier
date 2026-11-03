@@ -189,6 +189,7 @@ const start = Effect.fnUntraced(function* (setup: Setup = {}) {
             olderEntriesLeftOut: 0,
           }),
         presentSinceBotStarted: Effect.succeed(["Sam"]),
+        latestBanter: Effect.succeed([]),
         banterPostsSince: () => Effect.succeed(0),
         recordBanterPost: () => Effect.void,
       }),

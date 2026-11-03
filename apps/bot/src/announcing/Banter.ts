@@ -17,6 +17,7 @@ import {
   officeClock,
   OfficeEvent,
   type OfficeLocation,
+  type PastBanter,
   startOfOfficeDay,
   startOfOfficeWeek,
 } from "../office/index.ts";
@@ -91,6 +92,19 @@ export const banterLog = (context: BanterContext): string => {
   );
 };
 
+const alreadyPostedLog = (posted: ReadonlyArray<PastBanter>): ReadonlyArray<string> =>
+  posted.length === 0
+    ? []
+    : [
+        "Banter already posted, oldest first, with times in UTC+2:",
+        ...Array.map(posted, ({ at, text }) => `${officeClock(at)} ${text}`),
+      ];
+
+export const banterRequest = (
+  context: BanterContext & { readonly alreadyPostedOldestFirst: ReadonlyArray<PastBanter> },
+): string =>
+  Array.join([banterLog(context), ...alreadyPostedLog(context.alreadyPostedOldestFirst)], "\n");
+
 const waitForNextChance = Random.nextIntBetween(
   MINUTES_BETWEEN_CHANCES.min,
   MINUTES_BETWEEN_CHANCES.max,
@@ -122,6 +136,7 @@ const nextBanter = Effect.fn("Banter.next")(
     );
 
     const present = yield* history.presentSinceBotStarted;
+    const alreadyPostedOldestFirst = yield* history.latestBanter;
 
     yield* history.recordBanterPost(at, period);
 
@@ -133,6 +148,7 @@ const nextBanter = Effect.fn("Banter.next")(
         activityOldestFirst: entriesOldestFirst,
         olderEntriesLeftOut,
         present,
+        alreadyPostedOldestFirst,
       }),
     );
   },

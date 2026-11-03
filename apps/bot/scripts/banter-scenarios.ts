@@ -1,9 +1,10 @@
 import { Array, DateTime, pipe, String } from "effect";
 
-import type { ActivityEntry, BanterContext } from "../src/office/index.ts";
+import type { ActivityEntry, BanterContext, PastBanter } from "../src/office/index.ts";
 
 export interface BanterScenario extends BanterContext {
   readonly name: string;
+  readonly alreadyPostedOldestFirst?: ReadonlyArray<PastBanter>;
 }
 
 const officeTime = (day: string, time: string) => DateTime.makeUnsafe(`${day}T${time}:00+02:00`);
@@ -112,6 +113,27 @@ export const banterScenarios: ReadonlyArray<BanterScenario> = [
     ),
     olderEntriesLeftOut: 0,
     present: ["Ada", "Linus"],
+  },
+  {
+    name: "mute-marathon-again",
+    at: officeTime(THU, "15:40"),
+    period: "Today",
+    activityOldestFirst: happenedOn(
+      THU,
+      `09:15 Ada Joined\n09:40 Linus Joined\n09:40 Linus Muted\n${muteMarathon}\n11:02 Grace Joined\n11:03 Grace CameraOn\n11:09 Grace CameraOff\n12:30 Ada Left\n13:05 Ada Joined\n13:06 Ada PlayedSound airhorn`,
+    ),
+    olderEntriesLeftOut: 0,
+    present: ["Ada", "Grace", "Linus"],
+    alreadyPostedOldestFirst: [
+      {
+        at: officeTime(WED, "16:10"),
+        text: "📯 Ada blasted the airhorn the second they got back from lunch. The office now has a dress code: ear protection.",
+      },
+      {
+        at: officeTime(THU, "11:20"),
+        text: "🎙️ Linus has muted and unmuted 8 times since 10:10. Either a very dramatic debate or a very persistent dog.",
+      },
+    ],
   },
   {
     name: "lone-regular",

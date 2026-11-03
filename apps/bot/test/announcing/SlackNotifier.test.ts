@@ -71,6 +71,7 @@ describe("SlackNotifier", () => {
         activityOldestFirst: [],
         olderEntriesLeftOut: 0,
         present: [],
+        alreadyPostedOldestFirst: [],
       });
 
       assert.isFalse(yield* slack.notifier.notify(banter));

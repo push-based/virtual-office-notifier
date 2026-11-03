@@ -42,6 +42,7 @@ export interface SlackPost {
   readonly threadTs: string | null;
   readonly kind: PostKind;
   readonly model: string | null;
+  readonly text: string;
   readonly postedAt: DateTime.Utc;
 }
 
@@ -301,6 +302,7 @@ export class SlackHistory extends Context.Service<
                 threadTs: post.threadTs,
                 kind: post.kind,
                 model: post.model,
+                text: post.text,
                 postedAt: DateTime.toDate(post.postedAt),
               })}
               ON CONFLICT (channel_id, ts) DO NOTHING
