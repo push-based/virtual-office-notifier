@@ -39,6 +39,7 @@ const officeMachine = Effect.gen(function* () {
     serviceAccount: VM_SERVICE_ACCOUNT,
     oauthScopes: VM_SCOPES,
     metadata: { "enable-oslogin": "TRUE" },
+    associatePublicIp: true,
     deletionProtection: true,
   }).pipe(RemovalPolicy.retain());
 
