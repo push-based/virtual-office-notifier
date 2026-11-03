@@ -132,21 +132,11 @@ Add the `files:write` bot scope to the app from [Slack app](#slack-app) and rein
 
 ### Cloud Storage
 
-Create a private bucket in `us-central1`, with no lifecycle rule that deletes objects, and set it as the `RECORDINGS_BUCKET` secret. Give the VM the `storage-rw` scope, which means stopping and starting it once:
+The clips bucket, `virtual-office-notifier-recordings`, is in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): private, in `us-central1`, with no lifecycle rule that deletes objects, and with **Storage Object Creator** and **Storage Object Viewer** for the VM's service account. Alchemy never deletes it or its objects, even if it's taken out of the program. The VM's `storage-rw` scope is part of the [VM](operations.md#the-vm) in the same program. Set the bucket's name as the `RECORDINGS_BUCKET` secret:
 
 ```bash
-gcloud compute instances stop virtual-office-notifier --zone=us-central1-a
+gh secret set RECORDINGS_BUCKET --body virtual-office-notifier-recordings
 ```
-
-```bash
-gcloud compute instances set-service-account virtual-office-notifier --zone=us-central1-a --scopes=default,storage-rw
-```
-
-```bash
-gcloud compute instances start virtual-office-notifier --zone=us-central1-a
-```
-
-Then grant the VM's service account (the project's default compute service account) **Storage Object Creator** and **Storage Object Viewer** on the bucket.
 
 ### Database role
 

@@ -1,6 +1,7 @@
 import * as Cloudflare from "@alchemy.run/cloudflare";
+import * as GCP from "@alchemy.run/gcp";
 import { RemovalPolicy, Stack } from "alchemy";
-import { Config, Effect } from "effect";
+import { Config, Effect, Layer } from "effect";
 
 import { SUPABASE_ROOT_CA } from "../apps/bot/src/database/SupabaseCa.ts";
 
@@ -8,9 +9,57 @@ const SUPABASE_POOLER = "aws-0-eu-west-1.pooler.supabase.com";
 
 const SUPABASE_PROJECT = "hebglmbkqnypytihrwyr";
 
+const VM_SERVICE_ACCOUNT = "132656138437-compute@developer.gserviceaccount.com";
+
+const VM_SCOPES = [
+  "https://www.googleapis.com/auth/devstorage.read_only",
+  "https://www.googleapis.com/auth/logging.write",
+  "https://www.googleapis.com/auth/monitoring.write",
+  "https://www.googleapis.com/auth/pubsub",
+  "https://www.googleapis.com/auth/service.management.readonly",
+  "https://www.googleapis.com/auth/servicecontrol",
+  "https://www.googleapis.com/auth/trace.append",
+  "https://www.googleapis.com/auth/devstorage.read_write",
+];
+
+const officeMachine = Effect.gen(function* () {
+  const recordings = yield* GCP.Storage.Bucket("Recordings", {
+    bucketName: "virtual-office-notifier-recordings",
+    location: "US-CENTRAL1",
+    storageClass: "STANDARD",
+    uniformBucketLevelAccess: true,
+    versioning: false,
+    forceDestroy: false,
+  }).pipe(RemovalPolicy.retain());
+
+  const vm = yield* GCP.Compute.Instance("Vm", {
+    instanceName: "virtual-office-notifier",
+    zone: "us-central1-a",
+    machineType: "e2-micro",
+    serviceAccount: VM_SERVICE_ACCOUNT,
+    oauthScopes: VM_SCOPES,
+    metadata: { "enable-oslogin": "TRUE" },
+    deletionProtection: true,
+  }).pipe(RemovalPolicy.retain());
+
+  for (const [id, role] of [
+    ["VmWritesClips", "roles/storage.objectCreator"],
+    ["VmReadsClips", "roles/storage.objectViewer"],
+  ] as const) {
+    yield* GCP.IAM.Member(id, {
+      kind: "storage.bucket",
+      name: recordings.bucketName,
+      role,
+      member: `serviceAccount:${VM_SERVICE_ACCOUNT}`,
+    });
+  }
+
+  return { vm: vm.instanceName, recordings: recordings.bucketName };
+});
+
 export default Stack(
   "virtual-office",
-  { providers: Cloudflare.providers(), state: Cloudflare.state() },
+  { providers: Layer.mergeAll(Cloudflare.providers(), GCP.providers()), state: Cloudflare.state() },
   Effect.gen(function* () {
     const { stage } = yield* Stack;
     const live = stage === "prod";
@@ -54,6 +103,8 @@ export default Stack(
       },
     });
 
-    return { console: console.url };
+    const office = live ? yield* officeMachine : undefined;
+
+    return { console: console.url, ...office };
   }),
 );
