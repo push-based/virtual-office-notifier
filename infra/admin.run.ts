@@ -117,14 +117,14 @@ export default Stack(
       owner: OWNER,
       repository: REPOSITORY,
       name: "GCP_WORKLOAD_IDENTITY_PROVIDER",
-      value: Redacted.make(oidc.name),
+      value: Output.map(oidc.name, Redacted.make),
     });
 
     yield* GitHub.Secret("ServiceAccountSecret", {
       owner: OWNER,
       repository: REPOSITORY,
       name: "GCP_SERVICE_ACCOUNT",
-      value: Redacted.make(deployer.email),
+      value: Output.map(deployer.email, Redacted.make),
     });
 
     return { deployer: deployer.email, workloadIdentityProvider: oidc.name };
