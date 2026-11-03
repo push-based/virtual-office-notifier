@@ -543,4 +543,10 @@ export const migrations = Migrator.fromRecord({
       ORDER BY finished_at
     `;
   }),
+
+  "0011_record_post_text": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`ALTER TABLE office.slack_posts ADD COLUMN text text`;
+  }),
 });

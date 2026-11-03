@@ -4,9 +4,11 @@ import { SqlClient, SqlSchema } from "effect/sql";
 import { guardQuery } from "recording-requests/Query";
 
 import { Database, describeError } from "../database/index.ts";
-import type { ActivityEntry, BanterPeriod } from "../office/index.ts";
+import type { ActivityEntry, BanterPeriod, PastBanter } from "../office/index.ts";
 
 export const MAX_ACTIVITY_ENTRIES = 400;
+
+export const MAX_PAST_BANTER = 25;
 
 export class HistoryUnavailable extends Schema.TaggedError<
   HistoryUnavailable,
@@ -42,6 +44,7 @@ export class OfficeHistory extends Context.Service<
       until: DateTime.Utc,
     ): Effect.Effect<RecentActivity, HistoryUnavailable>;
     readonly presentSinceBotStarted: Effect.Effect<ReadonlyArray<string>, HistoryUnavailable>;
+    readonly latestBanter: Effect.Effect<ReadonlyArray<PastBanter>, HistoryUnavailable>;
     banterPostsSince(from: DateTime.Utc): Effect.Effect<number, HistoryUnavailable>;
     recordBanterPost(
       at: DateTime.Utc,
@@ -93,6 +96,17 @@ export class OfficeHistory extends Context.Service<
         `,
       });
 
+      const banterPosted = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({ postedAt: Schema.DateTimeUtcFromDate, text: Schema.String }),
+        execute: () => sql`
+          SELECT posted_at, text FROM office.slack_posts
+          WHERE kind = 'Banter' AND text IS NOT NULL
+          ORDER BY posted_at DESC, id DESC
+          LIMIT ${MAX_PAST_BANTER}
+        `,
+      });
+
       const banterPostCount = SqlSchema.findOneOption({
         Request: Schema.Struct({ from: Schema.DateTimeUtcFromDate }),
         Result: Schema.Struct({ posts: Schema.Int }),
@@ -122,6 +136,17 @@ export class OfficeHistory extends Context.Service<
         Effect.withSpan("OfficeHistory.presentSinceBotStarted"),
       );
 
+      const latestBanter = onceReady(banterPosted()).pipe(
+        Effect.map((newestFirst) =>
+          pipe(
+            newestFirst,
+            Array.map(({ postedAt, text }) => ({ at: postedAt, text })),
+            Array.reverse,
+          ),
+        ),
+        Effect.withSpan("OfficeHistory.latestBanter"),
+      );
+
       const banterPostsSince = Effect.fn("OfficeHistory.banterPostsSince")(
         (from: DateTime.Utc) => onceReady(banterPostCount({ from })),
         Effect.map(Option.match({ onNone: () => 0, onSome: ({ posts }) => posts })),
@@ -138,6 +163,7 @@ export class OfficeHistory extends Context.Service<
       return OfficeHistory.of({
         latestActivityBetween,
         presentSinceBotStarted,
+        latestBanter,
         banterPostsSince,
         recordBanterPost,
       });
@@ -149,6 +175,7 @@ export class OfficeHistory extends Context.Service<
     OfficeHistory.of({
       latestActivityBetween: notRecording,
       presentSinceBotStarted: notRecording(),
+      latestBanter: notRecording(),
       banterPostsSince: notRecording,
       recordBanterPost: notRecording,
     }),

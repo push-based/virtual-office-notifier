@@ -10,6 +10,7 @@ export {
   type BanterPeriod,
   OfficeEvent,
   type OfficeLocation,
+  type PastBanter,
   type SessionRecap,
 } from "./OfficeEvent.ts";
 

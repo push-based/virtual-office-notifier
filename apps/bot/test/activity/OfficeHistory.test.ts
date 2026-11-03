@@ -7,7 +7,12 @@ import { SqlClient } from "effect/sql";
 import { ActivityLog } from "../../src/activity/ActivityLog.ts";
 import { columnNaming, Database } from "../../src/database/Database.ts";
 import { NO_VOICE_DETAILS, type VoiceDetails } from "../../src/office/OfficeEvent.ts";
-import { MAX_ACTIVITY_ENTRIES, OfficeHistory } from "../../src/activity/OfficeHistory.ts";
+import {
+  MAX_ACTIVITY_ENTRIES,
+  MAX_PAST_BANTER,
+  OfficeHistory,
+} from "../../src/activity/OfficeHistory.ts";
+import { type PostKind, SlackHistory } from "../../src/slack/SlackHistory.ts";
 import type { TimedVoiceEffect } from "../../src/office/VoiceEffect.ts";
 import type { VoiceObservation } from "../../src/office/VoiceObservation.ts";
 
@@ -18,7 +23,7 @@ const EARLIER_SESSION = "0b8f8a52-61a4-4b8e-9a43-2f7d0f2f6a01";
 const SESSION = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 
 // In-process Postgres with the real migrations.
-const TestLayer = Layer.mergeAll(OfficeHistory.layer, ActivityLog.layer).pipe(
+const TestLayer = Layer.mergeAll(OfficeHistory.layer, ActivityLog.layer, SlackHistory.layer).pipe(
   Layer.provideMerge(Database.layerNoDeps()),
   Layer.provideMerge(PgliteClient.layer(columnNaming)),
 );
@@ -260,6 +265,44 @@ describe("OfficeHistory", () => {
 
       assert.strictEqual(yield* history.banterPostsSince(minutes(20)), 2);
     }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect(
+    "hands back the latest banter posted, oldest first, and nothing else the bot posted",
+    () =>
+      Effect.gen(function* () {
+        yield* startSessions;
+
+        const slack = yield* SlackHistory;
+        const history = yield* OfficeHistory;
+
+        const post = (minute: number, kind: PostKind, text: string) =>
+          slack.recordPost({
+            channel: "C-OFFICE",
+            ts: `${minute}.0`,
+            threadTs: null,
+            kind,
+            model: "test/model",
+            text,
+            postedAt: minutes(minute),
+          });
+
+        yield* Effect.forEach(
+          Array.from({ length: MAX_PAST_BANTER + 2 }, (_, index) => index),
+          (index) => post(index, "Banter", `Banter ${index}`),
+          { discard: true },
+        );
+        yield* post(100, "Opened", "Ada opened the office");
+
+        const latest = yield* history.latestBanter;
+
+        assert.strictEqual(latest.length, MAX_PAST_BANTER);
+        assert.deepStrictEqual(latest[0], { at: minutes(2), text: "Banter 2" });
+        assert.deepStrictEqual(latest.at(-1), {
+          at: minutes(MAX_PAST_BANTER + 1),
+          text: `Banter ${MAX_PAST_BANTER + 1}`,
+        });
+      }).pipe(Effect.provide(TestLayer)),
   );
 
   it.effect("fails every read when nothing is recorded", () =>

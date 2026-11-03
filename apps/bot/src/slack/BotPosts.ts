@@ -37,6 +37,7 @@ export class BotPosts extends Context.Service<
             threadTs: message.threadTs ?? null,
             kind,
             model,
+            text: message.text,
             postedAt: yield* DateTime.now,
           })
           .pipe(

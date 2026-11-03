@@ -91,6 +91,7 @@ Up to five times an office day, at random, an AI model reads what happened in th
 - It picks one stretch of time at random: today so far, yesterday and today, this week so far (from Monday), or last week.
 - The model gets the time, who's in the office right now, and every entry of the [`office_activity`](database.md#the-views) view in that stretch, as is, with times in office time: `Wed 30 Sep 15:00 Barbara CameraOn` or `Wed 30 Sep 15:03 Alan PlayedSound airhorn`. A busy stretch is cut to its latest 400 entries, and the model is told how many were left out.
 - People are named with their `real_name` when it's filled in, or their Discord display name. Who's in right now comes from what this run of the bot recorded.
+- After the log comes the text of the latest 25 banter posts from [`slack_posts`](database.md#whats-recorded), about a week's worth, and the prompt tells the model not to tell any of their stories again, even about another day or in new words. Without that, a striking moment like a soundboard spree kept coming back each time a stretch of time covered it. It adds around a thousand input tokens to each request, and no extra requests.
 - The prompt asks for something playful and warm, never mean, that only says what the log shows. The reply must be exactly two lines: a message of up to 300 characters and a button label of up to 30, with no Slack link syntax. The reply is escaped before it's posted.
 - Nothing checks that what the model says is true, and it does get things wrong, so every bit of banter says it's AI-written and may be made up.
 
@@ -100,13 +101,13 @@ The same way as the headlines, except OpenRouter uses `OPENROUTER_BANTER_MODELS`
 
 **Trying it on made-up data**
 
-[`apps/bot/scripts/try-banter.ts`](../apps/bot/scripts/try-banter.ts) runs the scenarios in [`apps/bot/scripts/banter-scenarios.ts`](../apps/bot/scripts/banter-scenarios.ts): a busy Friday, an empty office, a mute marathon, a lone regular, last week's early bird and a camera party. It never posts to Slack or touches the database.
+[`apps/bot/scripts/try-banter.ts`](../apps/bot/scripts/try-banter.ts) runs the scenarios in [`apps/bot/scripts/banter-scenarios.ts`](../apps/bot/scripts/banter-scenarios.ts): a busy Friday, an empty office, a mute marathon, the same mute marathon once it's already been posted about, a lone regular, last week's early bird and a camera party. It never posts to Slack or touches the database.
 
 ```bash
 node --env-file=.env apps/bot/scripts/try-banter.ts
 ```
 
-On its own it only prints the prompts. With `--call-ai` it asks one OpenRouter model once per scenario, with no fallback, so a run is at most 6 requests. `BANTER_MODEL` picks the model (the first of the banter defaults otherwise) and `BANTER_SCENARIO` runs just one scenario by name.
+On its own it only prints the prompts. With `--call-ai` it asks one OpenRouter model once per scenario, with no fallback, so a run is at most 7 requests. `BANTER_MODEL` picks the model (the first of the banter defaults otherwise) and `BANTER_SCENARIO` runs just one scenario by name.
 
 ```bash
 node --env-file=.env apps/bot/scripts/try-banter.ts --call-ai

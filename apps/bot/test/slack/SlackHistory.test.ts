@@ -70,6 +70,7 @@ const reply = (ts: string, threadTs: string, postedAt: DateTime.Utc) => ({
   threadTs,
   kind: "Reply" as const,
   model: "test/model",
+  text: "Reply text",
   postedAt,
 });
 

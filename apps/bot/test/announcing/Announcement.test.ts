@@ -262,6 +262,7 @@ describe("formatMessage for banter", () => {
     activityOldestFirst: [],
     olderEntriesLeftOut: 0,
     present: [],
+    alreadyPostedOldestFirst: [],
   });
 
   it("has nothing to post without a generated message", () => {
