@@ -5,6 +5,9 @@
   "type": "module",
   "devDependencies": {
     "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "@alchemy.run/gcp": "2.0.0-beta.85",
+    "@alchemy.run/github": "2.0.0-beta.85",
+    "@distilled.cloud/gcp": "1.0.0-rc.18",
     "@effect/platform-node": "catalog:",
     "@types/node": "26.6.5",
     "alchemy": "2.0.0-beta.85",

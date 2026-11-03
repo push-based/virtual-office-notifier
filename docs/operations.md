@@ -43,18 +43,31 @@ The deploy writes the env file and installs the systemd unit, so there's nothing
 
 The `deploy` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) authenticates to GCP through Workload Identity Federation, so there's no service account key to leak, and only pushes to `main` on this repo can get a token.
 
-One-time setup, from the repo root with `gcloud` on the right project and `gh` logged in to the repo owner's account:
+Who the deploy is, and what it may do, is a second Alchemy stack, [`infra/admin.run.ts`](../infra/admin.run.ts). CI never deploys it, so CI can't grant itself anything. It holds:
+
+- the `github-deploy` service account;
+- the `github` Workload Identity pool and its OIDC provider, which only trust pushes to `main` on `push-based/virtual-office-notifier`;
+- what `github-deploy` may do: act as the VM's service account, SSH and sudo on the VM through OS Login, read the project's metadata through the custom `githubDeployProjectReader` role, and manage the recordings bucket;
+- the `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT` repository secrets.
+
+Deploy it from your machine whenever it changes, logged in to `gcloud` as a project owner and to `gh` as a repo admin, with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_DEPLOY_TOKEN` in the root `.env` for the state store. Look at the plan first:
 
 ```bash
-scripts/setup-ci.sh
+vp run infra#admin-plan
 ```
 
-This creates a `github-deploy` service account and a Workload Identity pool trusting this repo's `main` branch, turns on OS Login for the VM, and grants the account SSH and sudo there. It then stores these repository secrets:
+```bash
+vp run infra#admin-deploy
+```
+
+On a new GCP project, turn on the APIs it needs first with `gcloud services enable iamcredentials.googleapis.com oslogin.googleapis.com`, and the VM needs `enable-oslogin=TRUE` in its metadata.
+
+The repository secrets:
 
 | Secret                                                                                                     | Source                                                                                                                                                                 |
 | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER`                                                                           | The Workload Identity provider created above                                                                                                                           |
-| `GCP_SERVICE_ACCOUNT`                                                                                      | The `github-deploy` service account email                                                                                                                              |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER`                                                                           | Set by the admin stack: the Workload Identity provider                                                                                                                 |
+| `GCP_SERVICE_ACCOUNT`                                                                                      | Set by the admin stack: the `github-deploy` service account email                                                                                                      |
 | `DISCORD_BOT_TOKEN`, `DISCORD_OFFICE_CHANNEL_ID`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CHANNEL_ID` | Your local `.env`                                                                                                                                                      |
 | `DATABASE_URL`                                                                                             | The Supabase session pooler connection string. See [Database](setup.md#database).                                                                                      |
 | `OPENROUTER_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `RECORDINGS_BUCKET`, `SENTRY_DSN`   | Optional, your local `.env`                                                                                                                                            |

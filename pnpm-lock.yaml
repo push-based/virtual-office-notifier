@@ -227,6 +227,15 @@ importers:
       '@alchemy.run/cloudflare':
         specifier: 2.0.0-beta.85
         version: 2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@effect/sql-pg@4.1.0(effect@4.1.0))(@types/node@26.6.5)(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)(typescript@7.0.2)
+      '@alchemy.run/gcp':
+        specifier: 2.0.0-beta.85
+        version: 2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@effect/sql-pg@4.1.0(effect@4.1.0))(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)
+      '@alchemy.run/github':
+        specifier: 2.0.0-beta.85
+        version: 2.0.0-beta.85(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)
+      '@distilled.cloud/gcp':
+        specifier: 1.0.0-rc.18
+        version: 1.0.0-rc.18(effect@4.1.0)
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1))
@@ -403,8 +412,42 @@ packages:
       '@effect/platform-bun':
         optional: true
 
+  '@alchemy.run/gcp@2.0.0-beta.85':
+    resolution: {integrity: sha512-vDh/U/k3BNl//IW3MGDyYwd91jic2nkJy5jh9QJB6P3hV2GfGk5AdKNyvypqXfRUWsfXfzPGEv6s0s2nXk0FJg==}
+    peerDependencies:
+      '@effect/platform-bun': ^4.1.0
+      '@effect/platform-node': ^4.1.0
+      alchemy: 2.0.0-beta.85
+      effect: ^4.1.0
+    peerDependenciesMeta:
+      '@effect/platform-bun':
+        optional: true
+      '@effect/platform-node':
+        optional: true
+
+  '@alchemy.run/github@2.0.0-beta.85':
+    resolution: {integrity: sha512-lKQZTlqYo/iOK4Zbskd7riff9nqkMNgtStdlmgAUD/IvR+FweXftfcjZD9u9k/Z3h4RguJi4IduwFudSpLl6QQ==}
+    peerDependencies:
+      alchemy: 2.0.0-beta.85
+      effect: ^4.1.0
+
+  '@alchemy.run/kubernetes@2.0.0-beta.85':
+    resolution: {integrity: sha512-wREK4549wHncU7+XZJuJlOOTjHE2+9Dl+K/CHb5qwEWtHKaX6wbCuEccQad2PerDTA9cs5kPHmMXdGJhrY9yhQ==}
+    peerDependencies:
+      '@effect/platform-bun': ^4.1.0
+      alchemy: 2.0.0-beta.85
+      effect: ^4.1.0
+    peerDependenciesMeta:
+      '@effect/platform-bun':
+        optional: true
+
   '@alchemy.run/node-utils@2.0.0-beta.85':
     resolution: {integrity: sha512-2gxqMNMoJdx13w7wlDJw+gaXQ8e1VxQFsKldOvweqpd7JEgB5TGn3oO8r1sb/GB9+UzqXdh8tKp2MOVgFOrmbg==}
+
+  '@alchemy.run/redis@2.0.0-beta.85':
+    resolution: {integrity: sha512-XQVfWG9FyP5S0FYpUhnKUJP5uoq4odx8fYWtecuo3rBj0QxUDLPgYqfao8dOHy/NHc7Q2scfKriKlH5Y/4//Dg==}
+    peerDependencies:
+      effect: ^4.1.0
 
   '@alchemy.run/sigil@0.1.0-alpha.1':
     resolution: {integrity: sha512-RtHELG2w+GluVewRsuKm66idtPzC+4STptMr/61X1Vy5uBkDzcCzjzV8G6jUa4iBv6Il0hHV7UL6wvv//9nD/Q==}
@@ -761,6 +804,16 @@ packages:
 
   '@distilled.cloud/core@1.0.0-rc.18':
     resolution: {integrity: sha512-Iui60+sNl1CwUu7NKGLuFf3VC4H9xYzfm0Fc8ZQvd87qwf1sDMB3EAWZrq/QFgrwzSY16z2mJ0PNHaBUnGet8A==}
+    peerDependencies:
+      effect: ^4.0.5
+
+  '@distilled.cloud/gcp@1.0.0-rc.18':
+    resolution: {integrity: sha512-9jxa4ei9xjnU0C3lMMNEfQOCrlFwl4Vb9biJ66wLQ8Rpl+kpoyZYaGO1R6J+h00uWKMR7Wsi1W1HBvprvGVcbw==}
+    peerDependencies:
+      effect: ^4.0.5
+
+  '@distilled.cloud/github@1.0.0-rc.18':
+    resolution: {integrity: sha512-SX5EofqqjaHRnTw0RC83qvEQZr11/RcNxqjdsn7kteHvni+1DIgnlRfeHoUD2rVyQEyEPWCYnIOFWysgXUOvSg==}
     peerDependencies:
       effect: ^4.0.5
 
@@ -2743,6 +2796,12 @@ packages:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
 
+  libsodium-wrappers@0.8.4:
+    resolution: {integrity: sha512-mu8aAWucZjTB5O/BtGXtW4e1agy7uHxNYG7zPthmmD1jU43LCDmSWZLN4JhflbdPXj3yDO4lxM1O9hLDgIOXDw==}
+
+  libsodium@0.8.4:
+    resolution: {integrity: sha512-lMcYaRi0zcs7tarATsQUYC7rstliIXZuoq0c6zXSgNtSNtdvBgkSegjWhpMJAXzKX3SUSwIp7+zEsob+j3LuRw==}
+
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
     engines: {node: '>= 12.0.0'}
@@ -3391,10 +3450,51 @@ snapshots:
       effect: 4.1.0
       rolldown: 1.2.13
 
+  '@alchemy.run/gcp@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@effect/sql-pg@4.1.0(effect@4.1.0))(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)':
+    dependencies:
+      '@alchemy.run/docker': 2.0.0-beta.85(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)
+      '@alchemy.run/kubernetes': 2.0.0-beta.85(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)
+      '@alchemy.run/redis': 2.0.0-beta.85(effect@4.1.0)
+      '@alchemy.run/sql': 2.0.0-beta.85(@effect/sql-pg@4.1.0(effect@4.1.0))(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)
+      '@distilled.cloud/aws': 1.0.0-rc.18(effect@4.1.0)
+      '@distilled.cloud/aws4signer': 1.0.0-rc.18(effect@4.1.0)
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@4.1.0)
+      '@distilled.cloud/gcp': 1.0.0-rc.18(effect@4.1.0)
+      alchemy: 2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0)
+      effect: 4.1.0
+      rolldown: 1.2.13
+    optionalDependencies:
+      '@effect/platform-node': 4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1))
+    transitivePeerDependencies:
+      - '@effect/sql-libsql'
+      - '@effect/sql-mysql2'
+      - '@effect/sql-pg'
+      - mysql2
+      - pg
+
+  '@alchemy.run/github@2.0.0-beta.85(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)':
+    dependencies:
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@4.1.0)
+      '@distilled.cloud/github': 1.0.0-rc.18(effect@4.1.0)
+      alchemy: 2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0)
+      effect: 4.1.0
+      libsodium-wrappers: 0.8.4
+
+  '@alchemy.run/kubernetes@2.0.0-beta.85(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)':
+    dependencies:
+      '@alchemy.run/docker': 2.0.0-beta.85(alchemy@2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0))(effect@4.1.0)
+      alchemy: 2.0.0-beta.85(@effect/platform-node@4.1.0(effect@4.1.0)(redis@6.2.1(@opentelemetry/api@1.9.1)))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.6.5)(esbuild@0.28.2)(typescript@7.0.2)(yaml@2.9.1))(effect@4.1.0)(ws@8.22.0)
+      effect: 4.1.0
+      yaml: 2.9.1
+
   '@alchemy.run/node-utils@2.0.0-beta.85':
     dependencies:
       chokidar: 5.0.0
       rolldown: 1.2.13
+
+  '@alchemy.run/redis@2.0.0-beta.85(effect@4.1.0)':
+    dependencies:
+      effect: 4.1.0
 
   '@alchemy.run/sigil@0.1.0-alpha.1': {}
 
@@ -3753,6 +3853,16 @@ snapshots:
 
   '@distilled.cloud/core@1.0.0-rc.18(effect@4.1.0)':
     dependencies:
+      effect: 4.1.0
+
+  '@distilled.cloud/gcp@1.0.0-rc.18(effect@4.1.0)':
+    dependencies:
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@4.1.0)
+      effect: 4.1.0
+
+  '@distilled.cloud/github@1.0.0-rc.18(effect@4.1.0)':
+    dependencies:
+      '@distilled.cloud/core': 1.0.0-rc.18(effect@4.1.0)
       effect: 4.1.0
 
   '@distilled.cloud/iceberg@1.0.0-rc.18(effect@4.1.0)':
@@ -5182,6 +5292,12 @@ snapshots:
   json5@2.2.3: {}
 
   kleur@4.1.5: {}
+
+  libsodium-wrappers@0.8.4:
+    dependencies:
+      libsodium: 0.8.4
+
+  libsodium@0.8.4: {}
 
   lightningcss-android-arm64@1.33.0:
     optional: true
