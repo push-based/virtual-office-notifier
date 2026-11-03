@@ -40,19 +40,6 @@ export default defineConfig(({ mode }) => ({
         },
       },
       test: "vp test",
-      check: {
-        command: "wrangler deploy --dry-run",
-        dependsOn: ["build"],
-        cache: {
-          input: [{ auto: true }, "!.wrangler/tmp/**"],
-          output: [],
-        },
-      },
-      deploy: {
-        command: "wrangler deploy",
-        cache: false,
-        dependsOn: ["build"],
-      },
     },
   },
 }));
