@@ -41,7 +41,7 @@ Who the deploy is, and what it may do, is a second Alchemy stack, [`infra/admin.
 
 - the `github-deploy` service account;
 - the `github` Workload Identity pool and its OIDC provider, which only trust pushes to `main` on `push-based/virtual-office-notifier`;
-- what `github-deploy` may do: act as the VM's service account, SSH and sudo on the VM through OS Login, read the project's metadata through the custom `githubDeployProjectReader` role, and manage the recordings bucket. Only pushes to `main` can act as it;
+- what `github-deploy` may do: act as the VM's service account, SSH and sudo on the VM through OS Login, read the project's metadata and wait on VM changes through the custom `githubDeployProjectReader` role, and manage the recordings bucket. Only pushes to `main` can act as it;
 - the read-only `github-plan` service account the `plan` job on pull requests acts as, with the custom `githubPlanReader` role: it can read the VM and the bucket, and change nothing;
 - the `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` and `GCP_PLAN_SERVICE_ACCOUNT` repository secrets.
 

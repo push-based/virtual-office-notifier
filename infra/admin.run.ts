@@ -65,8 +65,9 @@ export default Stack(
       project: PROJECT,
       roleId: "githubDeployProjectReader",
       title: "GitHub deploy project reader",
-      description: "Lets gcloud compute ssh/scp read project metadata",
-      permissions: ["compute.projects.get"],
+      description:
+        "Lets gcloud compute ssh/scp read project metadata, and Alchemy wait on VM changes",
+      permissions: ["compute.projects.get", "compute.zoneOperations.get"],
     }).pipe(RemovalPolicy.retain());
 
     const deployerMember = Output.interpolate`serviceAccount:${deployer.email}`;
