@@ -549,4 +549,10 @@ export const migrations = Migrator.fromRecord({
 
     yield* sql`ALTER TABLE office.slack_posts ADD COLUMN text text`;
   }),
+
+  "0012_tidy_quiet_banter": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`ALTER TABLE office.slack_posts ADD COLUMN deleted_at timestamptz`;
+  }),
 });

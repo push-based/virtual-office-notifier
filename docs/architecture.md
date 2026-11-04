@@ -83,24 +83,25 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src). The top lev
 
 **Slack**, in [`apps/bot/src/slack/`](../apps/bot/src/slack): Slack itself, used by announcing, answering and recording through its `index.ts`.
 
-| Module                                                     | Responsibility                                                                                        |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| [`SlackClient.ts`](../apps/bot/src/slack/SlackClient.ts)   | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification. |
-| [`SlackSocket.ts`](../apps/bot/src/slack/SlackSocket.ts)   | The Socket Mode connection: acks every event at once, drops redeliveries and reconnects.              |
-| [`SlackEvent.ts`](../apps/bot/src/slack/SlackEvent.ts)     | Decodes Slack events and decides which ones the bot considers.                                        |
-| [`SlackMessage.ts`](../apps/bot/src/slack/SlackMessage.ts) | The Block Kit pieces every message is built from, and escaping text from outside.                     |
-| [`BotPosts.ts`](../apps/bot/src/slack/BotPosts.ts)         | Every post the bot makes in Slack: posts it and records it, and a failed record never hides the post. |
-| [`SlackHistory.ts`](../apps/bot/src/slack/SlackHistory.ts) | Reads the responder settings and keeps the Slack posts, messages, decisions and reactions.            |
+| Module                                                     | Responsibility                                                                                                           |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [`SlackClient.ts`](../apps/bot/src/slack/SlackClient.ts)   | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification.                    |
+| [`SlackSocket.ts`](../apps/bot/src/slack/SlackSocket.ts)   | The Socket Mode connection: acks every event at once, drops redeliveries and reconnects.                                 |
+| [`SlackEvent.ts`](../apps/bot/src/slack/SlackEvent.ts)     | Decodes Slack events and decides which ones the bot considers.                                                           |
+| [`SlackMessage.ts`](../apps/bot/src/slack/SlackMessage.ts) | The Block Kit pieces every message is built from, and escaping text from outside.                                        |
+| [`BotPosts.ts`](../apps/bot/src/slack/BotPosts.ts)         | Every post the bot makes in Slack: posts it and records it, and a failed record never hides the post.                    |
+| [`SlackHistory.ts`](../apps/bot/src/slack/SlackHistory.ts) | Reads the responder settings and keeps the Slack posts, messages, decisions and reactions, and which banter was deleted. |
 
 **Announcing**, in [`apps/bot/src/announcing/`](../apps/bot/src/announcing): the announcements, the reminder and banter. Program uses its `index.ts`.
 
-| Module                                                              | Responsibility                                                                            |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| [`SlackNotifier.ts`](../apps/bot/src/announcing/SlackNotifier.ts)   | Posts the announcements, reminders and banter.                                            |
-| [`Announcement.ts`](../apps/bot/src/announcing/Announcement.ts)     | Builds each announcement, reminder and banter message, including the fixed phrasings.     |
-| [`HeadlineWriter.ts`](../apps/bot/src/announcing/HeadlineWriter.ts) | Asks the AI providers for a headline or banter and a button label, and checks the reply.  |
-| [`Reminder.ts`](../apps/bot/src/announcing/Reminder.ts)             | The weekday reminder schedule.                                                            |
-| [`Banter.ts`](../apps/bot/src/announcing/Banter.ts)                 | When to post banter, which stretch of activity it covers, and the log the AI model reads. |
+| Module                                                              | Responsibility                                                                                |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [`SlackNotifier.ts`](../apps/bot/src/announcing/SlackNotifier.ts)   | Posts the announcements, reminders and banter.                                                |
+| [`Announcement.ts`](../apps/bot/src/announcing/Announcement.ts)     | Builds each announcement, reminder and banter message, including the fixed phrasings.         |
+| [`HeadlineWriter.ts`](../apps/bot/src/announcing/HeadlineWriter.ts) | Asks the AI providers for a headline or banter and a button label, and checks the reply.      |
+| [`Reminder.ts`](../apps/bot/src/announcing/Reminder.ts)             | The weekday reminder schedule.                                                                |
+| [`Banter.ts`](../apps/bot/src/announcing/Banter.ts)                 | When to post banter, which stretch of activity it covers, and the log the AI model reads.     |
+| [`QuietBanter.ts`](../apps/bot/src/announcing/QuietBanter.ts)       | Every morning, deletes yesterday's banter from Slack that nobody reacted to or replied under. |
 
 **Answering in Slack**, in [`apps/bot/src/answering/`](../apps/bot/src/answering). Program uses its `index.ts`, which exports `ResponderLayer`.
 

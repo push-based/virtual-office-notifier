@@ -32,6 +32,7 @@ import { HistoryUnavailable } from "../src/activity/OfficeHistory.ts";
 import { OfficeSeat } from "../src/office/OfficeSeat.ts";
 import type { SlackMessage } from "../src/slack/SlackMessage.ts";
 import {
+  type Engagement,
   type FileUpload,
   type OutgoingMessage,
   SlackClient,
@@ -44,6 +45,7 @@ import {
   type ConsideredMessage,
   type DecisionRecord,
   type LinkedMember,
+  type PostedBanter,
   type ReactionRecord,
   type ResponderSettings,
   SlackHistory,
@@ -278,7 +280,11 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
   const messages = yield* Ref.make<ReadonlyArray<ConsideredMessage>>([]);
   const decisions = yield* Ref.make<ReadonlyArray<DecisionRecord>>([]);
   const reactions = yield* Ref.make<ReadonlyArray<ReactionRecord>>([]);
+  const deleted = yield* Ref.make<ReadonlyArray<PostedBanter>>([]);
   const members = options.members ?? new Map<string, LinkedMember>();
+
+  const isDeleted = (all: ReadonlyArray<PostedBanter>, post: PostedBanter) =>
+    Array.some(all, ({ channel, ts }) => channel === post.channel && ts === post.ts);
 
   const replies = Ref.get(posts).pipe(
     Effect.map((all) => Array.filter(all, (post) => post.kind === "Reply")),
@@ -331,6 +337,24 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
                 .length,
           ),
         ),
+      banterInSlackBetween: (from, until) =>
+        Effect.gen(function* () {
+          const all = yield* Ref.get(posts);
+          const gone = yield* Ref.get(deleted);
+
+          const shown = Array.filter(
+            all,
+            (post) =>
+              post.kind === "Banter" &&
+              post.threadTs === null &&
+              DateTime.isGreaterThanOrEqualTo(post.postedAt, from) &&
+              DateTime.isLessThan(post.postedAt, until) &&
+              !isDeleted(gone, post),
+          );
+
+          return Array.map(shown, ({ channel, ts }) => ({ channel, ts }));
+        }),
+      recordDeleted: (post) => Ref.update(deleted, (all) => [...all, post]),
       linkMember: (slackUserId) => Effect.succeed(Option.fromUndefinedOr(members.get(slackUserId))),
     }),
   );
@@ -342,6 +366,7 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
     messages: Ref.get(messages),
     decisions: Ref.get(decisions),
     reactions: Ref.get(reactions),
+    deleted: Ref.get(deleted),
   };
 });
 
@@ -353,6 +378,8 @@ export interface FakeSlackClientOptions {
   readonly postFailure?: SlackErrorReason | undefined;
   readonly permalinkFailure?: SlackErrorReason | undefined;
   readonly updateFailure?: SlackErrorReason | undefined;
+  readonly engagement?: ReadonlyMap<string, Engagement> | undefined;
+  readonly engagementFailures?: ReadonlyMap<string, SlackErrorReason> | undefined;
 }
 
 export interface UpdatedMessage {
@@ -372,6 +399,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
   const reactions = yield* Ref.make<ReadonlyArray<readonly [string, string, string]>>([]);
   const uploads = yield* Ref.make<ReadonlyArray<FileUpload>>([]);
   const updates = yield* Ref.make<ReadonlyArray<UpdatedMessage>>([]);
+  const deletions = yield* Ref.make<ReadonlyArray<readonly [string, string]>>([]);
   const threads = yield* Ref.make(new Map(options.threads ?? []));
   const profiles = options.profiles ?? new Map<string, SlackProfile>();
 
@@ -402,6 +430,13 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
         options.updateFailure === undefined
           ? Ref.update(updates, (all) => [...all, { channel, ts, message }])
           : Effect.fail(SlackError.make({ reason: options.updateFailure })),
+      deleteMessage: (channel, ts) =>
+        Ref.update(deletions, (all) => [...all, [channel, ts] as const]),
+      engagement: (_channel, ts) =>
+        Option.match(Option.fromUndefinedOr(options.engagementFailures?.get(ts)), {
+          onNone: () => Effect.succeed(options.engagement?.get(ts) ?? { reactions: 0, replies: 0 }),
+          onSome: (reason) => Effect.fail(SlackError.make({ reason })),
+        }),
       addReaction: (channel, ts, emoji) =>
         Ref.update(reactions, (all) => [...all, [channel, ts, emoji] as const]),
       uploadFile: (upload) => Ref.update(uploads, (all) => [...all, upload]),
@@ -424,6 +459,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
     reactions: Ref.get(reactions),
     uploads: Ref.get(uploads),
     updates: Ref.get(updates),
+    deletions: Ref.get(deletions),
     addToThread: (threadTs: string, message: ThreadMessage) =>
       Ref.update(threads, (all) =>
         new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message]),
