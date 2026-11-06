@@ -555,4 +555,39 @@ export const migrations = Migrator.fromRecord({
 
     yield* sql`ALTER TABLE office.slack_posts ADD COLUMN deleted_at timestamptz`;
   }),
+
+  "0013_consent": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      CREATE TABLE office.consent_events (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id text NOT NULL,
+        happened_at timestamptz NOT NULL,
+        kind text NOT NULL CHECK (
+          kind IN ('asked', 'agreed', 'declined', 'timed_out', 'left', 'disconnected', 'withdrawn')
+        ),
+        notice_version integer NOT NULL,
+        wording text CHECK (wording IN ('first', 'again')),
+        delivery text CHECK (delivery IN ('direct_message', 'voice_chat', 'undelivered')),
+        CHECK ((kind = 'asked') = (wording IS NOT NULL AND delivery IS NOT NULL))
+      )
+    `;
+
+    yield* sql`CREATE INDEX consent_events_user ON office.consent_events (user_id, id)`;
+
+    yield* sql`
+      CREATE TABLE office.consent_requests (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id text NOT NULL,
+        kind text NOT NULL CHECK (kind IN ('withdraw')),
+        requested_at timestamptz NOT NULL DEFAULT now(),
+        handled_at timestamptz,
+        outcome text CHECK (outcome IN ('withdrawn', 'ignored')),
+        CHECK ((handled_at IS NULL) = (outcome IS NULL))
+      )
+    `;
+
+    yield* sql`CREATE INDEX consent_requests_pending ON office.consent_requests (id) WHERE handled_at IS NULL`;
+  }),
 });

@@ -1,4 +1,5 @@
 import { Cause, Effect, ErrorReporter, Layer, Option } from "effect";
+import { ConsentRequests } from "recording-requests/ConsentRequests";
 import { RecordingEdits } from "recording-requests/RecordingEdits";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
@@ -9,6 +10,7 @@ import {
   RecordingDisabled,
 } from "./activity/index.ts";
 import { DatabaseConfig } from "./Config.ts";
+import { ConsentBook, ConsentLog } from "./consent/index.ts";
 import { Database, describeError } from "./database/index.ts";
 import { RecordingStore } from "./recording/index.ts";
 import { SlackHistory } from "./slack/index.ts";
@@ -20,6 +22,8 @@ const disabled = Layer.mergeAll(
   RecordingStore.layerDisabled,
   RecordingRequests.layerDisabled,
   RecordingEdits.layerDisabled,
+  ConsentRequests.layerDisabled,
+  ConsentBook.layerMemory,
 );
 
 const recordingRequests = Layer.effect(
@@ -40,6 +44,15 @@ const recordingEdits = Layer.effect(
   }),
 );
 
+const consentRequests = Layer.effect(
+  ConsentRequests,
+  Effect.gen(function* () {
+    const database = yield* Database;
+
+    return yield* ConsentRequests.make(database.ready);
+  }),
+);
+
 export const StorageLayer = Layer.unwrap(
   Effect.gen(function* () {
     const { url } = yield* DatabaseConfig;
@@ -57,6 +70,8 @@ export const StorageLayer = Layer.unwrap(
           RecordingStore.layer,
           recordingRequests,
           recordingEdits,
+          consentRequests,
+          ConsentBook.layer.pipe(Layer.provide(ConsentLog.layer)),
         ).pipe(
           Layer.provide(Layer.provideMerge(ActivityLog.layer, Database.layer(url))),
           Layer.catch((error) =>

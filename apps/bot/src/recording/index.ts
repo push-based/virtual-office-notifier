@@ -8,6 +8,8 @@ import { Transcriber } from "./Transcriber.ts";
 
 export { RecordingStore } from "./RecordingStore.ts";
 
+export { StoreHealth } from "./StoreHealth.ts";
+
 export const RecordingLayer = RecorderLayer.pipe(
   Layer.provide([VoiceCapture.layer, ClipArchive.layer, Transcriber.layer, RecordingWriter.layer]),
 );

@@ -7,6 +7,8 @@ import { SignInSettings } from "activity-sign-in/SignInSettings";
 import { ConfigProvider, Function, Layer, Redacted } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
+import { ConsentHandlers } from "recording-requests/ConsentHandlers";
+import { ConsentRequests } from "recording-requests/ConsentRequests";
 import { OfficeStatsReader } from "recording-requests/OfficeStats";
 import { RecordingApi } from "recording-requests/RecordingApi";
 import {
@@ -62,6 +64,7 @@ const api = (env: Env) =>
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerPerCall(connectionTo(env)))),
       HistoryHandlers.pipe(Layer.provide(RecordingHistory.layerPerCall(connectionTo(env)))),
       EditHandlers.pipe(Layer.provide(RecordingEdits.layerPerCall(connectionTo(env)))),
+      ConsentHandlers.pipe(Layer.provide(ConsentRequests.layerPerCall(connectionTo(env)))),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),
