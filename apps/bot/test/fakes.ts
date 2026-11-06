@@ -38,6 +38,7 @@ import {
   SlackClient,
   SlackError,
   type SlackErrorReason,
+  type FetchedMessage,
   type SlackProfile,
   type ThreadMessage,
 } from "../src/slack/SlackClient.ts";
@@ -380,6 +381,15 @@ export interface FakeSlackClientOptions {
   readonly updateFailure?: SlackErrorReason | undefined;
   readonly engagement?: ReadonlyMap<string, Engagement> | undefined;
   readonly engagementFailures?: ReadonlyMap<string, SlackErrorReason> | undefined;
+  readonly channelPosts?: ReadonlyArray<FetchedMessage> | undefined;
+  readonly threadPosts?: ReadonlyMap<string, ReadonlyArray<FetchedMessage>> | undefined;
+}
+
+export interface RewrittenMessage {
+  readonly channel: string;
+  readonly ts: string;
+  readonly text: string;
+  readonly blocks: Option.Option<Schema.JsonArray>;
 }
 
 export interface UpdatedMessage {
@@ -400,6 +410,8 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
   const uploads = yield* Ref.make<ReadonlyArray<FileUpload>>([]);
   const updates = yield* Ref.make<ReadonlyArray<UpdatedMessage>>([]);
   const deletions = yield* Ref.make<ReadonlyArray<readonly [string, string]>>([]);
+  const rewrites = yield* Ref.make<ReadonlyArray<RewrittenMessage>>([]);
+  const deletedFiles = yield* Ref.make<ReadonlyArray<string>>([]);
   const threads = yield* Ref.make(new Map(options.threads ?? []));
   const profiles = options.profiles ?? new Map<string, SlackProfile>();
 
@@ -442,6 +454,12 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
       uploadFile: (upload) => Ref.update(uploads, (all) => [...all, upload]),
       threadReplies: (_channel, threadTs) =>
         Ref.get(threads).pipe(Effect.map((all) => all.get(threadTs) ?? [])),
+      channelPosts: () => Stream.fromIterable(options.channelPosts ?? []),
+      threadPosts: (_channel, threadTs) =>
+        Stream.fromIterable(options.threadPosts?.get(threadTs) ?? []),
+      rewriteMessage: (channel, ts, text, blocks) =>
+        Ref.update(rewrites, (all) => [...all, { channel, ts, text, blocks }]),
+      deleteFile: (fileId) => Ref.update(deletedFiles, (all) => [...all, fileId]),
       userProfile: (userId) =>
         Effect.succeed(profiles.get(userId) ?? { displayName: userId, realName: "" }),
       permalink: (channel, ts) =>
@@ -460,6 +478,8 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
     uploads: Ref.get(uploads),
     updates: Ref.get(updates),
     deletions: Ref.get(deletions),
+    rewrites: Ref.get(rewrites),
+    deletedFiles: Ref.get(deletedFiles),
     addToThread: (threadTs: string, message: ThreadMessage) =>
       Ref.update(threads, (all) =>
         new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message]),

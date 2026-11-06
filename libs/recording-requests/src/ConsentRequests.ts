@@ -4,11 +4,14 @@ import { SqlClient, SqlSchema } from "effect/sql";
 import {
   type ConsentStatus,
   Decisive,
+  ErasureOutcome,
   standingOf,
+  type SubmittedErasure,
   type SubmittedWithdrawal,
   WithdrawalOutcome,
 } from "./Consent.ts";
 import {
+  type Committable,
   type Connected,
   connectedPerCall,
   connectedTo,
@@ -23,24 +26,35 @@ import {
 } from "./RecordingRequests.ts";
 import { CONSENT_NOTICE_VERSION } from "./Wire.ts";
 
-export interface Withdrawal {
+export interface ConsentChange {
   readonly id: number;
   readonly userId: string;
 }
 
-export interface WithdrawnConsent<E, R> {
-  readonly afterCommit: Effect.Effect<void, E, R>;
-}
+export type Withdrawal = ConsentChange;
+
+export type Erasure = ConsentChange;
 
 export interface WithdrawalHandler<E, R> {
-  withdraw(withdrawal: Withdrawal): Effect.Effect<WithdrawnConsent<E, R>, E, R>;
+  withdraw(withdrawal: Withdrawal): Effect.Effect<Committable<E, R>, E, R>;
 }
 
+export interface ErasureHandler<E, R> {
+  prepare(erasure: Erasure): Effect.Effect<void, E, R>;
+  erase(erasure: Erasure): Effect.Effect<Committable<E, R>, E, R>;
+}
+
+type RequestKind = "withdraw" | "erase";
+
 const SubmittedRow = Schema.Struct({ id: RowId, outcome: Schema.NullOr(WithdrawalOutcome) });
+
+const ErasureRow = Schema.Struct({ id: RowId, outcome: Schema.NullOr(ErasureOutcome) });
 
 const UserId = Schema.Struct({ userId: Schema.String });
 
 const PendingRow = Schema.Struct({ id: RowId, userId: Schema.String });
+
+const PendingId = Schema.Struct({ id: RowId });
 
 const latestDecisive = (sql: SqlClient.SqlClient) =>
   SqlSchema.findOneOption({
@@ -54,26 +68,26 @@ const latestDecisive = (sql: SqlClient.SqlClient) =>
     `,
   });
 
-const pendingOf = (sql: SqlClient.SqlClient) =>
+const pendingOf = (sql: SqlClient.SqlClient, kind: RequestKind) =>
   SqlSchema.findOneOption({
     Request: UserId,
-    Result: SubmittedRow,
+    Result: PendingId,
     execute: ({ userId }) => sql`
-      SELECT id, outcome FROM office.consent_requests
-      WHERE user_id = ${userId} AND kind = 'withdraw' AND handled_at IS NULL
+      SELECT id FROM office.consent_requests
+      WHERE user_id = ${userId} AND kind = ${kind} AND handled_at IS NULL
       ORDER BY id
       LIMIT 1
     `,
   });
 
-const insertWithdrawal = (sql: SqlClient.SqlClient) =>
+const insertRequest = (sql: SqlClient.SqlClient, kind: RequestKind) =>
   SqlSchema.findOne({
     Request: UserId,
-    Result: SubmittedRow,
+    Result: PendingId,
     execute: ({ userId }) => sql`
       INSERT INTO office.consent_requests (user_id, kind)
-      VALUES (${userId}, 'withdraw')
-      RETURNING id, outcome
+      VALUES (${userId}, ${kind})
+      RETURNING id
     `,
   });
 
@@ -87,13 +101,23 @@ const findWithdrawal = (sql: SqlClient.SqlClient) =>
     `,
   });
 
-const findPending = (sql: SqlClient.SqlClient) =>
+const findErasure = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findOneOption({
+    Request: Schema.Struct({ id: Schema.Finite, userId: Schema.String }),
+    Result: ErasureRow,
+    execute: ({ id, userId }) => sql`
+      SELECT id, outcome FROM office.consent_requests
+      WHERE id = ${id} AND kind = 'erase' AND (user_id = ${userId} OR outcome = 'erased')
+    `,
+  });
+
+const findPending = (sql: SqlClient.SqlClient, kind: RequestKind) =>
   SqlSchema.findAll({
     Request: Schema.Void,
     Result: PendingRow,
     execute: () => sql`
       SELECT id, user_id FROM office.consent_requests
-      WHERE handled_at IS NULL
+      WHERE handled_at IS NULL AND kind = ${kind}
       ORDER BY id
     `,
   });
@@ -109,8 +133,16 @@ export class ConsentRequests extends Context.Service<
       userId: string,
       id: number,
     ): Effect.Effect<Option.Option<SubmittedWithdrawal>, RecordingUnavailable>;
-    handlePending<E, R>(
+    erase(userId: string): Effect.Effect<SubmittedErasure, RecordingUnavailable>;
+    findErasure(
+      userId: string,
+      id: number,
+    ): Effect.Effect<Option.Option<SubmittedErasure>, RecordingUnavailable>;
+    handleWithdrawals<E, R>(
       handler: WithdrawalHandler<E, R>,
+    ): Effect.Effect<void, RecordingUnavailable | E, R>;
+    handleErasures<E, R>(
+      handler: ErasureHandler<E, R>,
     ): Effect.Effect<void, RecordingUnavailable | E, R>;
   }
 >()("recording-requests/ConsentRequests") {
@@ -126,13 +158,15 @@ export class ConsentRequests extends Context.Service<
       connected(
         Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
           const latest = yield* onceReady(latestDecisive(sql)({ userId }));
-          const pending = yield* onceReady(pendingOf(sql)({ userId }));
+          const withdrawal = yield* onceReady(pendingOf(sql, "withdraw")({ userId }));
+          const erasure = yield* onceReady(pendingOf(sql, "erase")({ userId }));
           const { standing, since } = standingOf(latest);
 
           const current: ConsentStatus = {
             standing,
             since: Option.getOrNull(since),
-            pendingWithdrawal: Option.getOrNull(Option.map(pending, ({ id }) => id)),
+            pendingWithdrawal: Option.getOrNull(Option.map(withdrawal, ({ id }) => id)),
+            pendingErasure: Option.getOrNull(Option.map(erasure, ({ id }) => id)),
           };
 
           return current;
@@ -140,23 +174,36 @@ export class ConsentRequests extends Context.Service<
       ),
     );
 
-    const withdraw = Effect.fn("ConsentRequests.withdraw")((userId: string) =>
-      connected((sql) =>
-        onceReady(
-          pendingOf(sql)({ userId }).pipe(
-            Effect.flatMap(
-              Option.match({
-                onSome: Effect.succeed,
-                onNone: () => insertWithdrawal(sql)({ userId }),
-              }),
-            ),
+    const submit = (sql: SqlClient.SqlClient, kind: RequestKind, userId: string) =>
+      onceReady(
+        pendingOf(
+          sql,
+          kind,
+        )({ userId }).pipe(
+          Effect.flatMap(
+            Option.match({
+              onSome: Effect.succeed,
+              onNone: () => insertRequest(sql, kind)({ userId }),
+            }),
           ),
+          Effect.map(({ id }) => ({ id, outcome: null })),
         ),
-      ),
+      );
+
+    const withdraw = Effect.fn("ConsentRequests.withdraw")((userId: string) =>
+      connected((sql) => submit(sql, "withdraw", userId)),
     );
 
     const find = Effect.fn("ConsentRequests.find")((userId: string, id: number) =>
       connected((sql) => onceReady(findWithdrawal(sql)({ id, userId }))),
+    );
+
+    const erase = Effect.fn("ConsentRequests.erase")((userId: string) =>
+      connected((sql) => submit(sql, "erase", userId)),
+    );
+
+    const findErasureOf = Effect.fn("ConsentRequests.findErasure")((userId: string, id: number) =>
+      connected((sql) => onceReady(findErasure(sql)({ id, userId }))),
     );
 
     const resolve = (sql: SqlClient.SqlClient, id: number, outcome: WithdrawalOutcome) =>
@@ -193,22 +240,73 @@ export class ConsentRequests extends Context.Service<
         );
       }).pipe(Effect.annotateLogs({ withdrawal: withdrawal.id }));
 
-    const handlePending = <E, R>(handler: WithdrawalHandler<E, R>) =>
-      connected(
-        Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
-          const pending = yield* onceReady(findPending(sql)()).pipe(
-            Effect.withTracerEnabled(false),
-          );
+    const recordErasure = (sql: SqlClient.SqlClient, erasure: Erasure) =>
+      Effect.all([
+        sql`DELETE FROM office.consent_events WHERE user_id = ${erasure.userId}`,
+        sql`
+          DELETE FROM office.consent_requests
+          WHERE user_id = ${erasure.userId} AND id <> ${erasure.id}
+        `,
+        sql`
+          UPDATE office.consent_requests
+          SET handled_at = now(), outcome = 'erased', user_id = NULL
+          WHERE id = ${erasure.id} AND handled_at IS NULL
+        `,
+      ]);
 
-          if (pending.length === 0) return;
+    const eraseOne = <E, R>(
+      sql: SqlClient.SqlClient,
+      erasure: Erasure,
+      handler: ErasureHandler<E, R>,
+    ) =>
+      handler
+        .prepare(erasure)
+        .pipe(
+          Effect.andThen(
+            committing(
+              sql,
+              handler.erase(erasure),
+              () => recordErasure(sql, erasure),
+              Effect.logInfo("Erased everything held about someone"),
+            ),
+          ),
+          Effect.annotateLogs({ erasure: erasure.id }),
+        );
 
-          yield* Effect.forEach(pending, (withdrawal) => handleOne(sql, withdrawal, handler), {
-            discard: true,
-          }).pipe(Effect.withSpan("ConsentRequests.handlePending"));
-        }),
-      );
+    const handleEach =
+      (kind: RequestKind) =>
+      <E, R>(
+        handleOne: (sql: SqlClient.SqlClient, change: ConsentChange) => Effect.Effect<void, E, R>,
+      ) =>
+        connected(
+          Effect.fnUntraced(function* (sql: SqlClient.SqlClient) {
+            const pending = yield* onceReady(findPending(sql, kind)()).pipe(
+              Effect.withTracerEnabled(false),
+            );
 
-    return ConsentRequests.of({ status, withdraw, find, handlePending });
+            if (pending.length === 0) return;
+
+            yield* Effect.forEach(pending, (change) => handleOne(sql, change), {
+              discard: true,
+            }).pipe(Effect.withSpan(`ConsentRequests.handle.${kind}`));
+          }),
+        );
+
+    const handleWithdrawals = <E, R>(handler: WithdrawalHandler<E, R>) =>
+      handleEach("withdraw")((sql, withdrawal) => handleOne(sql, withdrawal, handler));
+
+    const handleErasures = <E, R>(handler: ErasureHandler<E, R>) =>
+      handleEach("erase")((sql, erasure) => eraseOne(sql, erasure, handler));
+
+    return ConsentRequests.of({
+      status,
+      withdraw,
+      find,
+      erase,
+      findErasure: findErasureOf,
+      handleWithdrawals,
+      handleErasures,
+    });
   };
 
   static readonly make = Effect.fnUntraced(function* (ready: Effect.Effect<void>) {
@@ -233,7 +331,10 @@ export class ConsentRequests extends Context.Service<
       status: () => unavailable("Nothing is recorded"),
       withdraw: () => unavailable("Nothing is recorded"),
       find: () => unavailable("Nothing is recorded"),
-      handlePending: () => Effect.void,
+      erase: () => unavailable("Nothing is recorded"),
+      findErasure: () => unavailable("Nothing is recorded"),
+      handleWithdrawals: () => Effect.void,
+      handleErasures: () => Effect.void,
     }),
   );
 }

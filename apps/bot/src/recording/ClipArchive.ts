@@ -60,6 +60,7 @@ export class ClipArchive extends Context.Service<
     readonly bucket: Option.Option<string>;
     upload(path: string, audio: Uint8Array): Effect.Effect<void, ArchiveError>;
     download(path: string): Effect.Effect<Uint8Array, ArchiveError>;
+    remove(path: string): Effect.Effect<void, ArchiveError>;
   }
 >()("bot/recording/ClipArchive") {
   static readonly layerBucket = (bucket: string) =>
@@ -99,24 +100,29 @@ export class ClipArchive extends Context.Service<
           timeToLive: tokenLifetime,
         });
 
-        const send = Effect.fnUntraced(function* (
+        const execute = Effect.fnUntraced(function* (
           what: string,
           request: HttpClientRequest.HttpClientRequest,
         ) {
           const { access_token } = yield* Cache.get(tokens, undefined);
 
-          return yield* storage.execute(HttpClientRequest.bearerToken(request, access_token)).pipe(
-            Effect.timeout(REQUEST_TIMEOUT),
-            Effect.mapError(failed(what)),
+          return yield* storage
+            .execute(HttpClientRequest.bearerToken(request, access_token))
+            .pipe(Effect.timeout(REQUEST_TIMEOUT), Effect.mapError(failed(what)));
+        });
+
+        const unexpected = (what: string) => (response: HttpClientResponse.HttpClientResponse) =>
+          Effect.fail(archiveError(`${what} answered HTTP ${response.status}`));
+
+        const send = (what: string, request: HttpClientRequest.HttpClientRequest) =>
+          execute(what, request).pipe(
             Effect.flatMap(
               HttpClientResponse.matchStatus({
                 "2xx": (response) => Effect.succeed(response),
-                orElse: (response) =>
-                  Effect.fail(archiveError(`${what} answered HTTP ${response.status}`)),
+                orElse: unexpected(what),
               }),
             ),
           );
-        });
 
         const upload = Effect.fn("ClipArchive.upload")(
           (path: string, audio: Uint8Array) =>
@@ -147,7 +153,24 @@ export class ClipArchive extends Context.Service<
           ).pipe(Effect.flatMap(readBody)),
         );
 
-        return ClipArchive.of({ bucket: Option.some(bucket), upload, download });
+        const remove = Effect.fn("ClipArchive.remove")((path: string) =>
+          execute(
+            "Deleting the clip",
+            HttpClientRequest.delete(
+              `/storage/v1/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}`,
+            ),
+          ).pipe(
+            Effect.flatMap(
+              HttpClientResponse.matchStatus({
+                "2xx": () => Effect.void,
+                404: () => Effect.void,
+                orElse: unexpected("Deleting the clip"),
+              }),
+            ),
+          ),
+        );
+
+        return ClipArchive.of({ bucket: Option.some(bucket), upload, download, remove });
       }),
     );
 
@@ -157,6 +180,7 @@ export class ClipArchive extends Context.Service<
       bucket: Option.none(),
       upload: () => Effect.fail(archiveError("No bucket is configured")),
       download: () => Effect.fail(archiveError("No bucket is configured")),
+      remove: () => Effect.void,
     }),
   );
 

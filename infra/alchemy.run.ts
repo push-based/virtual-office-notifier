@@ -46,6 +46,7 @@ const officeMachine = Effect.gen(function* () {
   for (const [id, role] of [
     ["VmWritesClips", "roles/storage.objectCreator"],
     ["VmReadsClips", "roles/storage.objectViewer"],
+    ["VmDeletesClips", "roles/storage.objectUser"],
   ] as const) {
     yield* GCP.IAM.Member(id, {
       kind: "storage.bucket",

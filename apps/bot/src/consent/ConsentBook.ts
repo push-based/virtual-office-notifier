@@ -23,16 +23,23 @@ export const LOOKUP_WAIT = Duration.seconds(5);
 export const FLUSH_TIMEOUT = Duration.seconds(10);
 
 interface Noted {
+  readonly forgotten: boolean;
   readonly agreed: Option.Option<boolean>;
   readonly asked: number;
 }
 
-const NOTHING_NOTED: Noted = { agreed: Option.none(), asked: 0 };
+const NOTHING_NOTED: Noted = { forgotten: false, agreed: Option.none(), asked: 0 };
 
-export const recordAfter = (history: ConsentRecord, noted: Noted): ConsentRecord => ({
-  agreed: Option.getOrElse(noted.agreed, () => history.agreed),
-  asked: history.asked + noted.asked,
-});
+const FORGOTTEN: Noted = { forgotten: true, agreed: Option.none(), asked: 0 };
+
+export const recordAfter = (history: ConsentRecord, noted: Noted): ConsentRecord => {
+  const base = noted.forgotten ? NEVER_ASKED : history;
+
+  return {
+    agreed: Option.getOrElse(noted.agreed, () => base.agreed),
+    asked: base.asked + noted.asked,
+  };
+};
 
 const noting = (noted: Noted, event: ConsentEvent): Noted => {
   switch (event.kind) {
@@ -96,7 +103,10 @@ const make = (history: Effect.Effect<ReadonlyMap<string, ConsentRecord>>) =>
         new Map(all).set(event.userId, noting(all.get(event.userId) ?? NOTHING_NOTED, event)),
       );
 
-    return { lookup, lookupWithin, remember };
+    const forget = (userId: string) =>
+      Ref.update(noted, (all) => new Map(all).set(userId, FORGOTTEN));
+
+    return { lookup, lookupWithin, remember, forget };
   });
 
 export class ConsentBook extends Context.Service<
@@ -109,6 +119,7 @@ export class ConsentBook extends Context.Service<
     ): Effect.Effect<Option.Option<ConsentRecord>>;
     note(event: ConsentEvent): Effect.Effect<void>;
     remember(event: ConsentEvent): Effect.Effect<void>;
+    forget(userId: string): Effect.Effect<void>;
   }
 >()("bot/consent/ConsentBook") {
   static readonly layer = Layer.effect(

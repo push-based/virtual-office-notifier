@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Fiber, Layer, Ref } from "effect";
+import { DateTime, Effect, Fiber, Layer, Option, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
@@ -13,7 +13,14 @@ import {
   StoreUnavailable,
 } from "../../src/recording/RecordingStore.ts";
 import { RecordingWriter } from "../../src/recording/RecordingWriter.ts";
-import { makeFakeSlackClient, makeFakeSlackHistory, permalinkOf, pollUntil } from "../fakes.ts";
+import {
+  BOT_USER_ID,
+  type FakeSlackClientOptions,
+  makeFakeSlackClient,
+  makeFakeSlackHistory,
+  permalinkOf,
+  pollUntil,
+} from "../fakes.ts";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 
@@ -37,10 +44,11 @@ const clip = (transcription: NewClip["transcription"]): NewClip => ({
 interface Options {
   readonly spoken?: boolean;
   readonly finishFailures?: number;
+  readonly slack?: FakeSlackClientOptions;
 }
 
 const setUp = Effect.fnUntraced(function* (options: Options = {}) {
-  const slack = yield* makeFakeSlackClient();
+  const slack = yield* makeFakeSlackClient(options.slack);
   const history = yield* makeFakeSlackHistory();
   const finishFailures = yield* Ref.make(options.finishFailures ?? 0);
 
@@ -138,6 +146,135 @@ const setUp = Effect.fnUntraced(function* (options: Options = {}) {
 });
 
 describe("Publication", () => {
+  it.effect("republishes a recording after an erasure, with a new summary and transcript", () =>
+    Effect.gen(function* () {
+      const { publication, slack, run } = yield* setUp({
+        slack: {
+          threadPosts: new Map([
+            [
+              "900.0",
+              [
+                {
+                  ts: "900.0",
+                  userId: BOT_USER_ID,
+                  text: "📝",
+                  blocks: Option.none(),
+                  fileIds: [],
+                },
+                {
+                  ts: "901.0",
+                  userId: BOT_USER_ID,
+                  text: "",
+                  blocks: Option.none(),
+                  fileIds: ["F1"],
+                },
+                { ts: "902.0", userId: "U2", text: "", blocks: Option.none(), fileIds: ["F2"] },
+              ],
+            ],
+          ]),
+        },
+      });
+
+      yield* publication.finish(RECORDING);
+      yield* run(
+        Effect.flatMap(
+          SqlClient.SqlClient,
+          (sql) => sql`
+            UPDATE office.recordings
+            SET summary = NULL, summary_model = NULL, summary_written_style = NULL,
+                transcript = NULL, republish_requested_at = now()
+          `,
+        ),
+      );
+
+      yield* publication.republish(RECORDING);
+      yield* pollUntil(slack.uploads, (uploads) => uploads.length === 2);
+
+      const rows = yield* run(
+        Effect.flatMap(
+          SqlClient.SqlClient,
+          (sql) => sql<{
+            readonly summary: string | null;
+            readonly transcript: string | null;
+            readonly republishing: boolean;
+          }>`
+            SELECT summary, transcript, republish_requested_at IS NOT NULL AS republishing
+            FROM office.recordings
+          `,
+        ),
+      );
+
+      assert.deepStrictEqual(yield* slack.deletedFiles, ["F1"]);
+      assert.strictEqual(rows[0]?.summary, "• They said hello");
+      assert.include(rows[0]?.transcript ?? "", "Ada: hello there");
+      assert.isFalse(rows[0]?.republishing);
+      assert.strictEqual((yield* slack.updates)[0]?.ts, "900.0");
+    }),
+  );
+
+  it.effect("writes the summary again for a recording the erased person spoke in", () =>
+    Effect.gen(function* () {
+      const { publication, slack, run } = yield* setUp();
+
+      yield* publication.finish(RECORDING);
+      yield* run(
+        Effect.flatMap(
+          SqlClient.SqlClient,
+          (sql) => sql`
+            UPDATE office.recordings
+            SET summary = '• Something they said', republish_requested_at = now(),
+                republish_resummarize = true
+          `,
+        ),
+      );
+
+      yield* publication.republish(RECORDING);
+      yield* pollUntil(slack.uploads, (uploads) => uploads.length === 2);
+
+      const rows = yield* run(
+        Effect.flatMap(
+          SqlClient.SqlClient,
+          (sql) => sql<{ readonly summary: string | null; readonly versions: number }>`
+            SELECT summary, (SELECT count(*)::int FROM office.recording_summaries) AS versions
+            FROM office.recordings
+          `,
+        ),
+      );
+
+      assert.deepStrictEqual(rows[0], { summary: "• They said hello", versions: 1 });
+    }),
+  );
+
+  it.effect("waits for a recording to finish before republishing it", () =>
+    Effect.gen(function* () {
+      const { publication, slack, run } = yield* setUp();
+
+      yield* run(
+        Effect.flatMap(
+          SqlClient.SqlClient,
+          (sql) => sql`UPDATE office.recordings SET republish_requested_at = now()`,
+        ),
+      );
+      yield* publication.republish(RECORDING);
+      yield* Effect.yieldNow;
+
+      assert.deepStrictEqual(yield* slack.uploads, []);
+    }),
+  );
+
+  it.effect("doesn't republish a recording nobody asked to", () =>
+    Effect.gen(function* () {
+      const { publication, slack } = yield* setUp();
+
+      yield* publication.finish(RECORDING);
+      yield* publication.republish(RECORDING);
+      yield* Effect.yieldNow;
+
+      assert.strictEqual((yield* slack.uploads).length, 1);
+      assert.deepStrictEqual(yield* slack.updates, []);
+    }),
+  );
+
   it.effect("posts the summary once, with the transcript, and finishes the recording", () =>
     Effect.gen(function* () {
       const { publication, slack, history, finished } = yield* setUp();
