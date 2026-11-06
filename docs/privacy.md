@@ -1,6 +1,6 @@
 # Privacy
 
-Each feature below sends or keeps something about people, so tell the team before turning it on.
+Each feature below sends or keeps something about people, so tell the team before turning it on. [Where the data sits](#where-the-data-sits) is every place it ends up, and [running it for anyone else](#running-it-for-anyone-else) is what the GDPR expects of you once the office holds someone who hasn't agreed to all this.
 
 ## Presence in Slack
 
@@ -31,3 +31,34 @@ The exception is a [recording](recording.md), which someone in the office has to
 [Sentry](operations.md#monitoring), when it's configured, gets error reports, timings, database queries without their values, and log messages without their annotations, so no names or Discord user IDs. A lost voice connection also sends the steps of that join, which name no one. User IDs are also redacted in the announcement logs; an update the database couldn't store is logged in full, but only to the journal.
 
 From the Console, Sentry gets the same: no request or response bodies, so no sign-in codes, tokens, titles or agendas; no headers or cookies; no session replays; and no console lines or clicks in the breadcrumbs. It does get the URLs of `/api/*` calls, which carry recording IDs but no names. When Discord's proxy or the Worker can't be reached, it also gets the status, five response headers that say who answered (`retry-after`, `cf-ray`, `server`, `via`, `content-type`) and the first 200 characters of that error response, which comes from the proxy rather than from anyone's data.
+
+## Where the data sits
+
+| What                                                                                                       | Where it lives                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Voice activity, members, Slack messages and decisions, recordings, transcripts, summaries and action items | The Supabase Postgres [database](database.md), on AWS in `eu-west-1`, Ireland                                                     |
+| The audio of every recording                                                                               | The private `virtual-office-notifier-recordings` bucket on Google Cloud Storage, in `us-central1`, with no rule deleting anything |
+| The bot's process and its journal                                                                          | The [VM](operations.md#the-vm) in `us-central1-a`                                                                                 |
+| Announcements, banter, replies, summaries, action items and transcripts                                    | The office Slack channel, for as long as the workspace keeps messages                                                             |
+| Discord user IDs, display names and avatars                                                                | Discord, which the bot reads people from and never writes people to                                                               |
+| Speech, transcripts and office activity with everyone's names                                              | Cloudflare Workers AI and OpenRouter while a request is in flight, and with the providers of the free models afterwards           |
+| Error reports and timings, with no names or Discord user IDs                                               | [Sentry](#sentry), when it's configured                                                                                           |
+
+## How we run it
+
+It's an internal tool for one team. Everyone the bot records works here and is in the office by choice, and we asked the team before each feature went on and they agreed to it. Nothing it keeps leaves the team's own Slack, Console and infrastructure.
+
+That agreement is the whole basis for it. There's no notice, no sign-up screen and no way to export or erase one person's data, because the people in the office are the people who run it and they can be asked.
+
+## Running it for anyone else
+
+Asking around the table stops being enough as soon as someone in the office hasn't agreed: a client, a guest, a contractor, a new hire nobody briefed, or anyone at all if this is run as a service or for a team that isn't yours. Everything it keeps is personal data under the GDPR, and recorded speech is as personal as it gets. From then on you're the controller, and the code does none of this for you:
+
+- **A lawful basis you've written down.** Consent is the obvious one for recording what people say, and consent has to be freely given, which it isn't when the employer is the one asking. Legitimate interests is the usual alternative and needs a balancing test you keep.
+- **Telling people, before the bot is in the room.** What's recorded, why, how long it's kept, who it goes to and what the free models may do with it. The sections above are the content; delivering it is yours.
+- **Access, erasure and the rest of the rights.** Nothing is ever deleted and nothing can be exported or erased per person, so a request means doing it by hand across the database, the bucket and Slack, as [above](#where-the-data-sits). Keeping it forever needs a reason of its own.
+- **Agreements with everyone it's sent to.** Supabase, Google Cloud, Cloudflare, OpenRouter and whichever models answer, Slack, Discord and Sentry are all processors or recipients. The free models are the awkward ones: their providers may keep and train on what they're sent, and that can't be taken back.
+- **Transfers.** The database is in Ireland, the VM and the clips bucket are in the US, and the models are wherever their provider runs them.
+- **A DPIA, most likely.** Recording colleagues, keeping it forever and feeding it to models is the kind of systematic monitoring that asks for one before you start. Where there's a works council, this is usually theirs to agree to as well.
+
+None of that is legal advice. It's the list of things the code doesn't do, so nobody assumes it does.

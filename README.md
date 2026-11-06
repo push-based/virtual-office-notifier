@@ -86,13 +86,15 @@ Once it logs `Watching the virtual office`, join the office channel and the post
 | [The database](docs/database.md)               | Every table and view, and what happens when the database is down.                                                                            |
 | [How it works](docs/architecture.md)           | The process, how events are handled, the bot's presence in the office, and the module map.                                                   |
 | [Running it in production](docs/operations.md) | The VM, deploying from CI, logs, Sentry and troubleshooting.                                                                                 |
-| [Privacy](docs/privacy.md)                     | What each feature sends where, and what to tell the team before turning it on.                                                               |
+| [Privacy](docs/privacy.md)                     | What each feature sends where, where the data sits, what to tell the team, and what the GDPR expects if you run it for anyone else.          |
 | [CONTEXT.md](CONTEXT.md)                       | The words the code and the docs use, and what to avoid.                                                                                      |
 | [CONTRIBUTING.md](CONTRIBUTING.md)             | The toolchain, the checks and what a pull request needs.                                                                                     |
 
 ## Privacy
 
-This broadcasts people's presence to a wider audience, keeps a detailed record of everyone's activity in the office, and, feature by feature, sends names, messages and speech to AI providers that may keep and train on them. Nothing is ever deleted. Tell the team before turning each feature on. [Privacy](docs/privacy.md) says exactly what goes where.
+This broadcasts people's presence to a wider audience, keeps a detailed record of everyone's activity in the office, and, feature by feature, sends names, messages and speech to AI providers that may keep and train on them. Nothing is ever deleted. Tell the team before turning each feature on. [Privacy](docs/privacy.md) says exactly what goes where and [where it all sits](docs/privacy.md#where-the-data-sits).
+
+We run it as an internal tool for one team, who were asked about each feature and agreed to it, and that agreement is the whole basis for it. Run it anywhere the office can hold someone who hasn't agreed — a client, a guest, a team that isn't yours — and the GDPR asks you for a lawful basis, a notice, deletion, agreements with every provider it sends people to, and most likely a DPIA. None of that is in the code: [Running it for anyone else](docs/privacy.md#running-it-for-anyone-else) is the list.
 
 ## Contributing
 
