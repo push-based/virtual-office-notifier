@@ -92,9 +92,9 @@ Once it logs `Watching the virtual office`, join the office channel and the post
 
 ## Privacy
 
-This broadcasts people's presence to a wider audience, keeps a detailed record of everyone's activity in the office, and, feature by feature, sends names, messages and speech to AI providers that may keep and train on them. Nothing is ever deleted. Tell the team before turning each feature on. [Privacy](docs/privacy.md) says exactly what goes where and [where it all sits](docs/privacy.md#where-the-data-sits).
+This broadcasts people's presence to a wider audience, keeps a detailed record of everyone's activity in the office, and, feature by feature, sends names, messages and speech to AI providers that may keep and train on them. Nothing is ever deleted, for the reasons in [why it's kept](docs/privacy.md#why-its-kept). Tell the team before turning each feature on. [Privacy](docs/privacy.md) says exactly what goes where and [where it all sits](docs/privacy.md#where-the-data-sits).
 
-We run it as an internal tool for one team, who were asked about each feature and agreed to it, and that agreement is the whole basis for it. Run it anywhere the office can hold someone who hasn't agreed — a client, a guest, a team that isn't yours — and the GDPR asks you for a lawful basis, a notice, deletion, agreements with every provider it sends people to, and most likely a DPIA. None of that is in the code: [Running it for anyone else](docs/privacy.md#running-it-for-anyone-else) is the list.
+The office is optional, and recording is a condition of being in it: nobody has to join, but everyone who does is recorded. We run it as an internal tool for one team, who were asked about each feature and agreed to it, and that agreement is the whole basis for it until [issue #161](https://github.com/push-based/virtual-office-notifier/issues/161) asks everyone for their consent as they join. Run it anywhere the office can hold someone who hasn't agreed — a client, a guest, a team that isn't yours — and the GDPR asks you for a lawful basis, a notice, deletion, agreements with every provider it sends people to, and most likely a DPIA. None of that is in the code: [Running it for anyone else](docs/privacy.md#running-it-for-anyone-else) is the list.
 
 ## Contributing
 
