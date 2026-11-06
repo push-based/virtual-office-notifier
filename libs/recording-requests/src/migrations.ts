@@ -1,6 +1,8 @@
 import { Array, Effect } from "effect";
 import { Migrator, SqlClient } from "effect/sql";
 
+import { FORMER_MEMBER, FORMER_MEMBER_ID } from "./Wire.ts";
+
 // Each flag turns into a pair of events in the voice_activity view.
 const FLAG_EVENTS = [
   ["self_mute", "Muted", "Unmuted"],
@@ -589,5 +591,35 @@ export const migrations = Migrator.fromRecord({
     `;
 
     yield* sql`CREATE INDEX consent_requests_pending ON office.consent_requests (id) WHERE handled_at IS NULL`;
+  }),
+
+  "0014_erasure": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      ALTER TABLE office.consent_requests
+        ALTER COLUMN user_id DROP NOT NULL,
+        DROP CONSTRAINT IF EXISTS consent_requests_kind_check,
+        ADD CONSTRAINT consent_requests_kind_check CHECK (kind IN ('withdraw', 'erase')),
+        DROP CONSTRAINT IF EXISTS consent_requests_outcome_check,
+        ADD CONSTRAINT consent_requests_outcome_check CHECK (outcome IN ('withdrawn', 'ignored', 'erased')),
+        ADD CONSTRAINT consent_requests_user_check CHECK ((user_id IS NULL) = (outcome IS NOT DISTINCT FROM 'erased'))
+    `;
+
+    yield* sql`
+      INSERT INTO office.members (user_id, display_name, first_seen_at, last_seen_at)
+      VALUES (${FORMER_MEMBER_ID}, ${FORMER_MEMBER}, now(), now())
+    `;
+
+    yield* sql`
+      ALTER TABLE office.recordings
+        ADD COLUMN republish_requested_at timestamptz,
+        ADD COLUMN republish_resummarize boolean NOT NULL DEFAULT false
+    `;
+
+    yield* sql`
+      CREATE INDEX recordings_republish ON office.recordings (started_at)
+      WHERE republish_requested_at IS NOT NULL
+    `;
   }),
 });

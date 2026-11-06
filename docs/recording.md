@@ -9,7 +9,7 @@ The Console has four tabs:
 - **Now**: the recording status, who's in the office and which of them the bot hears speaking, and the Start, Stop, Pause and Resume buttons.
 - **History**: the [recording history](#recording-history), every recording newest first.
 - **Stats**: the [office stats](#office-stats) for this week, this month or all time.
-- **Privacy**: whether you've [agreed to being recorded](privacy.md#consent), what the office records, and **Withdraw consent**.
+- **Privacy**: whether you've [agreed to being recorded](privacy.md#consent), what the office records, **Withdraw consent** and **Delete my data**.
 
 Like everything else, recording can't break the announcements. A database, Whisper, storage or Slack outage is logged and retried, and recording itself needs none of them to carry on.
 
@@ -27,7 +27,7 @@ The summary's link in Slack is stored with the recording, from Slack's `chat.get
 
 While recording, the bot un-deafens on the voice connection it already has in the office, listens to it and is renamed `🔴 Recording`, so everyone in the channel can see it's listening. Discord gives it one stream per speaker, so each stretch of speech becomes a clip of that one person with no speaker detection needed. A clip ends after 1.5 seconds of silence, or at 5 minutes.
 
-- Each clip is written as Ogg/Opus, exactly as Discord sent it, and uploaded to `RECORDINGS_BUCKET` under `recordings/<recording>/<user>/<time>.ogg` with the VM's own identity. Clips are never deleted.
+- Each clip is written as Ogg/Opus, exactly as Discord sent it, and uploaded to `RECORDINGS_BUCKET` under `recordings/<recording>/<user>/<time>.ogg` with the VM's own identity. Clips are only deleted when the person who spoke [asks for their data to be deleted](privacy.md#consent).
 - Clips under half a second are kept but never transcribed, since that's where Whisper makes things up.
 - Clips are transcribed one at a time in the background with `WHISPER_MODEL` on Workers AI, in `TRANSCRIPTION_LANGUAGE`. A clip that fails stays pending and is retried, up to 10 times.
 - When Workers AI's daily allocation is used up (10,000 Neurons, about 3.5 hours of speech, shared with headlines, banter and Clef), transcription waits for the reset at midnight UTC. Nothing is lost, just late.

@@ -132,7 +132,7 @@ Add the `files:write` bot scope to the app from [Slack app](#slack-app) and rein
 
 ### Cloud Storage
 
-The clips bucket, `virtual-office-notifier-recordings`, is in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): private, in `us-central1`, with no lifecycle rule that deletes objects, and with **Storage Object Creator** and **Storage Object Viewer** for the VM's service account. Alchemy never deletes it or its objects, even if it's taken out of the program. The VM's `storage-rw` scope is part of the [VM](operations.md#the-vm) in the same program. Set the bucket's name as the `RECORDINGS_BUCKET` secret:
+The clips bucket, `virtual-office-notifier-recordings`, is in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): private, in `us-central1`, with no lifecycle rule that deletes objects, and with **Storage Object Creator**, **Storage Object Viewer** and **Storage Object User** for the VM's service account. The last one lets the bot delete someone's clips when they [ask for their data to be deleted](privacy.md#consent). Alchemy never deletes it or its objects, even if it's taken out of the program. The VM's `storage-rw` scope is part of the [VM](operations.md#the-vm) in the same program. Set the bucket's name as the `RECORDINGS_BUCKET` secret:
 
 ```bash
 gh secret set RECORDINGS_BUCKET --body virtual-office-notifier-recordings

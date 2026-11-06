@@ -46,6 +46,8 @@ const HANDLING_REQUESTS = "Couldn't handle recording requests";
 
 const APPLYING_EDITS = "Couldn't apply recording edits";
 
+const REPUBLISHING = "Couldn't look for recordings to republish";
+
 const PUBLISHING_STATUS = "Couldn't update the recording status";
 
 const encodeStatusKey = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
@@ -260,6 +262,12 @@ export const startRecorder = Effect.gen(function* () {
         ),
       );
 
+    const republishErased = store.toRepublish.pipe(
+      Effect.flatMap((ids) => Effect.forEach(ids, publication.republish, { discard: true })),
+      Effect.andThen(storeHealth.ok(REPUBLISHING)),
+      Effect.catchTag("StoreUnavailable", storeHealth.issue(REPUBLISHING)),
+    );
+
     const tick = mutex.withPermits(1)(
       Effect.gen(function* () {
         const current = yield* capture.current;
@@ -277,6 +285,7 @@ export const startRecorder = Effect.gen(function* () {
           storeHealth.issue(HANDLING_REQUESTS),
         ),
         Effect.andThen(applyEdits),
+        Effect.andThen(republishErased),
       ),
     );
 

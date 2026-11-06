@@ -11,6 +11,7 @@ import {
   Schedule,
   Scope,
   Semaphore,
+  Stream,
   String,
 } from "effect";
 import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
@@ -18,6 +19,7 @@ import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
 import { ActionItemList } from "./ActionItems.ts";
 import {
   BotPosts,
+  isRetryable,
   type PostedMessage,
   SlackClient,
   slackDidNotAct,
@@ -49,6 +51,7 @@ const REWRITE_ATTEMPTS = 5;
 export interface Publication {
   readonly finish: (recordingId: string) => Effect.Effect<void>;
   readonly rewrite: (recordingId: string) => Effect.Effect<void>;
+  readonly republish: (recordingId: string) => Effect.Effect<void>;
   readonly refresh: (recordingId: string) => Effect.Effect<void>;
   readonly catchUp: Effect.Effect<void, StoreUnavailable>;
 }
@@ -72,6 +75,19 @@ const rewriteRetry = Schedule.spaced(REWRITE_RETRY).pipe(
       Effect.annotateLogs({ attempt }),
     ),
   ),
+);
+
+const republishRetry = Schedule.spaced(REWRITE_RETRY).pipe(
+  Schedule.upTo({ times: REWRITE_ATTEMPTS - 1 }),
+  Schedule.tap(({ attempt }) =>
+    Effect.logWarning("Couldn't republish the recording, trying again later").pipe(
+      Effect.annotateLogs({ attempt }),
+    ),
+  ),
+);
+
+const transcriptRetry = Schedule.spaced(REWRITE_RETRY).pipe(
+  Schedule.upTo({ times: REWRITE_ATTEMPTS - 1 }),
 );
 
 const finishRetry = Schedule.spaced(FINISH_RETRY).pipe(
@@ -294,6 +310,95 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
 
   const { rewrite } = yield* SummaryRewriter.make(rewriteOnce);
 
+  const replaceTranscript = Effect.fn("Publication.replaceTranscript")(function* (
+    post: PostedSummary,
+    startedAt: DateTime.Utc,
+    transcript: string,
+  ) {
+    const botUserId = yield* slack.botUserId;
+
+    const files = yield* slack.threadPosts(post.slackChannelId, post.slackTs).pipe(
+      Stream.filter((message) => message.userId === botUserId),
+      Stream.flatMap((message) => Stream.fromIterable(message.fileIds)),
+      Stream.runCollect,
+    );
+
+    yield* Effect.forEach(files, slack.deleteFile, { discard: true });
+    yield* uploadTranscript(
+      { channel: post.slackChannelId, ts: post.slackTs },
+      startedAt,
+      transcript,
+    );
+  });
+
+  const republishOnce = Effect.fn("Publication.republish")(
+    function* (id: string) {
+      const requested = yield* store.republishRequested(id);
+
+      if (Option.isNone(requested)) return;
+
+      const details = yield* store.recordingDetails(id);
+      const at = yield* DateTime.now;
+
+      if (Option.isNone(details)) {
+        yield* store.republished(id, {
+          resummarized: true,
+          transcript: "",
+          summary: Option.none(),
+          at,
+        });
+
+        return;
+      }
+
+      const lines = yield* store.clipsOf(id);
+      const pauses = yield* store.pausesOf(id);
+      const transcript = transcriptText(details.value, lines, pauses);
+      const recording: RecordingToWrite = { details: details.value, lines, pauses };
+      const post = yield* store.summaryPost(id);
+
+      const resummarize =
+        requested.value.resummarize || !Option.exists(post, ({ summary }) => summary !== null);
+
+      const summary =
+        resummarize && hasSpeech(lines) ? yield* writer.summarize(recording) : Option.none();
+
+      if (hasSpeech(lines))
+        yield* resummarize ? repullActionItems(id, recording) : pullActionItems(id, recording);
+
+      yield* store.republished(id, { resummarized: resummarize, transcript, summary, at });
+      yield* refresh(id);
+
+      const posted = yield* store.postedSummary(id);
+
+      if (Option.isSome(posted))
+        yield* replaceTranscript(posted.value, details.value.startedAt, transcript).pipe(
+          Effect.retry({ schedule: transcriptRetry, while: (error) => isRetryable(error.reason) }),
+          Effect.catchTag("SlackError", (error) =>
+            Effect.logError(
+              "Couldn't replace the transcript in Slack, it needs deleting by hand",
+            ).pipe(
+              Effect.annotateLogs({ reason: error.reason._tag }),
+              Effect.andThen(report(error)),
+            ),
+          ),
+        );
+
+      yield* Effect.logInfo("Republished the recording without someone who was erased").pipe(
+        Effect.annotateLogs({ resummarized: resummarize, summarized: Option.isSome(summary) }),
+      );
+    },
+    Effect.retry(republishRetry),
+    Effect.catchTag("StoreUnavailable", (error) =>
+      Effect.logError("Gave up republishing the recording for now").pipe(
+        Effect.annotateLogs({ reason: error.reason }),
+      ),
+    ),
+    (effect, id) => Effect.annotateLogs(effect, { recordingId: id }),
+  );
+
+  const { rewrite: republish } = yield* SummaryRewriter.make(republishOnce);
+
   const draftSummary = Effect.fn("Publication.draftSummary")(function* (id: string) {
     yield* awaitClips(id);
 
@@ -358,6 +463,15 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
     });
   });
 
+  const uploadTranscript = (post: PostedMessage, startedAt: DateTime.Utc, transcript: string) =>
+    slack.uploadFile({
+      channel: post.channel,
+      threadTs: post.ts,
+      filename: `office-recording-${fileDate(startedAt)}.txt`,
+      title: "Transcript",
+      content: new TextEncoder().encode(transcript),
+    });
+
   const postSummary = Effect.fn("Publication.postSummary")(function* (id: string, draft: Draft) {
     const posted = yield* posts
       .post(
@@ -371,22 +485,14 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
       .recordSummaryPost(id, { slackChannelId: posted.channel, slackTs: posted.ts })
       .pipe(Effect.retry(finishRetry));
 
-    yield* slack
-      .uploadFile({
-        channel: posted.channel,
-        threadTs: posted.ts,
-        filename: `office-recording-${fileDate(draft.details.startedAt)}.txt`,
-        title: "Transcript",
-        content: new TextEncoder().encode(draft.transcript),
-      })
-      .pipe(
-        Effect.catchTag("SlackError", (error) =>
-          Effect.logWarning("Couldn't attach the transcript to the summary").pipe(
-            Effect.annotateLogs({ reason: error.reason._tag }),
-            Effect.andThen(report(error)),
-          ),
+    yield* uploadTranscript(posted, draft.details.startedAt, draft.transcript).pipe(
+      Effect.catchTag("SlackError", (error) =>
+        Effect.logWarning("Couldn't attach the transcript to the summary").pipe(
+          Effect.annotateLogs({ reason: error.reason._tag }),
+          Effect.andThen(report(error)),
         ),
-      );
+      ),
+    );
 
     return posted;
   });
@@ -512,7 +618,7 @@ const make = Effect.fnUntraced(function* ({ office, slackChannel }: PublishTo) {
     for (const id of yield* store.pendingRewrites) yield* rewrite(id);
   });
 
-  return { finish, rewrite, refresh, catchUp } satisfies Publication;
+  return { finish, rewrite, republish, refresh, catchUp } satisfies Publication;
 });
 
 export const Publication = { make };

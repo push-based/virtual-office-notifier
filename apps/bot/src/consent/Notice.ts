@@ -73,4 +73,16 @@ export const WITHDRAWN_AND_SHOWN_OUT =
 export const WITHDRAWN =
   "We've withdrawn your consent, as you asked. Nothing new is recorded about you from now on, and the office will miss you terribly. If you ever want to come back, just join, and we'll ask you again.";
 
+const ERASED_DETAIL =
+  "Your activity, your sounds and emoji, your Slack messages the bot kept, and your lines and audio in every recording are gone, and we've taken your name out of what's left, like other people's lines and the bot's posts. Our backups age out within a week.";
+
+export const ERASED_AND_SHOWN_OUT = `We've deleted everything we held about you, as you asked, and shown you out of the office. ${ERASED_DETAIL} We'll miss you more than we can say. If you ever want to come back, just join, and we'll ask you as if we'd never met.`;
+
+export const ERASED = `We've deleted everything we held about you, as you asked. ${ERASED_DETAIL} We'll miss you more than we can say. If you ever want to come back, just join, and we'll ask you as if we'd never met.`;
+
+export const QUESTION_ERASED =
+  "You've asked us to delete your data from the Console, so this question no longer applies.";
+
 export const SHOWN_OUT_REASON = "Didn't agree to being recorded in the office";
+
+export const ERASED_REASON = "Asked for their data to be deleted";

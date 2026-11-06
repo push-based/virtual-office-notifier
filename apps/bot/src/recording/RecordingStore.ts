@@ -150,6 +150,21 @@ export interface FinishedRecording {
   readonly finishedAt: DateTime.Utc;
 }
 
+export interface RepublishRequest {
+  readonly resummarize: boolean;
+}
+
+export interface Republished {
+  readonly resummarized: boolean;
+  readonly transcript: string;
+  readonly summary: Option.Option<{
+    readonly text: string;
+    readonly model: string;
+    readonly style: SummaryStyle;
+  }>;
+  readonly at: DateTime.Utc;
+}
+
 export interface UnlinkedPost {
   readonly id: string;
   readonly slackChannelId: string;
@@ -333,6 +348,11 @@ export class RecordingStore extends Context.Service<
     ): Effect.Effect<boolean, StoreUnavailable>;
     readonly unlinkedPosts: Effect.Effect<ReadonlyArray<UnlinkedPost>, StoreUnavailable>;
     linkPost(id: string, permalink: string): Effect.Effect<void, StoreUnavailable>;
+    readonly toRepublish: Effect.Effect<ReadonlyArray<string>, StoreUnavailable>;
+    republishRequested(
+      id: string,
+    ): Effect.Effect<Option.Option<RepublishRequest>, StoreUnavailable>;
+    republished(id: string, republished: Republished): Effect.Effect<void, StoreUnavailable>;
   }
 >()("bot/recording/RecordingStore") {
   static readonly layer = Layer.effect(
@@ -1023,6 +1043,81 @@ export class RecordingStore extends Context.Service<
         Effect.asVoid,
       );
 
+      const findToRepublish = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: IdRow,
+        execute: () => sql`
+          SELECT id FROM office.recordings
+          WHERE republish_requested_at IS NOT NULL
+          ORDER BY started_at
+        `,
+      });
+
+      const toRepublish = onceReady(findToRepublish()).pipe(
+        Effect.map(ids),
+        Effect.withTracerEnabled(false),
+      );
+
+      const findRepublishRequested = SqlSchema.findOneOption({
+        Request: Schema.String,
+        Result: Schema.Struct({ resummarize: Schema.Boolean }),
+        execute: (id) => sql`
+          SELECT republish_resummarize AS resummarize FROM office.recordings
+          WHERE id = ${id} AND republish_requested_at IS NOT NULL AND finished_at IS NOT NULL
+        `,
+      });
+
+      const republishRequested = Effect.fn("RecordingStore.republishRequested")((id: string) =>
+        onceReady(findRepublishRequested(id)),
+      );
+
+      const republished = Effect.fn("RecordingStore.republished")(
+        (id: string, { resummarized, transcript, summary, at }: Republished) =>
+          atomically(
+            Effect.gen(function* () {
+              if (resummarized) {
+                yield* sql`DELETE FROM office.recording_summaries WHERE recording_id = ${id}`;
+                yield* sql`
+                  DELETE FROM office.recording_action_items
+                  WHERE recording_id = ${id} AND replaced_at IS NOT NULL
+                `;
+                yield* sql`
+                  UPDATE office.recordings
+                  SET summary = NULL, summary_model = NULL, summary_written_style = NULL
+                  WHERE id = ${id}
+                `;
+              }
+
+              if (Option.isSome(summary)) {
+                const { text, model, style } = summary.value;
+
+                yield* sql`
+                  INSERT INTO office.recording_summaries ${sql.insert({
+                    recordingId: id,
+                    writtenAt: DateTime.toDate(at),
+                    style,
+                    summary: text,
+                    model,
+                  })}
+                `;
+                yield* sql`
+                  UPDATE office.recordings
+                  SET summary = ${text}, summary_model = ${model}, summary_written_style = ${style}
+                  WHERE id = ${id}
+                `;
+              }
+
+              yield* sql`
+                UPDATE office.recordings
+                SET transcript = ${transcript}, republish_requested_at = NULL,
+                    republish_resummarize = false
+                WHERE id = ${id}
+              `;
+            }),
+          ),
+        Effect.asVoid,
+      );
+
       return RecordingStore.of({
         activeRecording,
         unfinishedRecordings,
@@ -1056,6 +1151,9 @@ export class RecordingStore extends Context.Service<
         finishRecording,
         unlinkedPosts,
         linkPost,
+        toRepublish,
+        republishRequested,
+        republished,
       });
     }),
   );
@@ -1095,6 +1193,9 @@ export class RecordingStore extends Context.Service<
       finishRecording: notRecording,
       unlinkedPosts: notRecording(),
       linkPost: notRecording,
+      toRepublish: notRecording(),
+      republishRequested: notRecording,
+      republished: notRecording,
     }),
   );
 }

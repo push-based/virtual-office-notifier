@@ -13,6 +13,7 @@ import {
 } from "./Recording.ts";
 import { PersonInOffice, RowId } from "./RecordingRequest.ts";
 import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
+import { FORMER_MEMBER_ID } from "./Wire.ts";
 import {
   recordingUnavailable,
   RecordingUnavailable,
@@ -166,6 +167,7 @@ const findMembers = (sql: SqlClient.SqlClient) =>
     Result: MemberRow,
     execute: () => sql`
       SELECT user_id, coalesce(real_name, display_name) AS name FROM office.members
+      WHERE user_id <> ${FORMER_MEMBER_ID}
       ORDER BY lower(coalesce(real_name, display_name)), user_id
     `,
   });

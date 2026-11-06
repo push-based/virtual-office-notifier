@@ -2,11 +2,13 @@ export { BotPosts } from "./BotPosts.ts";
 
 export {
   type Engagement,
+  InvalidPayload,
   isRetryable,
   type PostedMessage,
   SlackClient,
   slackDidNotAct,
   type SlackError,
+  type FetchedMessage,
   type ThreadMessage,
 } from "./SlackClient.ts";
 

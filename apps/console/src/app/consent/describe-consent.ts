@@ -6,9 +6,10 @@ export interface ConsentView {
   readonly heading: string;
   readonly description: string;
   readonly canWithdraw: boolean;
+  readonly canErase: boolean;
 }
 
-export const describeConsent = (status: ConsentStatus): ConsentView => {
+const standingOf = (status: ConsentStatus): Omit<ConsentView, "canErase"> => {
   if (status.pendingWithdrawal !== null)
     return {
       heading: "Withdrawing your consent…",
@@ -45,3 +46,14 @@ export const describeConsent = (status: ConsentStatus): ConsentView => {
       };
   }
 };
+
+export const describeConsent = (status: ConsentStatus): ConsentView =>
+  status.pendingErasure !== null
+    ? {
+        heading: "Deleting your data…",
+        description:
+          "The bot is on it. Taking your name out of the recordings and the Slack posts can take a few minutes, and it'll send you a DM when it's done.",
+        canWithdraw: false,
+        canErase: false,
+      }
+    : { ...standingOf(status), canErase: status.pendingWithdrawal === null };

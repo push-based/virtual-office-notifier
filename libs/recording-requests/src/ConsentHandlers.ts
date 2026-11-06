@@ -2,7 +2,12 @@ import { Effect } from "effect";
 import { HttpApiBuilder, HttpApiError } from "effect/http-api";
 
 import { ConsentRequests } from "./ConsentRequests.ts";
-import { CurrentRequester, RecordingApi, WithdrawalNotFound } from "./RecordingApi.ts";
+import {
+  CurrentRequester,
+  ErasureNotFound,
+  RecordingApi,
+  WithdrawalNotFound,
+} from "./RecordingApi.ts";
 import type { RecordingUnavailable } from "./RecordingRequests.ts";
 
 const serviceUnavailable = (error: RecordingUnavailable) =>
@@ -41,6 +46,25 @@ export const ConsentHandlers = HttpApiBuilder.group(
 
           return yield* Effect.fromOption(found).pipe(
             Effect.mapError(() => WithdrawalNotFound.make()),
+          );
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+      erase: Effect.fnUntraced(
+        function* () {
+          const requester = yield* CurrentRequester;
+
+          return yield* consent.erase(requester.id);
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+      findErasure: Effect.fnUntraced(
+        function* ({ params }) {
+          const requester = yield* CurrentRequester;
+          const found = yield* consent.findErasure(requester.id, params.id);
+
+          return yield* Effect.fromOption(found).pipe(
+            Effect.mapError(() => ErasureNotFound.make()),
           );
         },
         Effect.catchTag("RecordingUnavailable", serviceUnavailable),

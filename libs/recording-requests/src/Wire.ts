@@ -111,9 +111,19 @@ export type WithdrawalOutcome = typeof Consent.WithdrawalOutcome.Encoded;
 
 export type SubmittedWithdrawal = typeof Consent.SubmittedWithdrawal.Encoded;
 
+export type ErasureOutcome = typeof Consent.ErasureOutcome.Encoded;
+
+export type SubmittedErasure = typeof Consent.SubmittedErasure.Encoded;
+
 export const CONSENT_NOTICE_VERSION = 1;
 
 export const CONSENT_ANSWER_MS = 60_000;
+
+export const FORMER_MEMBER_ID = "former_member";
+
+export const FORMER_MEMBER = "a former member";
+
+export const ERASURE_WAIT_MS = 5 * 60_000;
 
 export const RECORDED_IN_THE_OFFICE = [
   "when you join and leave, mute, deafen, turn on your camera or share your screen",

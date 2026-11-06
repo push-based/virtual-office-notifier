@@ -12,6 +12,7 @@ import {
 import { DatabaseConfig } from "./Config.ts";
 import { ConsentBook, ConsentLog } from "./consent/index.ts";
 import { Database, describeError } from "./database/index.ts";
+import { ErasureStore } from "./erasure/index.ts";
 import { RecordingStore } from "./recording/index.ts";
 import { SlackHistory } from "./slack/index.ts";
 
@@ -24,6 +25,7 @@ const disabled = Layer.mergeAll(
   RecordingEdits.layerDisabled,
   ConsentRequests.layerDisabled,
   ConsentBook.layerMemory,
+  ErasureStore.layerDisabled,
 );
 
 const recordingRequests = Layer.effect(
@@ -71,6 +73,7 @@ export const StorageLayer = Layer.unwrap(
           recordingRequests,
           recordingEdits,
           consentRequests,
+          ErasureStore.layer,
           ConsentBook.layer.pipe(Layer.provide(ConsentLog.layer)),
         ).pipe(
           Layer.provide(Layer.provideMerge(ActivityLog.layer, Database.layer(url))),

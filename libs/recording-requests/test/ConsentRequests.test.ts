@@ -4,7 +4,11 @@ import { DateTime, Effect, Option, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 
 import { NOT_AGREED, standingOf } from "../src/Consent.ts";
-import { ConsentRequests, type WithdrawalHandler } from "../src/ConsentRequests.ts";
+import {
+  ConsentRequests,
+  type ErasureHandler,
+  type WithdrawalHandler,
+} from "../src/ConsentRequests.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
 import { CONSENT_NOTICE_VERSION } from "../src/Wire.ts";
 import { migrated } from "./schema.ts";
@@ -35,6 +39,44 @@ const recordingHandler = (
     Effect.succeed({ afterCommit: Ref.update(withdrawn, (all) => [...all, userId]) }),
 });
 
+const erasingHandler = (
+  steps: Ref.Ref<ReadonlyArray<string>>,
+): ErasureHandler<never, SqlClient.SqlClient> => ({
+  prepare: ({ userId }) => Ref.update(steps, (all) => [...all, `prepare ${userId}`]),
+  erase: ({ userId }) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM office.members WHERE user_id = ${userId}`.pipe(Effect.orDie);
+      yield* Ref.update(steps, (all) => [...all, `erase ${userId}`]);
+
+      return { afterCommit: Ref.update(steps, (all) => [...all, `after ${userId}`]) };
+    }),
+});
+
+const requestRows = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+
+  return yield* sql<{
+    readonly userId: string | null;
+    readonly kind: string;
+    readonly outcome: string | null;
+  }>`
+    SELECT user_id, kind, outcome FROM office.consent_requests ORDER BY id
+  `;
+});
+
+const eventCount = (userId: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    const rows = yield* sql<{ readonly total: number }>`
+      SELECT count(*)::int AS total FROM office.consent_events WHERE user_id = ${userId}
+    `;
+
+    return rows[0]?.total ?? 0;
+  });
+
 describe("ConsentRequests", () => {
   it.effect("says someone who was never asked hasn't agreed", () =>
     withRequests((requests) =>
@@ -43,6 +85,7 @@ describe("ConsentRequests", () => {
           standing: "not_agreed",
           since: null,
           pendingWithdrawal: null,
+          pendingErasure: null,
         });
       }),
     ),
@@ -95,7 +138,7 @@ describe("ConsentRequests", () => {
         const withdrawn = yield* Ref.make<ReadonlyArray<string>>([]);
         const { id } = yield* requests.withdraw("ada");
 
-        yield* requests.handlePending(recordingHandler(withdrawn));
+        yield* requests.handleWithdrawals(recordingHandler(withdrawn));
 
         const status = yield* requests.status("ada");
 
@@ -116,7 +159,7 @@ describe("ConsentRequests", () => {
         const withdrawn = yield* Ref.make<ReadonlyArray<string>>([]);
         const { id } = yield* requests.withdraw("ada");
 
-        yield* requests.handlePending(recordingHandler(withdrawn));
+        yield* requests.handleWithdrawals(recordingHandler(withdrawn));
 
         assert.deepStrictEqual(yield* Ref.get(withdrawn), []);
         assert.deepStrictEqual(
@@ -124,6 +167,94 @@ describe("ConsentRequests", () => {
           Option.some({ id, outcome: "ignored" }),
         );
         assert.strictEqual((yield* requests.status("ada")).standing, "not_agreed");
+      }),
+    ),
+  );
+});
+
+describe("ConsentRequests erasures", () => {
+  it.effect("keeps one erasure pending per person and shows it in the status", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        const first = yield* requests.erase("ada");
+        const second = yield* requests.erase("ada");
+
+        assert.deepStrictEqual(second, first);
+        assert.deepStrictEqual(first.outcome, null);
+        assert.strictEqual((yield* requests.status("ada")).pendingErasure, first.id);
+        assert.isTrue(Option.isNone(yield* requests.findErasure("grace", first.id)));
+      }),
+    ),
+  );
+
+  it.effect("prepares, erases inside the transaction, then runs the handler after committing", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        yield* decided("ada", "agreed");
+        yield* decided("grace", "agreed");
+        yield* requests.withdraw("ada");
+
+        const steps = yield* Ref.make<ReadonlyArray<string>>([]);
+        const { id } = yield* requests.erase("ada");
+
+        yield* requests.handleErasures(erasingHandler(steps));
+
+        assert.deepStrictEqual(yield* Ref.get(steps), ["prepare ada", "erase ada", "after ada"]);
+        assert.deepStrictEqual(
+          yield* requests.findErasure("ada", id),
+          Option.some({ id, outcome: "erased" }),
+        );
+        assert.deepStrictEqual(yield* requestRows, [
+          { userId: null, kind: "erase", outcome: "erased" },
+        ]);
+        assert.strictEqual(yield* eventCount("ada"), 0);
+        assert.strictEqual(yield* eventCount("grace"), 1);
+        assert.deepStrictEqual(yield* requests.status("ada"), {
+          standing: "not_agreed",
+          since: null,
+          pendingWithdrawal: null,
+          pendingErasure: null,
+        });
+      }),
+    ),
+  );
+
+  it.effect("leaves the erasure pending when it fails", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        yield* decided("ada", "agreed");
+
+        const { id } = yield* requests.erase("ada");
+
+        const failed = yield* requests
+          .handleErasures({
+            prepare: () => Effect.void,
+            erase: () => Effect.fail("bucket down" as const),
+          })
+          .pipe(Effect.flip);
+
+        assert.strictEqual(failed, "bucket down");
+        assert.deepStrictEqual(
+          yield* requests.findErasure("ada", id),
+          Option.some({ id, outcome: null }),
+        );
+        assert.strictEqual(yield* eventCount("ada"), 1);
+      }),
+    ),
+  );
+
+  it.effect("doesn't touch withdrawals", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        yield* decided("ada", "agreed");
+
+        const { id } = yield* requests.withdraw("ada");
+        const steps = yield* Ref.make<ReadonlyArray<string>>([]);
+
+        yield* requests.handleErasures(erasingHandler(steps));
+
+        assert.deepStrictEqual(yield* Ref.get(steps), []);
+        assert.deepStrictEqual(yield* requests.find("ada", id), Option.some({ id, outcome: null }));
       }),
     ),
   );
