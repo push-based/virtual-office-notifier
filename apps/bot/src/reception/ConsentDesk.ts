@@ -16,17 +16,16 @@ import type { ConsentEventKind, Delivery, Wording } from "recording-requests/Con
 import { ConsentRequests, type Withdrawal } from "recording-requests/ConsentRequests";
 import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
 
-import { DiscordGateway } from "../office/index.ts";
-import { StoreHealth } from "../recording/index.ts";
+import { ConsentBook, Notice } from "../consent/index.ts";
 import {
   Admission,
   type ConsentAnswer,
-  ConsentBook,
   ConsentGate,
   type ConsentLine,
-  Notice,
+  DiscordGateway,
   type Visit,
-} from "../consent/index.ts";
+} from "../office/index.ts";
+import { StoreHealth } from "../recording/index.ts";
 
 const {
   AGREED,
@@ -35,6 +34,7 @@ const {
   DECLINED,
   EXPIRED,
   LEFT,
+  QUESTION_WITHDRAWN,
   RESTARTING,
   SHOWN_OUT_REASON,
   TIMED_OUT,
@@ -43,6 +43,8 @@ const {
 } = Notice;
 
 const HANDLING_WITHDRAWALS = "Couldn't handle consent withdrawals";
+
+type Lapse = "left" | "withdrawn";
 
 const deliveryOf = (via: Option.Option<{ readonly via: Delivery }>): Delivery =>
   Option.match(via, { onNone: () => "undelivered", onSome: ({ via }) => via });
@@ -54,7 +56,8 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
   const random = yield* SecureRandom.SecureRandom;
   const health = yield* StoreHealth.make;
   const waiting = yield* Ref.make<ReadonlyMap<string, Deferred.Deferred<ConsentAnswer>>>(new Map());
-  const departed = yield* Ref.make<ReadonlySet<string>>(new Set());
+  const lapses = yield* Ref.make<ReadonlyMap<string, Lapse>>(new Map());
+  const settled = yield* Ref.make<ReadonlySet<string>>(new Set());
   const asks = yield* FiberMap.make<string>();
 
   const note = (userId: string, kind: ConsentEventKind, wording?: Wording, delivery?: Delivery) =>
@@ -73,18 +76,55 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
       .showOut(userId, SHOWN_OUT_REASON)
       .pipe(Effect.flatMap((shown) => (shown ? note(userId, "disconnected") : Effect.void)));
 
-  const awaitAnswer = (promptId: string) =>
-    Effect.acquireRelease(
-      Deferred.make<ConsentAnswer>().pipe(
-        Effect.tap((answer) => Ref.update(waiting, (all) => new Map(all).set(promptId, answer))),
-      ),
-      () =>
+  const forget = (promptId: string) =>
+    Ref.update(settled, (all) => new Set(all).add(promptId)).pipe(
+      Effect.andThen(
         Ref.update(waiting, (all) => {
           const next = new Map(all);
           next.delete(promptId);
 
           return next;
         }),
+      ),
+    );
+
+  const awaitAnswer = (promptId: string) =>
+    Effect.acquireRelease(
+      Deferred.make<ConsentAnswer>().pipe(
+        Effect.tap((answer) => Ref.update(waiting, (all) => new Map(all).set(promptId, answer))),
+      ),
+      () => forget(promptId),
+    );
+
+  const lapsed = (userId: string, settle: (text: string) => Effect.Effect<void>) =>
+    Ref.get(lapses).pipe(
+      Effect.flatMap((all) =>
+        Match.value(all.get(userId)).pipe(
+          Match.when("left", () => note(userId, "left").pipe(Effect.andThen(settle(LEFT)))),
+          Match.when("withdrawn", () => settle(QUESTION_WITHDRAWN)),
+          Match.orElse(() => settle(RESTARTING)),
+        ),
+      ),
+    );
+
+  const answerBy = (answer: Deferred.Deferred<ConsentAnswer>, promptId: string) =>
+    Deferred.await(answer).pipe(
+      Effect.timeoutOption(ANSWER_TIME),
+      Effect.flatMap(
+        Option.match({
+          onSome: Effect.succeedSome,
+          onNone: () =>
+            forget(promptId).pipe(
+              Effect.andThen(Deferred.poll(answer)),
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.succeedNone,
+                  onSome: Effect.asSome,
+                }),
+              ),
+            ),
+        }),
+      ),
     );
 
   const ask = Effect.fn("ConsentDesk.ask")(function* (userId: string, displayName: string) {
@@ -102,17 +142,8 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
     const settle = (text: string) =>
       Option.match(delivery, { onNone: () => Effect.void, onSome: (sent) => sent.settle(text) });
 
-    const answered = yield* Deferred.await(answer).pipe(
-      Effect.timeoutOption(ANSWER_TIME),
-      Effect.onInterrupt(() =>
-        Ref.get(departed).pipe(
-          Effect.flatMap((gone) =>
-            gone.has(userId)
-              ? note(userId, "left").pipe(Effect.andThen(settle(LEFT)))
-              : settle(RESTARTING),
-          ),
-        ),
-      ),
+    const answered = yield* answerBy(answer, promptId).pipe(
+      Effect.onInterrupt(() => lapsed(userId, settle)),
     );
 
     if (Option.isNone(answered)) {
@@ -140,31 +171,36 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
     yield* Effect.logInfo("Showed someone out who declined");
   }, Effect.scoped);
 
+  const stopAsking = (userId: string, lapse: Lapse) =>
+    Ref.update(lapses, (all) => new Map(all).set(userId, lapse)).pipe(
+      Effect.andThen(FiberMap.remove(asks, userId)),
+    );
+
   const onVisit = (visit: Visit) =>
     Match.valueTags(visit, {
       Arrived: ({ userId, displayName }) =>
-        Ref.update(departed, (gone) => {
-          const next = new Set(gone);
+        Ref.update(lapses, (all) => {
+          const next = new Map(all);
           next.delete(userId);
 
           return next;
         }).pipe(Effect.andThen(FiberMap.run(asks, userId, ask(userId, displayName)))),
-      Departed: ({ userId }) =>
-        Ref.update(departed, (gone) => new Set(gone).add(userId)).pipe(
-          Effect.andThen(FiberMap.remove(asks, userId)),
-        ),
+      Departed: ({ userId }) => stopAsking(userId, "left"),
     });
 
-  const route = (answer: ConsentAnswer) =>
-    Ref.get(waiting).pipe(
-      Effect.flatMap((all) => {
-        const pending = all.get(answer.promptId);
+  const route = Effect.fnUntraced(function* (answer: ConsentAnswer) {
+    const pending = (yield* Ref.get(waiting)).get(answer.promptId);
 
-        return pending === undefined
-          ? answer.reply(EXPIRED)
-          : Deferred.succeed(pending, answer).pipe(Effect.asVoid);
-      }),
-    );
+    if (pending !== undefined) {
+      const first = yield* Deferred.succeed(pending, answer);
+
+      return yield* first ? Effect.void : answer.acknowledge;
+    }
+
+    return yield* (yield* Ref.get(settled)).has(answer.promptId)
+      ? answer.acknowledge
+      : answer.reply(EXPIRED);
+  });
 
   const withdraw = (withdrawal: Withdrawal) =>
     Effect.succeed({
@@ -172,6 +208,7 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
         const { userId } = withdrawal;
 
         yield* book.remember({ userId, at: yield* DateTime.now, kind: "withdrawn" });
+        yield* stopAsking(userId, "withdrawn");
         yield* gate.decide(Admission.Withdrawn({ userId }));
 
         const shown = yield* line.showOut(userId, SHOWN_OUT_REASON);

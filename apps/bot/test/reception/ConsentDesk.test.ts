@@ -17,7 +17,7 @@ import { ConsentRequests, type WithdrawalHandler } from "recording-requests/Cons
 import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
 
 import { ConsentBook } from "../../src/consent/ConsentBook.ts";
-import { type Choice, type ConsentLine, ConsentGate } from "../../src/consent/ConsentGate.ts";
+import { type Choice, type ConsentLine, ConsentGate } from "../../src/office/ConsentGate.ts";
 import * as Notice from "../../src/consent/Notice.ts";
 import { DiscordGateway } from "../../src/office/DiscordGateway.ts";
 import {
@@ -83,7 +83,11 @@ const makeLine = Effect.gen(function* () {
     tell: (_, text) => push(told, text),
     showOut: (userId) => push(shownOut, userId).pipe(Effect.as(true)),
     answers: Stream.fromQueue(pressed).pipe(
-      Stream.map((press) => ({ ...press, reply: (text: string) => push(replies, text) })),
+      Stream.map((press) => ({
+        ...press,
+        reply: (text: string) => push(replies, text),
+        acknowledge: push(replies, "(acknowledged)"),
+      })),
     ),
   };
 
@@ -139,10 +143,17 @@ const withDesk = <A, E>(
   withdrawals: Withdrawals,
   use: (gateway: DiscordGateway["Service"]) => Effect.Effect<A, E>,
   remember: ReadonlyArray<string> = [],
+  present: ReadonlyArray<VoiceStateUpdate> = [],
 ) => {
   const gateway = Layer.unwrap(
     Effect.map(Effect.service(ConsentGate), (gate) =>
-      DiscordGateway.layerTest({ updates, gate, line: fake.line }),
+      DiscordGateway.layerTest({
+        updates,
+        gate,
+        line: fake.line,
+        present,
+        occupants: new Set(Array.map(present, (update) => update.userId)),
+      }),
     ),
   );
 
@@ -280,7 +291,7 @@ describe("ConsentDesk", () => {
           yield* pollUntil(Ref.get(fake.replies), (all) => all.length === 1);
 
           assert.deepStrictEqual(yield* Ref.get(fake.settled), [Notice.LEFT]);
-          assert.deepStrictEqual(yield* Ref.get(fake.replies), [Notice.EXPIRED]);
+          assert.deepStrictEqual(yield* Ref.get(fake.replies), ["(acknowledged)"]);
           assert.deepStrictEqual(yield* Ref.get(fake.shownOut), []);
         }),
       );
@@ -329,6 +340,89 @@ describe("ConsentDesk", () => {
           assert.deepStrictEqual(yield* Ref.get(fake.told), [Notice.WITHDRAWN_AND_SHOWN_OUT]);
           assert.isFalse(yield* gateway.isAdmitted("u1"));
         }),
+      );
+    }),
+  );
+
+  it.effect("drops an open question when someone withdraws from the Console", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeLine;
+      const withdrawals = yield* makeWithdrawals;
+      const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
+      yield* Queue.offer(updates, join());
+
+      yield* withDesk(updates, fake, withdrawals, () =>
+        Effect.gen(function* () {
+          yield* fake.nextAsk(1);
+          yield* Ref.set(withdrawals.queue, ["u1"]);
+          yield* TestClock.adjust(CHECK_INTERVAL);
+          yield* pollUntil(Ref.get(fake.told), (all) => all.length === 1);
+          yield* TestClock.adjust(Notice.ANSWER_TIME);
+          yield* Effect.yieldNow;
+
+          assert.deepStrictEqual(yield* Ref.get(fake.settled), [Notice.QUESTION_WITHDRAWN]);
+          assert.deepStrictEqual(yield* Ref.get(fake.shownOut), ["u1"]);
+        }),
+      );
+    }),
+  );
+
+  it.effect("acknowledges a second press without changing the answer", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeLine;
+      const withdrawals = yield* makeWithdrawals;
+      const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
+      yield* Queue.offer(updates, join());
+
+      yield* withDesk(updates, fake, withdrawals, (gateway) =>
+        Effect.gen(function* () {
+          const prompt = yield* fake.nextAsk(1);
+          yield* fake.press(prompt, "agree");
+          yield* fake.press(prompt, "decline");
+          yield* pollUntil(Ref.get(fake.replies), (all) => all.length === 2);
+
+          assert.sameMembers(
+            [...(yield* Ref.get(fake.replies))],
+            [Notice.AGREED("Ada"), "(acknowledged)"],
+          );
+          assert.isTrue(yield* gateway.isAdmitted("u1"));
+          assert.deepStrictEqual(yield* Ref.get(fake.shownOut), []);
+        }),
+      );
+    }),
+  );
+
+  it.effect("lets someone who was already in at startup in quietly once they agree", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeLine;
+      const withdrawals = yield* makeWithdrawals;
+      const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
+
+      yield* withDesk(
+        updates,
+        fake,
+        withdrawals,
+        (gateway) =>
+          Effect.gen(function* () {
+            yield* fake.press(yield* fake.nextAsk(1), "agree");
+            yield* pollUntil(gateway.isAdmitted("u1"), (admitted) => admitted);
+            yield* Queue.offer(updates, leave());
+
+            const [event] = yield* officeEvents(gateway, 1);
+
+            const observed = yield* gateway.voiceObservations.pipe(
+              Stream.take(2),
+              Stream.runCollect,
+            );
+
+            assert.strictEqual(event?._tag, "Emptied");
+            assert.deepStrictEqual(
+              Array.map(observed, (observation) => observation.source),
+              ["startup", "update"],
+            );
+          }),
+        [],
+        [join({ alreadyThere: true })],
       );
     }),
   );

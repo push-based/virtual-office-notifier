@@ -1,4 +1,15 @@
+export { Admission, admit, type Decision, Gated, gatekeepingOf, type Visit } from "./Admission.ts";
+
 export type { BotPresence } from "./BotPresence.ts";
+
+export {
+  type Choice,
+  type ConsentAnswer,
+  ConsentGate,
+  type ConsentLine,
+  type Gate,
+  type PromptDelivery,
+} from "./ConsentGate.ts";
 
 export { DiscordGateway } from "./DiscordGateway.ts";
 

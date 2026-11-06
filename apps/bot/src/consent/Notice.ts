@@ -64,6 +64,9 @@ export const EXPIRED =
 
 export const NOT_YOURS = "This question is for someone else.";
 
+export const QUESTION_WITHDRAWN =
+  "You've withdrawn your consent from the Console, so this question no longer applies.";
+
 export const WITHDRAWN_AND_SHOWN_OUT =
   "We've withdrawn your consent, as you asked, and shown you out of the office. We'll miss you terribly. Nothing new is recorded about you from now on. If you ever want to come back, just join, and we'll ask you again.";
 

@@ -1,6 +1,6 @@
 import { Array, Data } from "effect";
 
-import { isOfficeJoin, isOfficeLeave, type TimedVoiceStateUpdate } from "../office/index.ts";
+import { isOfficeJoin, isOfficeLeave, type TimedVoiceStateUpdate } from "./OfficeEvent.ts";
 
 export type Admission = Data.TaggedEnum<{
   Heard: { readonly update: TimedVoiceStateUpdate };

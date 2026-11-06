@@ -29,7 +29,7 @@ interface ConsentNotice {
 
 const WITHDRAWN: ConsentNotice = {
   kind: "info",
-  text: "Your consent is withdrawn. The bot has shown you out of the office and sent you a DM. We'll miss you.",
+  text: "Your consent is withdrawn. If you were in the office, the bot has shown you out, and it's sent you a DM. We'll miss you.",
 };
 
 const NOTHING_TO_WITHDRAW: ConsentNotice = {

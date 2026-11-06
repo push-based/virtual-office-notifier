@@ -4,6 +4,7 @@ import {
   Deferred,
   Duration,
   Effect,
+  ErrorReporter,
   Fiber,
   Layer,
   Option,
@@ -69,33 +70,43 @@ const make = (history: Effect.Effect<ReadonlyMap<string, ConsentRecord>>) =>
       Effect.forkScoped,
     );
 
+    const recordIn = (records: ReadonlyMap<string, ConsentRecord>, userId: string) =>
+      Ref.get(noted).pipe(
+        Effect.map((all) =>
+          recordAfter(records.get(userId) ?? NEVER_ASKED, all.get(userId) ?? NOTHING_NOTED),
+        ),
+      );
+
     const lookup = (userId: string) =>
-      Effect.gen(function* () {
-        const loaded = yield* Deferred.await(known).pipe(Effect.timeoutOption(LOOKUP_WAIT));
-        const mine = (yield* Ref.get(noted)).get(userId) ?? NOTHING_NOTED;
+      Deferred.await(known).pipe(Effect.flatMap((records) => recordIn(records, userId)));
 
-        const past = Option.flatMap(loaded, (records) =>
-          Option.fromUndefinedOr(records.get(userId)),
-        );
-
-        return recordAfter(
-          Option.getOrElse(past, () => NEVER_ASKED),
-          mine,
-        );
-      });
+    const lookupWithin = (userId: string, wait: Duration.Duration) =>
+      Deferred.await(known).pipe(
+        Effect.timeoutOption(wait),
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.succeedNone,
+            onSome: (records) => Effect.asSome(recordIn(records, userId)),
+          }),
+        ),
+      );
 
     const remember = (event: ConsentEvent) =>
       Ref.update(noted, (all) =>
         new Map(all).set(event.userId, noting(all.get(event.userId) ?? NOTHING_NOTED, event)),
       );
 
-    return { lookup, remember };
+    return { lookup, lookupWithin, remember };
   });
 
 export class ConsentBook extends Context.Service<
   ConsentBook,
   {
     lookup(userId: string): Effect.Effect<ConsentRecord>;
+    lookupWithin(
+      userId: string,
+      wait: Duration.Duration,
+    ): Effect.Effect<Option.Option<ConsentRecord>>;
     note(event: ConsentEvent): Effect.Effect<void>;
     remember(event: ConsentEvent): Effect.Effect<void>;
   }
@@ -112,9 +123,12 @@ export class ConsentBook extends Context.Service<
         database.ready.pipe(
           Effect.andThen(log.history),
           Effect.retry(retryOutages),
-          Effect.catch((error) =>
-            Effect.logError("Couldn't read who agreed to being recorded").pipe(
-              Effect.annotateLogs({ reason: error.reason.message }),
+          Effect.catchCause((cause) =>
+            Effect.logError(
+              "Couldn't read who agreed to being recorded, asking everyone",
+              cause,
+            ).pipe(
+              Effect.andThen(ErrorReporter.report(cause)),
               Effect.as<ReadonlyMap<string, ConsentRecord>>(new Map()),
             ),
           ),
@@ -174,7 +188,7 @@ export class ConsentBook extends Context.Service<
           ),
         );
 
-      return ConsentBook.of({ lookup: book.lookup, note, remember: book.remember });
+      return ConsentBook.of({ ...book, note });
     }),
   );
 
@@ -183,7 +197,7 @@ export class ConsentBook extends Context.Service<
     Effect.gen(function* () {
       const book = yield* make(Effect.succeed(new Map()));
 
-      return ConsentBook.of({ lookup: book.lookup, note: book.remember, remember: book.remember });
+      return ConsentBook.of({ ...book, note: book.remember });
     }),
   );
 }

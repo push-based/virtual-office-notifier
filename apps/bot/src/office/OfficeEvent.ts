@@ -105,6 +105,7 @@ export const NO_VOICE_DETAILS: VoiceDetails = {
 
 // A plain snapshot of a discord.js voiceStateUpdate event.
 export interface VoiceStateUpdate extends VoiceStateChange {
+  readonly alreadyThere?: true;
   readonly userId: string;
   readonly displayName: string;
   readonly avatarUrl: string | null;
@@ -161,6 +162,9 @@ export const trackOccupancy =
       if (occupants.has(update.userId)) return unchanged(session);
 
       const next = new Set(occupants).add(update.userId);
+
+      if (occupants.size === 0 && update.alreadyThere === true)
+        return [{ occupants: next, visitors: next, openedAt: Option.none() }, []];
 
       if (occupants.size === 0) {
         return [

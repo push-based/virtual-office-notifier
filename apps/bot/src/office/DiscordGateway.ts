@@ -40,15 +40,15 @@ import {
 } from "discord.js";
 import type { PersonInOffice } from "recording-requests/RecordingRequest";
 
+import { Notice } from "../consent/index.ts";
 import {
   type Choice,
   type ConsentAnswer,
   ConsentGate,
   type ConsentLine,
   type Gate,
-  Notice,
   type PromptDelivery,
-} from "../consent/index.ts";
+} from "./ConsentGate.ts";
 
 import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
 import { DiscordConfig } from "../Config.ts";
@@ -176,6 +176,7 @@ const toVoiceStateUpdate = (oldState: VoiceState, newState: VoiceState): VoiceSt
 // Someone already in the office at startup, as if they had just joined.
 const alreadyPresent = (member: GuildMember): VoiceStateUpdate => ({
   ...memberOf(member.voice),
+  alreadyThere: true,
   oldChannelId: null,
   newChannelId: member.voice.channelId,
   oldDetails: NO_VOICE_DETAILS,
@@ -408,6 +409,10 @@ const consentAnswers = (client: Client, runFork: RunFork) =>
           promptId,
           userId,
           choice,
+          acknowledge: Effect.tryPromise(() => interaction.deferUpdate()).pipe(
+            Effect.asVoid,
+            Effect.catch(logFailure("Couldn't acknowledge a consent button")),
+          ),
           reply: (text) =>
             Effect.tryPromise(() =>
               interaction.update({
@@ -515,6 +520,7 @@ export class DiscordGateway extends Context.Service<
     readonly seat: Option.Option<SeatAdapter>;
     readonly occupants: Effect.Effect<ReadonlyArray<PersonInOffice>>;
     isAdmitted(userId: string): Effect.Effect<boolean>;
+    admittedSince(userId: string): Effect.Effect<Option.Option<DateTime.Utc>>;
     readonly consentLine: Option.Option<ConsentLine>;
     readonly selfUserId: string;
     readonly voice: Option.Option<OfficeVoice>;
@@ -683,6 +689,7 @@ export class DiscordGateway extends Context.Service<
         ),
         occupants: whoIsIn,
         isAdmitted: gate.isAdmitted,
+        admittedSince: gate.admittedSince,
         consentLine: Option.map(office, (channel) => consentLineIn(client, channel, runFork)),
         selfUserId: ready.user.id,
         voice,
@@ -779,6 +786,7 @@ export class DiscordGateway extends Context.Service<
             ),
           ),
           isAdmitted: gate.isAdmitted,
+          admittedSince: gate.admittedSince,
           consentLine: Option.fromUndefinedOr(line),
           selfUserId: selfId,
           voice: Option.none(),
