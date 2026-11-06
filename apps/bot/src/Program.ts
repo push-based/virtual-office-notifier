@@ -5,6 +5,7 @@ import { ActivityRecorder } from "./activity/index.ts";
 import { AiProviders } from "./ai/index.ts";
 import { banter, QuietBanterLayer, reminders, SlackNotifier } from "./announcing/index.ts";
 import { ConsentGate, DiscordGateway, OfficeEvent, OfficeSeat } from "./office/index.ts";
+import { Eraser } from "./erasure/index.ts";
 import { ConsentDeskLayer } from "./reception/index.ts";
 import { RecordingLayer } from "./recording/index.ts";
 import { ResponderLayer } from "./answering/index.ts";
@@ -84,7 +85,7 @@ export const MainLayer = Layer.mergeAll(
   ResponderLayer,
   RecordingLayer,
   QuietBanterLayer,
-  ConsentDeskLayer,
+  ConsentDeskLayer.pipe(Layer.provide(Eraser.layer)),
 ).pipe(
   Layer.provideMerge(OfficeSeat.layer),
   Layer.provideMerge(DiscordGateway.layer),

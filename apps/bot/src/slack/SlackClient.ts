@@ -12,6 +12,7 @@ import {
   Redacted,
   Schedule,
   Schema,
+  Stream,
   String,
 } from "effect";
 import {
@@ -216,6 +217,14 @@ export interface ThreadMessage {
   readonly text: string;
 }
 
+export interface FetchedMessage {
+  readonly ts: string;
+  readonly userId: string | null;
+  readonly text: string;
+  readonly blocks: Option.Option<Schema.JsonArray>;
+  readonly fileIds: ReadonlyArray<string>;
+}
+
 export interface Engagement {
   readonly reactions: number;
   readonly replies: number;
@@ -244,6 +253,21 @@ const Replies = slackReply({
 const ThreadParent = slackReply({
   messages: Schema.Array(
     Schema.Struct({ ts: Schema.String, reply_count: Schema.optional(Schema.Int) }),
+  ),
+});
+
+const PostedMessages = slackReply({
+  messages: Schema.Array(
+    Schema.Struct({
+      ts: Schema.String,
+      user: Schema.optional(Schema.String),
+      text: Schema.optional(Schema.String),
+      blocks: Schema.optional(Schema.Array(Schema.Json)),
+      files: Schema.optional(Schema.Array(Schema.Struct({ id: Schema.String }))),
+    }),
+  ),
+  response_metadata: Schema.optional(
+    Schema.Struct({ next_cursor: Schema.optional(Schema.String) }),
   ),
 });
 
@@ -283,6 +307,8 @@ export interface FileUpload {
 
 const THREAD_LIMIT = "1000";
 
+const PAGE_LIMIT = "200";
+
 interface PostBody extends SlackMessage {
   readonly channel: string;
   thread_ts?: string;
@@ -293,9 +319,20 @@ interface UpdateBody extends SlackMessage {
   readonly ts: string;
 }
 
+interface RewriteBody {
+  readonly channel: string;
+  readonly ts: string;
+  readonly text: string;
+  readonly blocks?: Schema.JsonArray;
+}
+
 interface DeleteBody {
   readonly channel: string;
   readonly ts: string;
+}
+
+interface FileBody {
+  readonly file: string;
 }
 
 interface ReactionBody {
@@ -313,7 +350,9 @@ interface CompleteUploadBody {
 type WriteBody =
   | PostBody
   | UpdateBody
+  | RewriteBody
   | DeleteBody
+  | FileBody
   | ReactionBody
   | CompleteUploadBody
   | Readonly<Record<string, never>>;
@@ -349,6 +388,15 @@ export class SlackClient extends Context.Service<
       channel: string,
       threadTs: string,
     ): Effect.Effect<ReadonlyArray<ThreadMessage>, SlackError>;
+    channelPosts(channel: string): Stream.Stream<FetchedMessage, SlackError>;
+    threadPosts(channel: string, threadTs: string): Stream.Stream<FetchedMessage, SlackError>;
+    rewriteMessage(
+      channel: string,
+      ts: string,
+      text: string,
+      blocks: Option.Option<Schema.JsonArray>,
+    ): Effect.Effect<void, SlackError>;
+    deleteFile(fileId: string): Effect.Effect<void, SlackError>;
     userProfile(userId: string): Effect.Effect<SlackProfile, SlackError>;
     permalink(channel: string, ts: string): Effect.Effect<string, SlackError>;
     readonly botUserId: Effect.Effect<string, SlackError>;
@@ -495,6 +543,68 @@ export class SlackClient extends Context.Service<
           ),
         );
 
+      const postsIn = (method: string, params: Record<string, string>) =>
+        Stream.paginate(Option.none<string>(), (cursor) =>
+          read(
+            method,
+            Option.match(cursor, {
+              onNone: () => ({ ...params, limit: PAGE_LIMIT }),
+              onSome: (next) => ({ ...params, limit: PAGE_LIMIT, cursor: next }),
+            }),
+            PostedMessages,
+          ).pipe(
+            Effect.map(({ messages, response_metadata }) => {
+              const posts = Array.map(
+                messages,
+                ({ ts, user, text, blocks, files }): FetchedMessage => ({
+                  ts,
+                  userId: user ?? null,
+                  text: text ?? "",
+                  blocks: Option.fromUndefinedOr(blocks),
+                  fileIds: Array.map(files ?? [], ({ id }) => id),
+                }),
+              );
+
+              const next = Option.fromUndefinedOr(response_metadata?.next_cursor).pipe(
+                Option.filter((cursor) => cursor !== ""),
+              );
+
+              return [posts, Option.map(next, Option.some)] as const;
+            }),
+          ),
+        );
+
+      const channelPosts = (channel: string) => postsIn("conversations.history", { channel });
+
+      const threadPosts = (channel: string, threadTs: string) =>
+        postsIn("conversations.replies", { channel, ts: threadTs });
+
+      const rewriteMessage = (
+        channel: string,
+        ts: string,
+        text: string,
+        blocks: Option.Option<Schema.JsonArray>,
+      ) =>
+        write(
+          "chat.update",
+          Option.match(blocks, {
+            onNone: (): RewriteBody => ({ channel, ts, text }),
+            onSome: (kept): RewriteBody => ({ channel, ts, text, blocks: kept }),
+          }),
+          Nothing,
+        ).pipe(Effect.asVoid);
+
+      const deleteFile = (fileId: string) =>
+        write("files.delete", { file: fileId }, Nothing).pipe(
+          Effect.asVoid,
+          Effect.catchIf(
+            (error) =>
+              Schema.is(InvalidPayload)(error.reason) &&
+              (error.reason.error === "file_not_found" || error.reason.error === "file_deleted"),
+            () => Effect.void,
+          ),
+        );
+
       const reactionCount = (channel: string, ts: string) =>
         read("reactions.get", { channel, timestamp: ts, full: "true" }, Reactions).pipe(
           Effect.map(({ message }) =>
@@ -556,6 +666,10 @@ export class SlackClient extends Context.Service<
         engagement,
         uploadFile,
         threadReplies,
+        channelPosts,
+        threadPosts,
+        rewriteMessage,
+        deleteFile,
         userProfile,
         permalink,
         botUserId,

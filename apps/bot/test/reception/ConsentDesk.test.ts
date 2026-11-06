@@ -13,7 +13,11 @@ import {
 } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { TestClock } from "effect/testing";
-import { ConsentRequests, type WithdrawalHandler } from "recording-requests/ConsentRequests";
+import {
+  ConsentRequests,
+  type ErasureHandler,
+  type WithdrawalHandler,
+} from "recording-requests/ConsentRequests";
 import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
 
 import { ConsentBook } from "../../src/consent/ConsentBook.ts";
@@ -25,7 +29,8 @@ import {
   type OfficeEvent,
   type VoiceStateUpdate,
 } from "../../src/office/OfficeEvent.ts";
-import { ConsentDeskLayer } from "../../src/reception/ConsentDesk.ts";
+import { Eraser } from "../../src/erasure/Eraser.ts";
+import { ConsentDeskLayer, ERASURE_SWEEP_DELAY } from "../../src/reception/ConsentDesk.ts";
 import { pollUntil, withEnv } from "../fakes.ts";
 
 const OFFICE = "office";
@@ -106,19 +111,27 @@ type Line = Effect.Success<typeof makeLine>;
 
 interface Withdrawals {
   readonly queue: Ref.Ref<ReadonlyArray<string>>;
-  readonly layer: Layer.Layer<ConsentRequests>;
+  readonly erasures: Ref.Ref<ReadonlyArray<string>>;
+  readonly erasing: Ref.Ref<ReadonlyArray<string>>;
+  readonly layer: Layer.Layer<ConsentRequests | Eraser>;
 }
 
 const makeWithdrawals = Effect.gen(function* () {
   const queue = yield* Ref.make<ReadonlyArray<string>>([]);
+  const erasures = yield* Ref.make<ReadonlyArray<string>>([]);
+  const erasing = yield* Ref.make<ReadonlyArray<string>>([]);
 
-  const layer = Layer.succeed(
+  const step = (text: string) => Ref.update(erasing, (all) => [...all, text]);
+
+  const requests = Layer.succeed(
     ConsentRequests,
     ConsentRequests.of({
       status: () => Effect.die("not used"),
       withdraw: () => Effect.die("not used"),
       find: () => Effect.die("not used"),
-      handlePending: <E, R>(handler: WithdrawalHandler<E, R>) =>
+      erase: () => Effect.die("not used"),
+      findErasure: () => Effect.die("not used"),
+      handleWithdrawals: <E, R>(handler: WithdrawalHandler<E, R>) =>
         Ref.getAndSet(queue, []).pipe(
           Effect.flatMap((userIds) =>
             Effect.forEach(
@@ -131,10 +144,43 @@ const makeWithdrawals = Effect.gen(function* () {
             ),
           ),
         ),
+      handleErasures: <E, R>(handler: ErasureHandler<E, R>) =>
+        Ref.getAndSet(erasures, []).pipe(
+          Effect.flatMap((userIds) =>
+            Effect.forEach(
+              userIds,
+              (userId, index) =>
+                handler.prepare({ id: index + 1, userId }).pipe(
+                  Effect.andThen(handler.erase({ id: index + 1, userId })),
+                  Effect.tap(() => step(`commit ${userId}`)),
+                  Effect.flatMap((made) => made.afterCommit),
+                ),
+              { discard: true },
+            ),
+          ),
+        ),
     }),
   );
 
-  return { queue, layer } satisfies Withdrawals;
+  const eraser = Layer.succeed(
+    Eraser,
+    Eraser.of({
+      prepare: (userId) => step(`prepare ${userId}`),
+      erase: (userId) =>
+        step(`erase ${userId}`).pipe(
+          Effect.as({ objectPaths: [`${userId}.ogg`], republishing: 1 }),
+        ),
+      removeAudio: (paths) => step(`remove ${Array.join(paths, ", ")}`),
+      sweep: (userId) => step(`sweep ${userId}`),
+    }),
+  );
+
+  return {
+    queue,
+    erasures,
+    erasing,
+    layer: Layer.merge(requests, eraser),
+  } satisfies Withdrawals;
 });
 
 const withDesk = <A, E>(
@@ -362,6 +408,68 @@ describe("ConsentDesk", () => {
 
           assert.deepStrictEqual(yield* Ref.get(fake.settled), [Notice.QUESTION_WITHDRAWN]);
           assert.deepStrictEqual(yield* Ref.get(fake.shownOut), ["u1"]);
+        }),
+      );
+    }),
+  );
+
+  it.effect(
+    "erases someone in the office, shows them out, then says goodbye and forgets them",
+    () =>
+      Effect.gen(function* () {
+        const fake = yield* makeLine;
+        const withdrawals = yield* makeWithdrawals;
+        const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
+        yield* Queue.offer(updates, join());
+
+        yield* withDesk(updates, fake, withdrawals, (gateway) =>
+          Effect.gen(function* () {
+            yield* fake.press(yield* fake.nextAsk(1), "agree");
+            yield* pollUntil(gateway.isAdmitted("u1"), (admitted) => admitted);
+            yield* Ref.set(withdrawals.erasures, ["u1"]);
+            yield* TestClock.adjust(CHECK_INTERVAL);
+            yield* pollUntil(Ref.get(fake.told), (all) => all.length === 1);
+
+            assert.deepStrictEqual(yield* Ref.get(withdrawals.erasing), [
+              "prepare u1",
+              "erase u1",
+              "commit u1",
+              "remove u1.ogg",
+            ]);
+            assert.deepStrictEqual(yield* Ref.get(fake.shownOut), ["u1"]);
+            assert.deepStrictEqual(yield* Ref.get(fake.told), [Notice.ERASED_AND_SHOWN_OUT]);
+            assert.isFalse(yield* gateway.isAdmitted("u1"));
+
+            yield* TestClock.adjust(ERASURE_SWEEP_DELAY);
+            yield* pollUntil(Ref.get(withdrawals.erasing), (all) => all.includes("sweep u1"));
+
+            yield* Queue.offer(updates, leave());
+            yield* Queue.offer(updates, join());
+
+            const again = yield* fake.nextAsk(2);
+
+            assert.strictEqual(again.text, Notice.askFor("first", "Ada"));
+          }),
+        );
+      }),
+  );
+
+  it.effect("drops an open question when someone asks for their data to be deleted", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeLine;
+      const withdrawals = yield* makeWithdrawals;
+      const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
+      yield* Queue.offer(updates, join());
+
+      yield* withDesk(updates, fake, withdrawals, () =>
+        Effect.gen(function* () {
+          yield* fake.nextAsk(1);
+          yield* Ref.set(withdrawals.erasures, ["u1"]);
+          yield* TestClock.adjust(CHECK_INTERVAL);
+          yield* pollUntil(Ref.get(fake.told), (all) => all.length === 1);
+
+          assert.deepStrictEqual(yield* Ref.get(fake.settled), [Notice.QUESTION_ERASED]);
+          assert.deepStrictEqual(yield* Ref.get(fake.told), [Notice.ERASED_AND_SHOWN_OUT]);
         }),
       );
     }),

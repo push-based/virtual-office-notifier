@@ -1,6 +1,8 @@
 import {
+  Cause,
   DateTime,
   Deferred,
+  Duration,
   Effect,
   ErrorReporter,
   FiberMap,
@@ -9,14 +11,21 @@ import {
   Option,
   Ref,
   Schedule,
+  Scope,
   Stream,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
 import type { ConsentEventKind, Delivery, Wording } from "recording-requests/Consent";
-import { ConsentRequests, type Withdrawal } from "recording-requests/ConsentRequests";
+import {
+  type Erasure,
+  type ErasureHandler,
+  ConsentRequests,
+  type Withdrawal,
+} from "recording-requests/ConsentRequests";
 import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
 
 import { ConsentBook, Notice } from "../consent/index.ts";
+import { Eraser, type PrepareError } from "../erasure/index.ts";
 import {
   Admission,
   type ConsentAnswer,
@@ -32,8 +41,12 @@ const {
   ANSWER_TIME,
   askFor,
   DECLINED,
+  ERASED,
+  ERASED_AND_SHOWN_OUT,
+  ERASED_REASON,
   EXPIRED,
   LEFT,
+  QUESTION_ERASED,
   QUESTION_WITHDRAWN,
   RESTARTING,
   SHOWN_OUT_REASON,
@@ -44,7 +57,19 @@ const {
 
 const HANDLING_WITHDRAWALS = "Couldn't handle consent withdrawals";
 
-type Lapse = "left" | "withdrawn";
+export const ERASURE_RETRY_FIRST = Duration.seconds(30);
+
+export const ERASURE_RETRY_LONGEST = Duration.minutes(30);
+
+export const ERASURE_SWEEP_DELAY = Duration.minutes(1);
+
+const erasureRetry = Schedule.exponential(ERASURE_RETRY_FIRST).pipe(
+  Schedule.modifyDelay(({ duration }) =>
+    Effect.succeed(Duration.min(duration, ERASURE_RETRY_LONGEST)),
+  ),
+);
+
+type Lapse = "left" | "withdrawn" | "erased";
 
 const deliveryOf = (via: Option.Option<{ readonly via: Delivery }>): Delivery =>
   Option.match(via, { onNone: () => "undelivered", onSome: ({ via }) => via });
@@ -53,11 +78,14 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
   const gate = yield* ConsentGate;
   const book = yield* ConsentBook;
   const requests = yield* ConsentRequests;
+  const eraser = yield* Eraser;
+  const scope = yield* Scope.Scope;
   const random = yield* SecureRandom.SecureRandom;
   const health = yield* StoreHealth.make;
   const waiting = yield* Ref.make<ReadonlyMap<string, Deferred.Deferred<ConsentAnswer>>>(new Map());
   const lapses = yield* Ref.make<ReadonlyMap<string, Lapse>>(new Map());
   const settled = yield* Ref.make<ReadonlySet<string>>(new Set());
+  const shownOutForErasure = yield* Ref.make<ReadonlySet<string>>(new Set());
   const asks = yield* FiberMap.make<string>();
 
   const note = (userId: string, kind: ConsentEventKind, wording?: Wording, delivery?: Delivery) =>
@@ -102,6 +130,7 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
         Match.value(all.get(userId)).pipe(
           Match.when("left", () => note(userId, "left").pipe(Effect.andThen(settle(LEFT)))),
           Match.when("withdrawn", () => settle(QUESTION_WITHDRAWN)),
+          Match.when("erased", () => settle(QUESTION_ERASED)),
           Match.orElse(() => settle(RESTARTING)),
         ),
       ),
@@ -220,17 +249,72 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
     });
 
   const handleWithdrawals = requests
-    .handlePending({ withdraw })
+    .handleWithdrawals({ withdraw })
     .pipe(
       Effect.andThen(health.ok(HANDLING_WITHDRAWALS)),
       Effect.catchTag("RecordingUnavailable", health.issue(HANDLING_WITHDRAWALS)),
     );
+
+  const markShownOut = (userId: string, shown: boolean) =>
+    shown ? Ref.update(shownOutForErasure, (all) => new Set(all).add(userId)) : Effect.void;
+
+  const takeShownOut = (userId: string) =>
+    Ref.modify(shownOutForErasure, (all): readonly [boolean, ReadonlySet<string>] => {
+      const next = new Set(all);
+      next.delete(userId);
+
+      return [all.has(userId), next];
+    });
+
+  const sweepLater = (userId: string) =>
+    Effect.sleep(ERASURE_SWEEP_DELAY).pipe(
+      Effect.andThen(gate.isAdmitted(userId)),
+      Effect.flatMap((admitted) => (admitted ? Effect.void : eraser.sweep(userId))),
+      Effect.forkIn(scope),
+      Effect.asVoid,
+    );
+
+  const erasures: ErasureHandler<PrepareError, never> = {
+    prepare: Effect.fnUntraced(function* ({ userId }: Erasure) {
+      yield* book.remember({ userId, at: yield* DateTime.now, kind: "withdrawn" });
+      yield* stopAsking(userId, "erased");
+      yield* gate.decide(Admission.Withdrawn({ userId }));
+      yield* markShownOut(userId, yield* line.showOut(userId, ERASED_REASON));
+      yield* eraser.prepare(userId);
+    }),
+    erase: ({ userId }) =>
+      eraser.erase(userId).pipe(
+        Effect.map((erased) => ({
+          afterCommit: Effect.gen(function* () {
+            yield* book.forget(userId);
+            yield* sweepLater(userId);
+            yield* eraser.removeAudio(erased.objectPaths);
+            yield* line.tell(userId, (yield* takeShownOut(userId)) ? ERASED_AND_SHOWN_OUT : ERASED);
+            yield* Effect.logInfo("Erased someone's data and told them").pipe(
+              Effect.annotateLogs({ recordingsToRepublish: erased.republishing }),
+            );
+          }),
+        })),
+      ),
+  };
+
+  const handleErasures = requests.handleErasures(erasures).pipe(
+    Effect.tapError((error) =>
+      Effect.logWarning("Couldn't erase someone's data yet, trying again later").pipe(
+        Effect.annotateLogs({ reason: error.message }),
+        Effect.andThen(ErrorReporter.report(Cause.fail(error))),
+      ),
+    ),
+    Effect.retry(erasureRetry),
+    Effect.orDie,
+  );
 
   yield* Effect.all(
     [
       Stream.runForEach(gate.visits, onVisit),
       Stream.runForEach(line.answers, route),
       Effect.schedule(handleWithdrawals, Schedule.spaced(CHECK_INTERVAL)),
+      Effect.schedule(handleErasures, Schedule.spaced(CHECK_INTERVAL)),
     ],
     { concurrency: "unbounded", discard: true },
   );

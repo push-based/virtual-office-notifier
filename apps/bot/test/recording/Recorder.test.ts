@@ -741,6 +741,7 @@ describe("Recorder", () => {
           upload: () =>
             Deferred.succeed(uploading, undefined).pipe(Effect.andThen(Deferred.await(saved))),
           download: () => Effect.succeed(new Uint8Array([1])),
+          remove: () => Effect.void,
         }),
       });
 

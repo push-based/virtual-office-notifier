@@ -109,11 +109,17 @@ describe("ConsentBook", () => {
 
   it("lets what was noted since startup win over the history", () => {
     assert.deepStrictEqual(
-      recordAfter({ agreed: true, asked: 3 }, { agreed: Option.some(false), asked: 1 }),
+      recordAfter(
+        { agreed: true, asked: 3 },
+        { forgotten: false, agreed: Option.some(false), asked: 1 },
+      ),
       { agreed: false, asked: 4 },
     );
     assert.deepStrictEqual(
-      recordAfter({ agreed: true, asked: 1 }, { agreed: Option.none(), asked: 0 }),
+      recordAfter(
+        { agreed: true, asked: 1 },
+        { forgotten: false, agreed: Option.none(), asked: 0 },
+      ),
       {
         agreed: true,
         asked: 1,

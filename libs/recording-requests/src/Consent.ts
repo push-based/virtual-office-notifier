@@ -37,10 +37,22 @@ export const SubmittedWithdrawal = Schema.Struct({
 
 export type SubmittedWithdrawal = typeof SubmittedWithdrawal.Type;
 
+export const ErasureOutcome = Schema.Literal("erased");
+
+export type ErasureOutcome = typeof ErasureOutcome.Type;
+
+export const SubmittedErasure = Schema.Struct({
+  id: Schema.Finite,
+  outcome: Schema.NullOr(ErasureOutcome),
+});
+
+export type SubmittedErasure = typeof SubmittedErasure.Type;
+
 export const ConsentStatus = Schema.Struct({
   standing: ConsentStanding,
   since: Schema.NullOr(Schema.DateTimeUtcFromString),
   pendingWithdrawal: Schema.NullOr(Schema.Finite),
+  pendingErasure: Schema.NullOr(Schema.Finite),
 });
 
 export type ConsentStatus = typeof ConsentStatus.Type;

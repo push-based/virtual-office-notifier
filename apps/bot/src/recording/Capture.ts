@@ -108,6 +108,11 @@ const make = Effect.fnUntraced(function* (
 
   const saveClip = Effect.fn("Capture.saveClip")(
     function* (recordingId: string, clip: Clip) {
+      if (Option.isNone(yield* gateway.admittedSince(clip.userId)))
+        return yield* Effect.logInfo(
+          "Dropped a clip from someone who withdrew while it was saving",
+        );
+
       const durationMs = opusPacketsDuration(clip.packets);
       const ogg = oggOpusFile(clip.packets);
       const occupants = yield* gateway.occupants;

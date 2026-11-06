@@ -39,6 +39,7 @@ const setUp = Effect.fnUntraced(function* (archived: ReadonlyMap<string, Uint8Ar
           Effect.fromOption(Option.fromUndefinedOr(archived.get(path))).pipe(
             Effect.mapError(() => ArchiveError.make({ reason: "Not in the archive" })),
           ),
+        remove: () => Effect.void,
       }),
     ),
   ).pipe(

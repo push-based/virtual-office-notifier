@@ -13,7 +13,9 @@ import {
 import {
   ANSWER_WINDOW_MS,
   CHECK_INTERVAL_MS,
+  ERASURE_WAIT_MS,
   RECORDED_IN_THE_OFFICE,
+  type SubmittedErasure,
   type SubmittedWithdrawal,
 } from "recording-requests/wire";
 import { type Observable, first, of, switchMap, timeout, timer } from "rxjs";
@@ -41,6 +43,23 @@ const NO_ANSWER: ConsentNotice = {
   kind: "error",
   text: "The bot didn't answer in time. It'll still withdraw your consent once it's back.",
 };
+
+const ERASED: ConsentNotice = {
+  kind: "info",
+  text: "Everything we held about you is deleted, and the bot is sending you a DM to say goodbye. We'll miss you more than we can say.",
+};
+
+const STILL_ERASING: ConsentNotice = {
+  kind: "info",
+  text: "The bot is still deleting your data. It'll finish in the background and send you a DM when it's done.",
+};
+
+const NOT_ERASED: ConsentNotice = {
+  kind: "error",
+  text: "Couldn't ask the bot to delete your data. Nothing has been deleted yet, so try again in a moment.",
+};
+
+type Action = "withdraw" | "erase";
 
 const noticeOf = (withdrawal: SubmittedWithdrawal): ConsentNotice =>
   withdrawal.outcome === "ignored" ? NOTHING_TO_WITHDRAW : WITHDRAWN;
@@ -81,9 +100,9 @@ const noticeOf = (withdrawal: SubmittedWithdrawal): ConsentNotice =>
           </p>
         </section>
         @if (view.canWithdraw) {
-          @if (confirming()) {
-            <div class="confirm" role="group" aria-labelledby="confirm-text">
-              <p id="confirm-text" class="text-body-sm">
+          @if (confirming() === "withdraw") {
+            <div class="confirm" role="group" aria-labelledby="confirm-withdraw-text">
+              <p id="confirm-withdraw-text" class="text-body-sm">
                 Withdrawing shows you out of the office straight away, and nothing new is recorded
                 about you. What's already recorded stays until you ask for it to be deleted. If you
                 come back, the bot will ask you again.
@@ -92,18 +111,18 @@ const noticeOf = (withdrawal: SubmittedWithdrawal): ConsentNotice =>
                 <button
                   pbButton
                   type="button"
-                  [disabled]="busy()"
-                  [attr.aria-busy]="busy()"
+                  [disabled]="busy() !== null"
+                  [attr.aria-busy]="busy() === 'withdraw'"
                   (click)="withdraw()"
                 >
-                  {{ busy() ? "Withdrawing…" : "Withdraw my consent" }}
+                  {{ busy() === "withdraw" ? "Withdrawing…" : "Withdraw my consent" }}
                 </button>
                 <button
                   pbButton
                   type="button"
                   variant="ghost"
-                  [disabled]="busy()"
-                  (click)="confirming.set(false)"
+                  [disabled]="busy() !== null"
+                  (click)="confirming.set(null)"
                 >
                   Keep it
                 </button>
@@ -115,11 +134,63 @@ const noticeOf = (withdrawal: SubmittedWithdrawal): ConsentNotice =>
               type="button"
               variant="ghost"
               class="align-start"
-              (click)="confirming.set(true)"
+              [disabled]="busy() !== null"
+              (click)="confirming.set('withdraw')"
             >
               Withdraw consent
             </button>
           }
+        }
+        @if (view.canErase) {
+          <section class="erase" aria-labelledby="erase-heading">
+            <h3 id="erase-heading" class="text-body-sm label">Delete your data</h3>
+            <p pbDescription>
+              Deletes everything the office holds about you: your activity, your sounds and emoji,
+              the Slack messages the bot kept, and your lines and audio in every recording. Each
+              recording you spoke in gets a new summary without you, and your name is taken out of
+              everything else, like other people's lines and the bot's posts in Slack. It also
+              withdraws your consent.
+            </p>
+            @if (confirming() === "erase") {
+              <div class="confirm danger" role="group" aria-labelledby="confirm-erase-text">
+                <p id="confirm-erase-text" class="text-body-sm">
+                  This can't be undone. If you're in the office, the bot will show you out, and if
+                  you come back, it'll ask you as if you'd never met.
+                </p>
+                <div class="controls">
+                  <button
+                    pbButton
+                    type="button"
+                    [disabled]="busy() !== null"
+                    [attr.aria-busy]="busy() === 'erase'"
+                    (click)="erase()"
+                  >
+                    {{ busy() === "erase" ? "Deleting…" : "Delete everything" }}
+                  </button>
+                  <button
+                    pbButton
+                    type="button"
+                    variant="ghost"
+                    [disabled]="busy() !== null"
+                    (click)="confirming.set(null)"
+                  >
+                    Keep it
+                  </button>
+                </div>
+              </div>
+            } @else {
+              <button
+                pbButton
+                type="button"
+                variant="ghost"
+                class="align-start"
+                [disabled]="busy() !== null"
+                (click)="confirming.set('erase')"
+              >
+                Delete my data
+              </button>
+            }
+          </section>
         }
       } @else {
         <p pbDescription>Checking…</p>
@@ -140,10 +211,20 @@ const noticeOf = (withdrawal: SubmittedWithdrawal): ConsentNotice =>
       align-self: flex-start;
     }
 
-    .recorded {
+    .recorded,
+    .erase {
       display: flex;
       flex-direction: column;
       gap: var(--space-2);
+    }
+
+    .erase {
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--color-border);
+    }
+
+    .erase p {
+      margin: 0;
     }
 
     .label {
@@ -171,6 +252,10 @@ const noticeOf = (withdrawal: SubmittedWithdrawal): ConsentNotice =>
       background: var(--color-surface);
     }
 
+    .confirm.danger {
+      border-color: var(--color-error-300);
+    }
+
     .confirm p {
       margin: 0;
     }
@@ -191,9 +276,9 @@ export class ConsentPanel {
 
   protected readonly recorded = RECORDED_IN_THE_OFFICE;
 
-  protected readonly confirming = signal(false);
+  protected readonly confirming = signal<Action | null>(null);
 
-  protected readonly busy = signal(false);
+  protected readonly busy = signal<Action | null>(null);
 
   protected readonly notice = signal<ConsentNotice | null>(null);
 
@@ -209,7 +294,7 @@ export class ConsentPanel {
   });
 
   protected withdraw(): void {
-    this.busy.set(true);
+    this.busy.set("withdraw");
     this.notice.set(null);
 
     this.api
@@ -224,6 +309,37 @@ export class ConsentPanel {
       });
   }
 
+  protected erase(): void {
+    this.busy.set("erase");
+    this.notice.set(null);
+
+    this.api
+      .erase()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (submitted) => this.awaitErasure(submitted),
+        error: () => this.settle(NOT_ERASED),
+      });
+  }
+
+  private awaitErasure(submitted: SubmittedErasure): void {
+    this.status.reload();
+
+    const erased: Observable<SubmittedErasure> =
+      submitted.outcome !== null
+        ? of(submitted)
+        : timer(CHECK_INTERVAL_MS, CHECK_INTERVAL_MS).pipe(
+            switchMap(() => this.api.findErasure(submitted.id)),
+            first((found) => found.outcome !== null),
+            timeout({ first: ERASURE_WAIT_MS }),
+          );
+
+    erased.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => this.settle(ERASED),
+      error: () => this.settle(STILL_ERASING),
+    });
+  }
+
   private answerTo(submitted: SubmittedWithdrawal): Observable<SubmittedWithdrawal> {
     return submitted.outcome !== null
       ? of(submitted)
@@ -235,8 +351,8 @@ export class ConsentPanel {
   }
 
   private settle(notice: ConsentNotice): void {
-    this.busy.set(false);
-    this.confirming.set(false);
+    this.busy.set(null);
+    this.confirming.set(null);
     this.notice.set(notice);
     this.status.reload();
   }

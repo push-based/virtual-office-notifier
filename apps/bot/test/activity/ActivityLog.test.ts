@@ -76,7 +76,7 @@ describe("ActivityLog", () => {
       );
 
       const [snapshot] = yield* sql`SELECT * FROM office.voice_snapshots`;
-      const [member] = yield* sql`SELECT * FROM office.members`;
+      const [member] = yield* sql`SELECT * FROM office.members WHERE user_id <> 'former_member'`;
 
       assert.deepInclude(snapshot, {
         botSessionId: SESSION,
@@ -117,7 +117,7 @@ describe("ActivityLog", () => {
         readonly realName: string;
         readonly firstSeenAt: Date;
         readonly lastSeenAt: Date;
-      }>`SELECT display_name, real_name, first_seen_at, last_seen_at FROM office.members`;
+      }>`SELECT display_name, real_name, first_seen_at, last_seen_at FROM office.members WHERE user_id <> 'former_member'`;
 
       assert.strictEqual(member?.displayName, "Ada L.");
       assert.strictEqual(member?.realName, "Ada Lovelace");
@@ -142,7 +142,7 @@ describe("ActivityLog", () => {
       );
 
       const [member] = yield* sql<{ readonly displayName: string; readonly lastSeenAt: Date }>`
-        SELECT display_name, last_seen_at FROM office.members
+        SELECT display_name, last_seen_at FROM office.members WHERE user_id <> 'former_member'
       `;
 
       assert.strictEqual(member?.displayName, "Ada");

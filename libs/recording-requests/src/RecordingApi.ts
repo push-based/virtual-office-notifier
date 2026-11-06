@@ -10,7 +10,7 @@ import {
   HttpApiSecurity,
 } from "effect/http-api";
 
-import { ConsentStatus, SubmittedWithdrawal } from "./Consent.ts";
+import { ConsentStatus, SubmittedErasure, SubmittedWithdrawal } from "./Consent.ts";
 import { OfficeStats, StatsQuery } from "./OfficeStats.ts";
 import { RecordingDetail, RecordingId, RecordingPage } from "./Recording.ts";
 import { RecordingChange, SubmittedEdit } from "./RecordingEdit.ts";
@@ -49,6 +49,11 @@ export class WithdrawalNotFound extends Schema.TaggedError<
   WithdrawalNotFound,
   { readonly brand: unique symbol }
 >()("WithdrawalNotFound", {}, { httpApiStatus: 404 }) {}
+
+export class ErasureNotFound extends Schema.TaggedError<
+  ErasureNotFound,
+  { readonly brand: unique symbol }
+>()("ErasureNotFound", {}, { httpApiStatus: 404 }) {}
 
 export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()(
   "recording-requests/SignedIn",
@@ -137,6 +142,15 @@ export class ConsentGroup extends HttpApiGroup.make("consent")
       params: { id: Schema.Int },
       success: SubmittedWithdrawal,
       error: [WithdrawalNotFound, HttpApiError.ServiceUnavailable],
+    }),
+    HttpApiEndpoint.post("erase", "/consent/erasures", {
+      success: SubmittedErasure.pipe(HttpApiSchema.status(202)),
+      error: HttpApiError.ServiceUnavailable,
+    }),
+    HttpApiEndpoint.get("findErasure", "/consent/erasures/:id", {
+      params: { id: Schema.Int },
+      success: SubmittedErasure,
+      error: [ErasureNotFound, HttpApiError.ServiceUnavailable],
     }),
   )
   .middleware(SignedIn)

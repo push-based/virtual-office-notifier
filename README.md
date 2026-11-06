@@ -18,7 +18,7 @@ A bot for a team whose office is a Discord voice channel. It tells Slack when th
 
 **In Discord**
 
-- **Asks everyone who joins to agree to being recorded**, and records nothing about them until they do. No answer within a minute, or a no, and the bot shows them out, sadly. Consent can be withdrawn from the Console. [More](docs/privacy.md#consent)
+- **Asks everyone who joins to agree to being recorded**, and records nothing about them until they do. No answer within a minute, or a no, and the bot shows them out, sadly. Consent can be withdrawn, and all of someone's data deleted, from the Console. [More](docs/privacy.md#consent)
 - **Sits in the office while it's occupied**, muted and deafened, so it sees soundboard sounds and emoji. It never hears anything unless someone records. [More](docs/architecture.md#the-bot-in-the-office)
 - **Records on demand.** Anyone in the office opens the Console and presses Start. Each person's speech is transcribed with Whisper, and the summary and action items land in Slack with the full transcript. Pause to go off the record, and give a recording a title, an agenda and a summary style. [More](docs/recording.md)
 - **Shows the recording history and office stats** in the Console: every recording with its transcript and summary, and for this week, this month or all time, who was in for how long, first in and last out, the busiest hours and the soundboard leaderboard. [More](docs/recording.md#recording-history)
@@ -93,7 +93,7 @@ Once it logs `Watching the virtual office`, join the office channel and the post
 
 ## Privacy
 
-This broadcasts people's presence to a wider audience, keeps a detailed record of everyone's activity in the office, and, feature by feature, sends names, messages and speech to AI providers that may keep and train on them. Nothing is ever deleted. Tell the team before turning each feature on. [Privacy](docs/privacy.md) says exactly what goes where and [where it all sits](docs/privacy.md#where-the-data-sits).
+This broadcasts people's presence to a wider audience, keeps a detailed record of everyone's activity in the office, and, feature by feature, sends names, messages and speech to AI providers that may keep and train on them. Nothing is deleted unless someone asks for their data to be deleted. Tell the team before turning each feature on. [Privacy](docs/privacy.md) says exactly what goes where and [where it all sits](docs/privacy.md#where-the-data-sits).
 
 We run it as an internal tool for one team, who were asked about each feature and agreed to it, and that agreement is the whole basis for it. Run it anywhere the office can hold someone who hasn't agreed — a client, a guest, a team that isn't yours — and the GDPR asks you for a lawful basis, a notice, deletion, agreements with every provider it sends people to, and most likely a DPIA. None of that is in the code: [Running it for anyone else](docs/privacy.md#running-it-for-anyone-else) is the list.
 
