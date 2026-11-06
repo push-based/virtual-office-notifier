@@ -12,7 +12,7 @@ A bot for a team whose office is a Discord voice channel. It tells Slack when th
 
 - **Announces when the office opens and when it empties**, and nothing in between. The first person in opens it and the last one out empties it, with a recap of how long it was open and how many people stopped by. [More](docs/slack.md#when-it-posts)
 - **Reminds people on weekdays** at 11:15 office time to come hang out.
-- **Writes banter** about what's happened in the office, up to five times an office day, at random. [More](docs/slack.md#banter)
+- **Writes banter** about what's happened in the office, up to five times an office day, at random, and deletes the next morning any that nobody reacted to or replied under. [More](docs/slack.md#banter)
 - **Answers** when someone mentions it, and when Clef, a decision model, thinks a reply under one of its posts wants one. Capped per day and per thread, and switched on in the database. [More](docs/slack.md#answering-in-slack)
 - **Lets free AI models write the headlines and button labels**, on OpenRouter or Workers AI, with fixed phrasings when none answers. [More](docs/slack.md#ai-headlines)
 

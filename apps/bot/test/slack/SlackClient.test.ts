@@ -228,6 +228,83 @@ describe("SlackClient", () => {
     }),
   );
 
+  it.effect("deletes a message", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([slackOk()]);
+
+      yield* slack.client.deleteMessage("C-OFFICE", "1700000000.000100");
+
+      const [request] = yield* slack.requests;
+      assert.strictEqual(request?.url, "https://slack.com/api/chat.delete");
+      assert.deepStrictEqual(requestJson(request!), {
+        channel: "C-OFFICE",
+        ts: "1700000000.000100",
+      });
+    }),
+  );
+
+  it.effect("treats a message that's already gone as deleted", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([slackError("message_not_found")]);
+
+      yield* slack.client.deleteMessage("C-OFFICE", "1700000000.000100");
+
+      assert.strictEqual((yield* slack.requests).length, 1);
+    }),
+  );
+
+  it.effect("counts every reaction on a message and the replies in its thread", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([
+        slackOk({
+          type: "message",
+          channel: "C-OFFICE",
+          message: {
+            ts: "1.0",
+            reactions: [
+              { name: "joy", count: 2, users: ["U1", "U2"] },
+              { name: "eyes", count: 1, users: ["U3"] },
+            ],
+          },
+        }),
+        slackOk({ messages: [{ ts: "1.0", user: "UBOT", reply_count: 4 }] }),
+      ]);
+
+      assert.deepStrictEqual(yield* slack.client.engagement("C-OFFICE", "1.0"), {
+        reactions: 3,
+        replies: 4,
+      });
+
+      const [reactions, replies] = yield* slack.requests;
+      assert.include(reactions?.url, "https://slack.com/api/reactions.get");
+      assert.deepStrictEqual(reactions?.urlParams.params, [
+        ["channel", "C-OFFICE"],
+        ["timestamp", "1.0"],
+        ["full", "true"],
+      ]);
+      assert.include(replies?.url, "https://slack.com/api/conversations.replies");
+      assert.deepStrictEqual(replies?.urlParams.params, [
+        ["channel", "C-OFFICE"],
+        ["ts", "1.0"],
+        ["limit", "1"],
+      ]);
+    }),
+  );
+
+  it.effect("counts no reactions and no replies on a message nobody touched", () =>
+    Effect.gen(function* () {
+      const slack = yield* makeClient([
+        slackOk({ type: "message", channel: "C-OFFICE", message: { ts: "1.0" } }),
+        slackOk({ messages: [{ ts: "1.0", user: "UBOT" }] }),
+      ]);
+
+      assert.deepStrictEqual(yield* slack.client.engagement("C-OFFICE", "1.0"), {
+        reactions: 0,
+        replies: 0,
+      });
+    }),
+  );
+
   it.effect.each([
     "invalid_auth",
     "token_revoked",

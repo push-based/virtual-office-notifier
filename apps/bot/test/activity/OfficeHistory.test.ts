@@ -305,6 +305,30 @@ describe("OfficeHistory", () => {
       }).pipe(Effect.provide(TestLayer)),
   );
 
+  it.effect("still hands back banter that was deleted from Slack", () =>
+    Effect.gen(function* () {
+      yield* startSessions;
+
+      const slack = yield* SlackHistory;
+      const history = yield* OfficeHistory;
+
+      yield* slack.recordPost({
+        channel: "C-OFFICE",
+        ts: "10.0",
+        threadTs: null,
+        kind: "Banter",
+        model: "test/model",
+        text: "Nobody laughed at this one",
+        postedAt: minutes(10),
+      });
+      yield* slack.recordDeleted({ channel: "C-OFFICE", ts: "10.0" }, minutes(20));
+
+      assert.deepStrictEqual(yield* history.latestBanter, [
+        { at: minutes(10), text: "Nobody laughed at this one" },
+      ]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
   it.effect("fails every read when nothing is recorded", () =>
     Effect.gen(function* () {
       const history = yield* OfficeHistory;

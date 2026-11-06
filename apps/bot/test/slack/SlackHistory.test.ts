@@ -165,6 +165,62 @@ describe("SlackHistory", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
+  it.effect("lists the banter still in Slack from a stretch of time, oldest first", () =>
+    Effect.gen(function* () {
+      yield* ready;
+
+      const history = yield* SlackHistory;
+
+      const banter = (ts: string, postedAt: DateTime.Utc) => ({
+        ...reply(ts, "", postedAt),
+        threadTs: null,
+        kind: "Banter" as const,
+      });
+
+      yield* history.recordPost(banter("8.0", hours(8)));
+      yield* history.recordPost(banter("12.0", hours(12)));
+      yield* history.recordPost(banter("10.0", hours(10)));
+      yield* history.recordPost(banter("11.0", hours(11)));
+      yield* history.recordPost(banter("14.0", hours(14)));
+      yield* history.recordPost({ ...banter("10.5", hours(10)), kind: "Reminder" });
+      yield* history.recordPost(reply("10.6", "10.0", hours(10)));
+
+      yield* history.recordDeleted({ channel: "C-OFFICE", ts: "11.0" }, hours(13));
+
+      assert.deepStrictEqual(yield* history.banterInSlackBetween(hours(10), hours(14)), [
+        { channel: "C-OFFICE", ts: "10.0" },
+        { channel: "C-OFFICE", ts: "12.0" },
+      ]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
+  it.effect("keeps deleted banter's text and the first time it was deleted", () =>
+    Effect.gen(function* () {
+      yield* ready;
+
+      const history = yield* SlackHistory;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* history.recordPost({
+        ...reply("10.0", "", hours(10)),
+        threadTs: null,
+        kind: "Banter",
+        text: "A joke nobody laughed at",
+      });
+
+      yield* history.recordDeleted({ channel: "C-OFFICE", ts: "10.0" }, hours(20));
+      yield* history.recordDeleted({ channel: "C-OFFICE", ts: "10.0" }, hours(21));
+
+      const rows = yield* sql<{ readonly text: string; readonly deletedAt: Date }>`
+        SELECT text, deleted_at FROM office.slack_posts WHERE ts = '10.0'
+      `;
+
+      assert.deepStrictEqual(rows, [
+        { text: "A joke nobody laughed at", deletedAt: DateTime.toDate(hours(20)) },
+      ]);
+    }).pipe(Effect.provide(TestLayer)),
+  );
+
   it.effect("links a Slack author by their Slack ID, then by real name", () =>
     Effect.gen(function* () {
       yield* ready;

@@ -216,6 +216,11 @@ export interface ThreadMessage {
   readonly text: string;
 }
 
+export interface Engagement {
+  readonly reactions: number;
+  readonly replies: number;
+}
+
 export interface SlackProfile {
   readonly displayName: string;
   readonly realName: string;
@@ -234,6 +239,18 @@ const Replies = slackReply({
       text: Schema.optional(Schema.String),
     }),
   ),
+});
+
+const ThreadParent = slackReply({
+  messages: Schema.Array(
+    Schema.Struct({ ts: Schema.String, reply_count: Schema.optional(Schema.Int) }),
+  ),
+});
+
+const Reactions = slackReply({
+  message: Schema.Struct({
+    reactions: Schema.optional(Schema.Array(Schema.Struct({ count: Schema.Int }))),
+  }),
 });
 
 const UserInfo = slackReply({
@@ -276,6 +293,11 @@ interface UpdateBody extends SlackMessage {
   readonly ts: string;
 }
 
+interface DeleteBody {
+  readonly channel: string;
+  readonly ts: string;
+}
+
 interface ReactionBody {
   readonly channel: string;
   readonly timestamp: string;
@@ -291,6 +313,7 @@ interface CompleteUploadBody {
 type WriteBody =
   | PostBody
   | UpdateBody
+  | DeleteBody
   | ReactionBody
   | CompleteUploadBody
   | Readonly<Record<string, never>>;
@@ -318,7 +341,9 @@ export class SlackClient extends Context.Service<
       ts: string,
       message: SlackMessage,
     ): Effect.Effect<void, SlackError>;
+    deleteMessage(channel: string, ts: string): Effect.Effect<void, SlackError>;
     addReaction(channel: string, ts: string, emoji: string): Effect.Effect<void, SlackError>;
+    engagement(channel: string, ts: string): Effect.Effect<Engagement, SlackError>;
     uploadFile(upload: FileUpload): Effect.Effect<void, SlackError>;
     threadReplies(
       channel: string,
@@ -398,6 +423,16 @@ export class SlackClient extends Context.Service<
           Nothing,
         ).pipe(Effect.asVoid);
 
+      const deleteMessage = (channel: string, ts: string) =>
+        write("chat.delete", { channel, ts }, Nothing).pipe(
+          Effect.asVoid,
+          Effect.catchIf(
+            (error) =>
+              Schema.is(InvalidPayload)(error.reason) && error.reason.error === "message_not_found",
+            () => Effect.void,
+          ),
+        );
+
       const addReaction = (channel: string, ts: string, emoji: string) =>
         write("reactions.add", { channel, timestamp: ts, name: emoji }, Nothing).pipe(
           Effect.asVoid,
@@ -460,6 +495,33 @@ export class SlackClient extends Context.Service<
           ),
         );
 
+      const reactionCount = (channel: string, ts: string) =>
+        read("reactions.get", { channel, timestamp: ts, full: "true" }, Reactions).pipe(
+          Effect.map(({ message }) =>
+            Array.reduce(message.reactions ?? [], 0, (total, { count }) => total + count),
+          ),
+        );
+
+      const replyCount = (channel: string, ts: string) =>
+        read("conversations.replies", { channel, ts, limit: "1" }, ThreadParent).pipe(
+          Effect.map(({ messages }) =>
+            Array.findFirst(messages, (message) => message.ts === ts).pipe(
+              Option.flatMap(({ reply_count }) => Option.fromUndefinedOr(reply_count)),
+              Option.getOrElse(() => 0),
+            ),
+          ),
+        );
+
+      const engagement = Effect.fn("SlackClient.engagement")(function* (
+        channel: string,
+        ts: string,
+      ) {
+        const reactions = yield* reactionCount(channel, ts);
+        const replies = yield* replyCount(channel, ts);
+
+        return { reactions, replies } satisfies Engagement;
+      });
+
       const userProfile = (userId: string) =>
         read("users.info", { user: userId }, UserInfo).pipe(
           Effect.map(({ user }): SlackProfile => {
@@ -489,7 +551,9 @@ export class SlackClient extends Context.Service<
       return SlackClient.of({
         postMessage,
         updateMessage,
+        deleteMessage,
         addReaction,
+        engagement,
         uploadFile,
         threadReplies,
         userProfile,

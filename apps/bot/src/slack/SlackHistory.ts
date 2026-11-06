@@ -46,6 +46,11 @@ export interface SlackPost {
   readonly postedAt: DateTime.Utc;
 }
 
+export interface PostedBanter {
+  readonly channel: string;
+  readonly ts: string;
+}
+
 export interface ConsideredMessage {
   readonly channel: string;
   readonly ts: string;
@@ -153,6 +158,11 @@ const DecisionRow = Schema.Struct({
 
 const Since = Schema.Struct({ from: Schema.DateTimeUtcFromDate });
 
+const Between = Schema.Struct({
+  from: Schema.DateTimeUtcFromDate,
+  until: Schema.DateTimeUtcFromDate,
+});
+
 const Total = Schema.Struct({ total: Schema.Int });
 
 const notRecording = () => Effect.fail(HistoryUnavailable.make({ reason: "Nothing is recorded" }));
@@ -168,6 +178,14 @@ export class SlackHistory extends Context.Service<
     repliesSince(from: DateTime.Utc): Effect.Effect<number, HistoryUnavailable>;
     reactionsSince(from: DateTime.Utc): Effect.Effect<number, HistoryUnavailable>;
     repliesInThread(channel: string, threadTs: string): Effect.Effect<number, HistoryUnavailable>;
+    banterInSlackBetween(
+      from: DateTime.Utc,
+      until: DateTime.Utc,
+    ): Effect.Effect<ReadonlyArray<PostedBanter>, HistoryUnavailable>;
+    recordDeleted(
+      post: PostedBanter,
+      deletedAt: DateTime.Utc,
+    ): Effect.Effect<void, HistoryUnavailable>;
     linkMember(
       slackUserId: string,
       realName: string,
@@ -254,6 +272,29 @@ export class SlackHistory extends Context.Service<
         execute: ({ channel, threadTs }) => sql`
           SELECT count(*)::int AS total FROM office.slack_posts
           WHERE kind = 'Reply' AND channel_id = ${channel} AND thread_ts = ${threadTs}
+        `,
+      });
+
+      const findBanterInSlack = SqlSchema.findAll({
+        Request: Between,
+        Result: Schema.Struct({ channel: Schema.String, ts: Schema.String }),
+        execute: ({ from, until }) => sql`
+          SELECT channel_id AS channel, ts FROM office.slack_posts
+          WHERE kind = 'Banter' AND thread_ts IS NULL AND deleted_at IS NULL
+            AND posted_at >= ${from} AND posted_at < ${until}
+          ORDER BY posted_at, id
+        `,
+      });
+
+      const markDeleted = SqlSchema.void({
+        Request: Schema.Struct({
+          channel: Schema.String,
+          ts: Schema.String,
+          deletedAt: Schema.DateTimeUtcFromDate,
+        }),
+        execute: ({ channel, ts, deletedAt }) => sql`
+          UPDATE office.slack_posts SET deleted_at = ${deletedAt}
+          WHERE channel_id = ${channel} AND ts = ${ts} AND deleted_at IS NULL
         `,
       });
 
@@ -350,6 +391,15 @@ export class SlackHistory extends Context.Service<
         (channel: string, threadTs: string) => count(countRepliesInThread({ channel, threadTs })),
       );
 
+      const banterInSlackBetween = Effect.fn("SlackHistory.banterInSlackBetween")(
+        (from: DateTime.Utc, until: DateTime.Utc) => onceReady(findBanterInSlack({ from, until })),
+      );
+
+      const recordDeleted = Effect.fn("SlackHistory.recordDeleted")(
+        ({ channel, ts }: PostedBanter, deletedAt: DateTime.Utc) =>
+          onceReady(markDeleted({ channel, ts, deletedAt })),
+      );
+
       const linkMember = Effect.fn("SlackHistory.linkMember")(
         (slackUserId: string, realName: string) => onceReady(findMember({ slackUserId, realName })),
         Effect.map(Option.map(({ memberUserId, name }): LinkedMember => ({ memberUserId, name }))),
@@ -364,6 +414,8 @@ export class SlackHistory extends Context.Service<
         repliesSince,
         reactionsSince,
         repliesInThread,
+        banterInSlackBetween,
+        recordDeleted,
         linkMember,
       });
     }),
@@ -380,6 +432,8 @@ export class SlackHistory extends Context.Service<
       repliesSince: notRecording,
       reactionsSince: notRecording,
       repliesInThread: notRecording,
+      banterInSlackBetween: notRecording,
+      recordDeleted: notRecording,
       linkMember: notRecording,
     }),
   );

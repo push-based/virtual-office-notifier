@@ -1,6 +1,7 @@
 export { BotPosts } from "./BotPosts.ts";
 
 export {
+  type Engagement,
   isRetryable,
   type PostedMessage,
   SlackClient,
@@ -21,6 +22,7 @@ export {
   type ClefVerdict,
   type DecisionReason,
   type Outcome,
+  type PostedBanter,
   type ResponderSettings,
   SlackHistory,
 } from "./SlackHistory.ts";
