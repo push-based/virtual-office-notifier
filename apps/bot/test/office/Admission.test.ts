@@ -7,7 +7,7 @@ import {
   Gated,
   type Gatekeeping,
   gatekeepingOf,
-} from "../../src/consent/Admission.ts";
+} from "../../src/office/Admission.ts";
 import { NO_VOICE_DETAILS, type TimedVoiceStateUpdate } from "../../src/office/OfficeEvent.ts";
 
 const OFFICE = "office";

@@ -12,7 +12,8 @@ export const describeConsent = (status: ConsentStatus): ConsentView => {
   if (status.pendingWithdrawal !== null)
     return {
       heading: "Withdrawing your consent…",
-      description: "The bot is on it. It'll show you out of the office and send you a DM.",
+      description:
+        "The bot is on it. It'll show you out of the office if you're in, and send you a DM.",
       canWithdraw: false,
     };
 

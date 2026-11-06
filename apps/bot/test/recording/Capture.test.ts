@@ -9,6 +9,7 @@ import { Capture } from "../../src/recording/Capture.ts";
 import { ClipArchive } from "../../src/recording/ClipArchive.ts";
 import type { Clip } from "../../src/recording/audio/ClipCutter.ts";
 import { columnNaming, Database } from "../../src/database/Database.ts";
+import { ConsentGate, type Gate } from "../../src/office/ConsentGate.ts";
 import { DiscordGateway } from "../../src/office/DiscordGateway.ts";
 import { OfficeSeat, type RecordingMode } from "../../src/office/OfficeSeat.ts";
 import { RecordingStore } from "../../src/recording/RecordingStore.ts";
@@ -35,7 +36,7 @@ const recording: ActiveRecording = {
   pause: Option.none(),
 };
 
-const setUp = Effect.fnUntraced(function* (voice?: VoiceCapture["Service"]) {
+const setUp = Effect.fnUntraced(function* (voice?: VoiceCapture["Service"], gate?: Gate) {
   const heard = yield* Queue.unbounded<Heard, Cause.Done | CaptureError>();
   const modes = yield* Queue.unbounded<RecordingMode>();
   const updates = yield* Queue.unbounded<never, Cause.Done>();
@@ -46,7 +47,7 @@ const setUp = Effect.fnUntraced(function* (voice?: VoiceCapture["Service"]) {
     RecordingStore.layer,
     ClipArchive.layerDisabled,
     voice === undefined ? VoiceCapture.layerTest(heard) : Layer.succeed(VoiceCapture, voice),
-    DiscordGateway.layerTest({ updates }),
+    DiscordGateway.layerTest(gate === undefined ? { updates } : { updates, gate }),
     Layer.succeed(
       OfficeSeat,
       OfficeSeat.of({
@@ -122,6 +123,47 @@ describe("Capture", () => {
         Array.map(yield* queued, ([, kept]) => kept),
         [true],
       );
+    }),
+  );
+
+  it.effect("keeps no speech from before someone agreed, even in a clip that ends after", () =>
+    Effect.gen(function* () {
+      const agreedAt = DateTime.add(DateTime.nowUnsafe(), { minutes: 1 });
+
+      const gate: Gate = {
+        ...ConsentGate.open,
+        admittedSince: () => Effect.succeedSome(agreedAt),
+      };
+
+      const { capture, clips, hear } = yield* setUp(undefined, gate);
+
+      yield* capture.begin(recording);
+      yield* hear(Heard.Spoke({ clip: clip(2) }));
+      yield* hear(Heard.Spoke({ clip: { ...clip(2), startedAt: agreedAt } }));
+
+      assert.deepStrictEqual(yield* pollUntil(clips, (all) => all.length === 1), [
+        { transcription: "pending" },
+      ]);
+    }),
+  );
+
+  it.effect("keeps nothing from someone who hasn't agreed", () =>
+    Effect.gen(function* () {
+      const gate: Gate = {
+        ...ConsentGate.open,
+        isAdmitted: () => Effect.succeed(false),
+        admittedSince: () => Effect.succeedNone,
+      };
+
+      const { capture, clips, hear } = yield* setUp(undefined, gate);
+
+      yield* capture.begin(recording);
+      yield* hear(Heard.StartedSpeaking({ userId: "u1" }));
+      yield* hear(Heard.Spoke({ clip: clip(2) }));
+      yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
+
+      assert.deepStrictEqual(yield* capture.speaking, new Set());
+      assert.deepStrictEqual(yield* clips, []);
     }),
   );
 
