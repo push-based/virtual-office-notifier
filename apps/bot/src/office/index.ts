@@ -8,10 +8,13 @@ export {
   type ActivityEntry,
   type BanterContext,
   type BanterPeriod,
+  isOfficeJoin,
+  isOfficeLeave,
   OfficeEvent,
   type OfficeLocation,
   type PastBanter,
   type SessionRecap,
+  type TimedVoiceStateUpdate,
 } from "./OfficeEvent.ts";
 
 export { OfficeSeat } from "./OfficeSeat.ts";

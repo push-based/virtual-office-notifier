@@ -4,11 +4,12 @@ Anyone in the office can have the bot record what's said, from the **Console**, 
 
 It needs the [database](database.md), the bot's Cloudflare account for Whisper, and the Console deployed as a Discord Activity. The steps outside the code are in [the setup guide](setup.md#console).
 
-The Console has three tabs:
+The Console has four tabs:
 
 - **Now**: the recording status, who's in the office and which of them the bot hears speaking, and the Start, Stop, Pause and Resume buttons.
 - **History**: the [recording history](#recording-history), every recording newest first.
 - **Stats**: the [office stats](#office-stats) for this week, this month or all time.
+- **Privacy**: whether you've [agreed to being recorded](privacy.md#consent), what the office records, and **Withdraw consent**.
 
 Like everything else, recording can't break the announcements. A database, Whisper, storage or Slack outage is logged and retried, and recording itself needs none of them to carry on.
 

@@ -10,6 +10,7 @@ import {
   HttpApiSecurity,
 } from "effect/http-api";
 
+import { ConsentStatus, SubmittedWithdrawal } from "./Consent.ts";
 import { OfficeStats, StatsQuery } from "./OfficeStats.ts";
 import { RecordingDetail, RecordingId, RecordingPage } from "./Recording.ts";
 import { RecordingChange, SubmittedEdit } from "./RecordingEdit.ts";
@@ -43,6 +44,11 @@ export class EditNotFound extends Schema.TaggedError<
   EditNotFound,
   { readonly brand: unique symbol }
 >()("EditNotFound", {}, { httpApiStatus: 404 }) {}
+
+export class WithdrawalNotFound extends Schema.TaggedError<
+  WithdrawalNotFound,
+  { readonly brand: unique symbol }
+>()("WithdrawalNotFound", {}, { httpApiStatus: 404 }) {}
 
 export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()(
   "recording-requests/SignedIn",
@@ -117,9 +123,29 @@ export class EditGroup extends HttpApiGroup.make("edits")
   .middleware(SignedIn)
   .prefix("/api") {}
 
+export class ConsentGroup extends HttpApiGroup.make("consent")
+  .add(
+    HttpApiEndpoint.get("status", "/consent", {
+      success: ConsentStatus,
+      error: HttpApiError.ServiceUnavailable,
+    }),
+    HttpApiEndpoint.post("withdraw", "/consent/withdrawals", {
+      success: SubmittedWithdrawal.pipe(HttpApiSchema.status(202)),
+      error: HttpApiError.ServiceUnavailable,
+    }),
+    HttpApiEndpoint.get("find", "/consent/withdrawals/:id", {
+      params: { id: Schema.Int },
+      success: SubmittedWithdrawal,
+      error: [WithdrawalNotFound, HttpApiError.ServiceUnavailable],
+    }),
+  )
+  .middleware(SignedIn)
+  .prefix("/api") {}
+
 export class RecordingApi extends HttpApi.make("console")
   .add(SignInGroup.prefix("/api"))
   .add(RecordingGroup)
   .add(StatsGroup)
   .add(HistoryGroup)
-  .add(EditGroup) {}
+  .add(EditGroup)
+  .add(ConsentGroup) {}
