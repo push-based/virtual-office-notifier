@@ -1,6 +1,7 @@
 import { Component, inject, signal } from "@angular/core";
 import { PbTabs, type Tab } from "design-system";
 
+import { ConsentPanel } from "./consent/consent-panel";
 import { RecordingHistory } from "./history/recording-history";
 import { RecordingPanel } from "./recorder/recording-panel";
 import { OfficeStore } from "./recorder/office-store";
@@ -8,7 +9,7 @@ import { OfficeStats } from "./stats/office-stats";
 
 @Component({
   selector: "app-root",
-  imports: [RecordingPanel, OfficeStats, PbTabs, RecordingHistory],
+  imports: [ConsentPanel, RecordingPanel, OfficeStats, PbTabs, RecordingHistory],
   providers: [OfficeStore],
   template: `
     <main>
@@ -35,6 +36,11 @@ import { OfficeStats } from "./stats/office-stats";
         @if (view() === "stats") {
           <div role="tabpanel" id="view-panel-stats" aria-labelledby="view-tab-stats">
             <app-office-stats />
+          </div>
+        }
+        @if (view() === "privacy") {
+          <div role="tabpanel" id="view-panel-privacy" aria-labelledby="view-tab-privacy">
+            <app-consent-panel />
           </div>
         }
       </div>
@@ -79,6 +85,7 @@ export class App {
     { id: "now", label: "Now" },
     { id: "history", label: "History" },
     { id: "stats", label: "Stats" },
+    { id: "privacy", label: "Privacy" },
   ];
 
   protected readonly view = signal("now");

@@ -4,7 +4,8 @@ import { SecureRandom } from "effect/crypto";
 import { ActivityRecorder } from "./activity/index.ts";
 import { AiProviders } from "./ai/index.ts";
 import { banter, QuietBanterLayer, reminders, SlackNotifier } from "./announcing/index.ts";
-import { DiscordGateway, OfficeEvent, OfficeSeat } from "./office/index.ts";
+import { ConsentGate, DiscordGateway, OfficeEvent, OfficeSeat } from "./office/index.ts";
+import { ConsentDeskLayer } from "./reception/index.ts";
 import { RecordingLayer } from "./recording/index.ts";
 import { ResponderLayer } from "./answering/index.ts";
 import { isRetryable, type SlackError } from "./slack/index.ts";
@@ -79,9 +80,15 @@ export const program = Effect.gen(function* () {
 // Slack is built before Discord, so a missing Slack token fails before logging
 // in to Discord. Recording connects to the database in the background and
 // never fails startup.
-export const MainLayer = Layer.mergeAll(ResponderLayer, RecordingLayer, QuietBanterLayer).pipe(
+export const MainLayer = Layer.mergeAll(
+  ResponderLayer,
+  RecordingLayer,
+  QuietBanterLayer,
+  ConsentDeskLayer,
+).pipe(
   Layer.provideMerge(OfficeSeat.layer),
   Layer.provideMerge(DiscordGateway.layer),
+  Layer.provideMerge(ConsentGate.layer),
   Layer.provideMerge(SlackNotifier.layer),
   Layer.provide(AiProviders.layer),
   Layer.provideMerge(StorageLayer),

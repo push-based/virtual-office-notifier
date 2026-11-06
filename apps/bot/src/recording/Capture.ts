@@ -167,6 +167,22 @@ const make = Effect.fnUntraced(function* (
       );
 
       yield* voice.capture(Deferred.await(stop)).pipe(
+        Stream.filterEffect(
+          Heard.$match({
+            Spoke: ({ clip }) =>
+              gateway
+                .admittedSince(clip.userId)
+                .pipe(
+                  Effect.map(
+                    Option.exists((since) =>
+                      DateTime.isGreaterThanOrEqualTo(clip.startedAt, since),
+                    ),
+                  ),
+                ),
+            StartedSpeaking: ({ userId }) => gateway.isAdmitted(userId),
+            StoppedSpeaking: () => Effect.succeed(true),
+          }),
+        ),
         Stream.runForEach((heard) =>
           Heard.$match(heard, {
             Spoke: ({ clip }) => Queue.offer(clips, clip),

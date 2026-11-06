@@ -2,6 +2,19 @@
 
 Each feature below sends or keeps something about people, so tell the team before turning it on. [Where the data sits](#where-the-data-sits) is every place it ends up, and [running it for anyone else](#running-it-for-anyone-else) is what the GDPR expects of you once the office holds someone who hasn't agreed to all this.
 
+## Consent
+
+Everyone who joins the office is asked whether they agree to being recorded, and nothing about them is recorded until they do. The design is in [issue #161](https://github.com/push-based/virtual-office-notifier/issues/161).
+
+- **Asking.** When someone joins and hasn't agreed to the current notice, the bot sends them a DM with what the office records, why, and **I agree** and **No thanks** buttons. If their DMs are closed, it asks in the voice channel's chat instead, mentioning them, and only they can press the buttons. Someone who comes back after saying no, or after not answering, is asked again in different words.
+- **A minute to answer.** **No thanks**, or no answer within a minute, and the bot disconnects them from the office, with a sad goodbye. Leaving before answering just lets the question lapse.
+- **Nothing before a yes.** Until they agree, none of their voice activity, sounds or emoji reach the database, they're left out of who's in the office in the Console, their speech isn't captured in a recording, and they can't start one. A clip of speech that began before they agreed is dropped too. They don't open the office in Slack either: the **Opened** post waits for whoever agrees first. Their voice activity in that minute is held in memory and recorded once they agree, so the record starts when they really joined; their sounds and emoji in that minute are dropped.
+- **Once is enough.** Someone who agreed isn't asked again, until they withdraw or the notice changes. The notice has a version, `CONSENT_NOTICE_VERSION` in [`libs/recording-requests/src/Wire.ts`](../libs/recording-requests/src/Wire.ts), and raising it asks everyone again on their next join.
+- **Withdrawing.** The Console's **Privacy** tab says when you agreed, and **Withdraw consent** withdraws it: the bot records it, shows you out of the office if you're in, and sends you a DM. Nothing new is recorded about you from then on, and you're asked again next time you join. What was already recorded stays; deleting it is the next part of issue #161.
+- **Proof.** Every question, answer, disconnect and withdrawal is kept in `office.consent_events`, with which version of the notice was shown and how it was delivered, as [the database](database.md#whats-recorded) describes.
+- **When the database is down.** The bot reads who already agreed once, when it starts, and keeps it in memory, so an outage after that changes nothing: answers are kept in memory and written once it's back. If it can't read that at startup, it waits for the database before asking anyone, and nobody is recorded, announced or shown out until it can. Without `DATABASE_URL`, everyone is asked, and answers only last until the bot restarts.
+- **After a restart.** Whoever is already in the office is asked if they haven't agreed, and let in quietly once they do, as if they'd been there all along, so the office isn't announced as opening again.
+
 ## Presence in Slack
 
 The announcements broadcast people's presence to a wider audience. The opened post shows who opened the office, with their Discord display name and avatar, and the emptied post shows the [recap](slack.md#the-cards): how long the office was open and how many people came by. Tell the team before turning it on.

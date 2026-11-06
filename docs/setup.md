@@ -32,7 +32,7 @@ Once it logs `Watching the virtual office`, join the office and the post should 
 
 1. Create an application at <https://discord.com/developers/applications> and add a bot. Revealing the token requires the account password.
 2. Under **Bot**, turn off **Public Bot**. No privileged intents are needed; the bot only uses `Guilds`, `GuildVoiceStates` and `GuildExpressions` (to keep the server's soundboard sound names up to date).
-3. Under **OAuth2 → URL Generator**, pick the `bot` scope with the **View Channels** and **Connect** permissions, open the URL and add the bot to the server. Without **Connect** it can't join the office, so soundboard sounds and emoji aren't recorded, and it logs a warning at startup saying so.
+3. Under **OAuth2 → URL Generator**, pick the `bot` scope with the **View Channels**, **Connect**, **Send Messages** and **Move Members** permissions, open the URL and add the bot to the server. Without **Connect** it can't join the office, so soundboard sounds and emoji aren't recorded. Without **Move Members** it can't show people out who don't [agree to being recorded](privacy.md#consent), and without **Send Messages** it can't ask someone whose DMs are closed. It logs a warning at startup when **Connect** or **Move Members** is missing.
 
 The bot token goes in `DISCORD_BOT_TOKEN`, and the office's channel ID in `DISCORD_OFFICE_CHANNEL_ID` (Developer Mode → right-click the channel → Copy Channel ID).
 
@@ -153,6 +153,9 @@ GRANT USAGE ON SEQUENCE office.recording_requests_id_seq TO activity;
 GRANT SELECT, INSERT ON office.recording_edits TO activity;
 GRANT USAGE ON SEQUENCE office.recording_edits_id_seq TO activity;
 GRANT SELECT ON office.recording_action_items TO activity;
+GRANT SELECT ON office.consent_events TO activity;
+GRANT SELECT, INSERT ON office.consent_requests TO activity;
+GRANT USAGE ON SEQUENCE office.consent_requests_id_seq TO activity;
 ```
 
 The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the grant on `office.voice_activity` and `office.office_activity`, the [Stats](recording.md#office-stats) tab answers `503` and the rest of the Console works as before.

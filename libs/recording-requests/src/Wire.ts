@@ -1,5 +1,6 @@
 import type * as SignIn from "activity-sign-in/SignInApi";
 
+import type * as Consent from "./Consent.ts";
 import type * as Stats from "./OfficeStats.ts";
 import type * as History from "./Recording.ts";
 import type * as Edits from "./RecordingEdit.ts";
@@ -101,6 +102,24 @@ export type SignInConfig = typeof SignIn.SignInConfig.Encoded;
 export type SignInCode = typeof SignIn.SignInCode.Encoded;
 
 export type SignedInSession = typeof SignIn.SignedInSession.Encoded;
+
+export type ConsentStanding = typeof Consent.ConsentStanding.Encoded;
+
+export type ConsentStatus = typeof Consent.ConsentStatus.Encoded;
+
+export type WithdrawalOutcome = typeof Consent.WithdrawalOutcome.Encoded;
+
+export type SubmittedWithdrawal = typeof Consent.SubmittedWithdrawal.Encoded;
+
+export const CONSENT_NOTICE_VERSION = 1;
+
+export const CONSENT_ANSWER_MS = 60_000;
+
+export const RECORDED_IN_THE_OFFICE = [
+  "when you join and leave, mute, deafen, turn on your camera or share your screen",
+  "every soundboard sound and emoji you send",
+  "everything you say, but only while someone has started a recording (the bot shows up as 🔴 Recording)",
+] as const;
 
 export const REQUEST_EXPIRY_MS = 60_000;
 
