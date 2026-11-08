@@ -45,5 +45,5 @@
       }
     ]
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "tools/vite-task/*.ts"]
 }

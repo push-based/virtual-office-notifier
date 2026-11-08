@@ -1,5 +1,7 @@
 import { defineConfig } from "vite-plus";
 
+import { typecheck } from "../../tools/vite-task/typecheck.ts";
+
 export default defineConfig({
   publicDir: false,
   ssr: {
@@ -23,7 +25,7 @@ export default defineConfig({
   },
   run: {
     tasks: {
-      typecheck: "tsc --noEmit",
+      typecheck: typecheck(),
       test: "vp test",
       build: "vp build",
       deploy: {
