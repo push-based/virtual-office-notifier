@@ -50,8 +50,8 @@ export class ConsentLog extends Context.Service<
           SELECT
             user_id,
             count(*) FILTER (WHERE kind = 'asked')::int AS asked,
-            (array_agg(kind ORDER BY id DESC) FILTER (WHERE kind IN ('agreed', 'withdrawn')))[1] AS decisive_kind,
-            (array_agg(notice_version ORDER BY id DESC) FILTER (WHERE kind IN ('agreed', 'withdrawn')))[1] AS decisive_version
+            (array_agg(kind ORDER BY happened_at DESC, id DESC) FILTER (WHERE kind IN ('agreed', 'withdrawn')))[1] AS decisive_kind,
+            (array_agg(notice_version ORDER BY happened_at DESC, id DESC) FILTER (WHERE kind IN ('agreed', 'withdrawn')))[1] AS decisive_version
           FROM office.consent_events
           GROUP BY user_id
         `,

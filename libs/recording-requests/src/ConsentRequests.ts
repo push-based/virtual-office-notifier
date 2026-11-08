@@ -1,7 +1,8 @@
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Context, Duration, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 
 import {
+  type ConsentStanding,
   type ConsentStatus,
   Decisive,
   ErasureOutcome,
@@ -24,7 +25,9 @@ import {
   type RecordingUnavailable,
   recordingUnreadable,
 } from "./RecordingRequests.ts";
-import { CONSENT_NOTICE_VERSION } from "./Wire.ts";
+import { CONSENT_NOTICE_VERSION, ERASURE_WAIT_MS } from "./Wire.ts";
+
+export const ERASURE_TIMEOUT = Duration.minutes(10);
 
 export interface ConsentChange {
   readonly id: number;
@@ -36,7 +39,10 @@ export type Withdrawal = ConsentChange;
 export type Erasure = ConsentChange;
 
 export interface WithdrawalHandler<E, R> {
-  withdraw(withdrawal: Withdrawal): Effect.Effect<Committable<E, R>, E, R>;
+  withdraw(
+    withdrawal: Withdrawal,
+    recorded: ConsentStanding,
+  ): Effect.Effect<Option.Option<Committable<E, R>>, E, R>;
 }
 
 export interface ErasureHandler<E, R> {
@@ -63,7 +69,7 @@ const latestDecisive = (sql: SqlClient.SqlClient) =>
     execute: ({ userId }) => sql`
       SELECT kind, notice_version, happened_at FROM office.consent_events
       WHERE user_id = ${userId} AND kind IN ('agreed', 'withdrawn')
-      ORDER BY id DESC
+      ORDER BY happened_at DESC, id DESC
       LIMIT 1
     `,
   });
@@ -107,7 +113,11 @@ const findErasure = (sql: SqlClient.SqlClient) =>
     Result: ErasureRow,
     execute: ({ id, userId }) => sql`
       SELECT id, outcome FROM office.consent_requests
-      WHERE id = ${id} AND kind = 'erase' AND (user_id = ${userId} OR outcome = 'erased')
+      WHERE id = ${id} AND kind = 'erase'
+        AND (
+          user_id = ${userId}
+          OR (outcome = 'erased' AND handled_at > now() - make_interval(secs => ${ERASURE_WAIT_MS / 1000}))
+        )
     `,
   });
 
@@ -153,6 +163,7 @@ export class ConsentRequests extends Context.Service<
     const guard = { ready, unavailable: recordingUnavailable, unreadable: recordingUnreadable };
     const onceReady = guardQuery(guard);
     const committing = guardTransaction(guard);
+    const committingSlowly = guardTransaction(guard, ERASURE_TIMEOUT);
 
     const status = Effect.fn("ConsentRequests.status")((userId: string) =>
       connected(
@@ -226,15 +237,16 @@ export class ConsentRequests extends Context.Service<
     ) =>
       Effect.gen(function* () {
         const latest = yield* onceReady(latestDecisive(sql)({ userId: withdrawal.userId }));
+        const made = yield* handler.withdraw(withdrawal, standingOf(latest).standing);
 
-        if (standingOf(latest).standing !== "agreed")
+        if (Option.isNone(made))
           return yield* onceReady(resolve(sql, withdrawal.id, "ignored")).pipe(
             Effect.andThen(Effect.logInfo("Ignored a consent withdrawal with nothing to withdraw")),
           );
 
         yield* committing(
           sql,
-          handler.withdraw(withdrawal),
+          Effect.succeed(made.value),
           () => recordWithdrawal(sql, withdrawal),
           Effect.logInfo("Withdrew someone's consent"),
         );
@@ -263,7 +275,7 @@ export class ConsentRequests extends Context.Service<
         .prepare(erasure)
         .pipe(
           Effect.andThen(
-            committing(
+            committingSlowly(
               sql,
               handler.erase(erasure),
               () => recordErasure(sql, erasure),

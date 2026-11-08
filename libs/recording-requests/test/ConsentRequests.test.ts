@@ -34,9 +34,14 @@ const withRequests = <A, E>(
 
 const recordingHandler = (
   withdrawn: Ref.Ref<ReadonlyArray<string>>,
+  knowsBetter = false,
 ): WithdrawalHandler<never, never> => ({
-  withdraw: ({ userId }) =>
-    Effect.succeed({ afterCommit: Ref.update(withdrawn, (all) => [...all, userId]) }),
+  withdraw: ({ userId }, recorded) =>
+    Effect.succeed(
+      recorded === "agreed" || knowsBetter
+        ? Option.some({ afterCommit: Ref.update(withdrawn, (all) => [...all, userId]) })
+        : Option.none(),
+    ),
 });
 
 const erasingHandler = (
@@ -170,6 +175,40 @@ describe("ConsentRequests", () => {
       }),
     ),
   );
+
+  it.effect("withdraws when the handler knows of an agreement the database hasn't seen", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        const withdrawn = yield* Ref.make<ReadonlyArray<string>>([]);
+        const { id } = yield* requests.withdraw("ada");
+
+        yield* requests.handleWithdrawals(recordingHandler(withdrawn, true));
+
+        assert.deepStrictEqual(yield* Ref.get(withdrawn), ["ada"]);
+        assert.deepStrictEqual(
+          yield* requests.find("ada", id),
+          Option.some({ id, outcome: "withdrawn" }),
+        );
+        assert.strictEqual((yield* requests.status("ada")).standing, "withdrawn");
+      }),
+    ),
+  );
+
+  it.effect("goes by when things happened, not by when they were written", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`
+          INSERT INTO office.consent_events (user_id, happened_at, kind, notice_version)
+          VALUES ('ada', '2026-11-06T10:00:00Z', 'withdrawn', ${CONSENT_NOTICE_VERSION})
+        `;
+        yield* decided("ada", "agreed");
+
+        assert.strictEqual((yield* requests.status("ada")).standing, "withdrawn");
+      }),
+    ),
+  );
 });
 
 describe("ConsentRequests erasures", () => {
@@ -215,6 +254,26 @@ describe("ConsentRequests erasures", () => {
           pendingWithdrawal: null,
           pendingErasure: null,
         });
+      }),
+    ),
+  );
+
+  it.effect("stops answering for an erasure once the Console has had time to see it", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* decided("ada", "agreed");
+
+        const steps = yield* Ref.make<ReadonlyArray<string>>([]);
+        const { id } = yield* requests.erase("ada");
+
+        yield* requests.handleErasures(erasingHandler(steps));
+        yield* sql`
+          UPDATE office.consent_requests SET handled_at = now() - interval '1 hour' WHERE id = ${id}
+        `;
+
+        assert.isTrue(Option.isNone(yield* requests.findErasure("ada", id)));
       }),
     ),
   );

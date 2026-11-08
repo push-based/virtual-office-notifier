@@ -158,7 +158,7 @@ GRANT SELECT, INSERT ON office.consent_requests TO activity;
 GRANT USAGE ON SEQUENCE office.consent_requests_id_seq TO activity;
 ```
 
-The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the grant on `office.voice_activity` and `office.office_activity`, the [Stats](recording.md#office-stats) tab answers `503` and the rest of the Console works as before.
+The grants on `office.consent_events` and `office.consent_requests` are also made by the bot's migrations, if the `activity` role already exists when they run, so an install that predates them needs no SQL for them. The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the grant on `office.voice_activity` and `office.office_activity`, the [Stats](recording.md#office-stats) tab answers `503` and the rest of the Console works as before.
 
 ### Hyperdrive
 

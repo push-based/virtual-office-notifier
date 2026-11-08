@@ -622,4 +622,20 @@ export const migrations = Migrator.fromRecord({
       WHERE republish_requested_at IS NOT NULL
     `;
   }),
+
+  "0015_console_consent_grants": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'activity') THEN
+          GRANT SELECT ON office.consent_events TO activity;
+          GRANT SELECT, INSERT ON office.consent_requests TO activity;
+          GRANT USAGE ON SEQUENCE office.consent_requests_id_seq TO activity;
+        END IF;
+      END
+      $$
+    `;
+  }),
 });

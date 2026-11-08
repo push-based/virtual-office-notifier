@@ -15,7 +15,12 @@ import {
   Stream,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
-import type { ConsentEventKind, Delivery, Wording } from "recording-requests/Consent";
+import type {
+  ConsentEventKind,
+  ConsentStanding,
+  Delivery,
+  Wording,
+} from "recording-requests/Consent";
 import {
   type Erasure,
   type ErasureHandler,
@@ -24,7 +29,7 @@ import {
 } from "recording-requests/ConsentRequests";
 import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
 
-import { ConsentBook, Notice } from "../consent/index.ts";
+import { ConsentBook, LOOKUP_WAIT, Notice } from "../consent/index.ts";
 import { Eraser, type PrepareError } from "../erasure/index.ts";
 import {
   Admission,
@@ -231,22 +236,28 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
       : answer.reply(EXPIRED);
   });
 
-  const withdraw = (withdrawal: Withdrawal) =>
-    Effect.succeed({
-      afterCommit: Effect.gen(function* () {
-        const { userId } = withdrawal;
+  const withdrawn = Effect.fnUntraced(function* (userId: string) {
+    yield* book.remember({ userId, at: yield* DateTime.now, kind: "withdrawn" });
+    yield* stopAsking(userId, "withdrawn");
+    yield* gate.decide(Admission.Withdrawn({ userId }));
 
-        yield* book.remember({ userId, at: yield* DateTime.now, kind: "withdrawn" });
-        yield* stopAsking(userId, "withdrawn");
-        yield* gate.decide(Admission.Withdrawn({ userId }));
+    const shown = yield* line.showOut(userId, SHOWN_OUT_REASON);
 
-        const shown = yield* line.showOut(userId, SHOWN_OUT_REASON);
+    if (shown) yield* note(userId, "disconnected");
 
-        if (shown) yield* note(userId, "disconnected");
+    yield* line.tell(userId, shown ? WITHDRAWN_AND_SHOWN_OUT : WITHDRAWN);
+  });
 
-        yield* line.tell(userId, shown ? WITHDRAWN_AND_SHOWN_OUT : WITHDRAWN);
-      }),
-    });
+  const withdraw = ({ userId }: Withdrawal, recorded: ConsentStanding) =>
+    book
+      .lookupWithin(userId, LOOKUP_WAIT)
+      .pipe(
+        Effect.map((noted) =>
+          recorded === "agreed" || Option.exists(noted, (record) => record.agreed)
+            ? Option.some({ afterCommit: withdrawn(userId) })
+            : Option.none(),
+        ),
+      );
 
   const handleWithdrawals = requests
     .handleWithdrawals({ withdraw })

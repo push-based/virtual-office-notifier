@@ -1048,7 +1048,7 @@ export class RecordingStore extends Context.Service<
         Result: IdRow,
         execute: () => sql`
           SELECT id FROM office.recordings
-          WHERE republish_requested_at IS NOT NULL
+          WHERE republish_requested_at IS NOT NULL AND finished_at IS NOT NULL
           ORDER BY started_at
         `,
       });

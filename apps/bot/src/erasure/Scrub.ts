@@ -70,13 +70,16 @@ export const scrubberFor = (
     Array.dedupe,
   );
 
+  const matcher = Option.map(pattern, (source) => new RegExp(source, "u"));
+  const replacer = Option.map(pattern, (source) => new RegExp(source, "gu"));
+
   const mentions = (text: string): boolean =>
-    Option.exists(pattern, (source) => new RegExp(source, "u").test(text));
+    Option.exists(matcher, (expression) => expression.test(text));
 
   const text = (value: string): string =>
-    Option.match(pattern, {
+    Option.match(replacer, {
       onNone: () => value,
-      onSome: (source) => pipe(value, String.replace(new RegExp(source, "gu"), FORMER_MEMBER)),
+      onSome: (expression) => pipe(value, String.replace(expression, FORMER_MEMBER)),
     });
 
   const mentionedImage = (value: Schema.Json): boolean => {

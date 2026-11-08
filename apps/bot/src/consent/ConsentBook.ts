@@ -1,6 +1,7 @@
 import {
   Cause,
   Context,
+  DateTime,
   Deferred,
   Duration,
   Effect,
@@ -129,6 +130,7 @@ export class ConsentBook extends Context.Service<
       const log = yield* ConsentLog;
       const buffer = yield* Queue.unbounded<ConsentEvent, Cause.Done>();
       const inFlight = yield* Ref.make(Option.none<ConsentEvent>());
+      const erasedAt = yield* Ref.make<ReadonlyMap<string, DateTime.Utc>>(new Map());
 
       const book = yield* make(
         database.ready.pipe(
@@ -146,8 +148,22 @@ export class ConsentBook extends Context.Service<
         ),
       );
 
+      const erasedSince = (event: ConsentEvent) =>
+        Ref.get(erasedAt).pipe(
+          Effect.map((all) =>
+            Option.exists(Option.fromUndefinedOr(all.get(event.userId)), (erased) =>
+              DateTime.isLessThan(event.at, erased),
+            ),
+          ),
+        );
+
       const write = (event: ConsentEvent) =>
-        log.append(event).pipe(
+        erasedSince(event).pipe(
+          Effect.flatMap((erased) =>
+            erased
+              ? Effect.logInfo("Dropped a consent event noted before that person's data was erased")
+              : log.append(event),
+          ),
           Effect.retry(retryOutages),
           Effect.catch((error) =>
             logUnwritten("The database rejected a consent event, logging it instead", event).pipe(
@@ -160,7 +176,18 @@ export class ConsentBook extends Context.Service<
         restore(Queue.take(buffer)).pipe(
           Effect.tap((event) => Ref.set(inFlight, Option.some(event))),
         ),
-      ).pipe(Effect.flatMap(write), Effect.andThen(Ref.set(inFlight, Option.none())));
+      ).pipe(
+        Effect.flatMap((event) =>
+          write(event).pipe(
+            Effect.catchCause((cause) =>
+              logUnwritten("Couldn't write a consent event, logging it instead", event).pipe(
+                Effect.andThen(ErrorReporter.report(cause)),
+              ),
+            ),
+          ),
+        ),
+        Effect.andThen(Ref.set(inFlight, Option.none())),
+      );
 
       const writer = yield* database.ready.pipe(
         Effect.andThen(Effect.forever(writeNext)),
@@ -199,7 +226,13 @@ export class ConsentBook extends Context.Service<
           ),
         );
 
-      return ConsentBook.of({ ...book, note });
+      const forget = (userId: string) =>
+        DateTime.now.pipe(
+          Effect.flatMap((now) => Ref.update(erasedAt, (all) => new Map(all).set(userId, now))),
+          Effect.andThen(book.forget(userId)),
+        );
+
+      return ConsentBook.of({ ...book, note, forget });
     }),
   );
 

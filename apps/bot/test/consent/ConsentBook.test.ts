@@ -2,6 +2,7 @@ import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
 import { DateTime, Effect, Layer, Option } from "effect";
 import { SqlClient } from "effect/sql";
+import { TestClock } from "effect/testing";
 
 import { ConsentBook, recordAfter } from "../../src/consent/ConsentBook.ts";
 import { ConsentLog, NEVER_ASKED } from "../../src/consent/ConsentLog.ts";
@@ -100,6 +101,32 @@ describe("ConsentBook", () => {
         { kind: "asked", wording: "again", delivery: "voice_chat" },
         { kind: "agreed", wording: null, delivery: null },
       ]);
+    }).pipe(
+      Effect.provide(
+        ConsentBook.layer.pipe(Layer.provideMerge(ConsentLog.layer), Layer.provideMerge(storage)),
+      ),
+    ),
+  );
+
+  it.effect("doesn't write what was noted about someone before their data was erased", () =>
+    Effect.gen(function* () {
+      const book = yield* ConsentBook;
+      const sql = yield* SqlClient.SqlClient;
+      const database = yield* Database;
+
+      yield* database.ready;
+      yield* TestClock.adjust("1 minute");
+      yield* book.forget("ada");
+      yield* book.note({ userId: "ada", at, kind: "agreed" });
+      yield* book.note({ userId: "ada", at: yield* DateTime.now, kind: "withdrawn" });
+
+      const rows = yield* pollUntil(
+        sql<{ kind: string }>`SELECT kind FROM office.consent_events ORDER BY id`,
+        (found) => found.length > 0,
+      );
+
+      assert.deepStrictEqual(rows, [{ kind: "withdrawn" }]);
+      assert.deepStrictEqual(yield* book.lookup("ada"), { agreed: false, asked: 0 });
     }).pipe(
       Effect.provide(
         ConsentBook.layer.pipe(Layer.provideMerge(ConsentLog.layer), Layer.provideMerge(storage)),

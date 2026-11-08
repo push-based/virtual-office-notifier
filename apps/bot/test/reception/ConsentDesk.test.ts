@@ -137,9 +137,14 @@ const makeWithdrawals = Effect.gen(function* () {
             Effect.forEach(
               userIds,
               (userId, index) =>
-                handler
-                  .withdraw({ id: index + 1, userId })
-                  .pipe(Effect.flatMap((made) => made.afterCommit)),
+                handler.withdraw({ id: index + 1, userId }, "agreed").pipe(
+                  Effect.flatMap(
+                    Option.match({
+                      onNone: () => Effect.void,
+                      onSome: (made) => made.afterCommit,
+                    }),
+                  ),
+                ),
               { discard: true },
             ),
           ),
