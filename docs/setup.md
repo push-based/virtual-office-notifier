@@ -73,7 +73,7 @@ All of the bot's configuration comes from environment variables, read in [`apps/
 | `TRANSCRIPTION_LANGUAGE`    | No           | The language people speak in the office, as Whisper names it. Defaults to `en`.                                                                                                                    |
 | `SENTRY_DSN`                | No           | [Sentry](#sentry) project DSN. Without it, nothing is sent to Sentry.                                                                                                                              |
 | `SENTRY_ENVIRONMENT`        | No           | Environment to tag Sentry data with. Defaults to `development`; the deploy sets `production`.                                                                                                      |
-| `SENTRY_RELEASE`            | No           | Release to tag Sentry data with. The deploy sets it to the commit SHA.                                                                                                                             |
+| `SENTRY_RELEASE`            | No           | Release to tag Sentry data with. The deploy sets it to the SHA of the commit that last changed the bot.                                                                                            |
 
 The process exits at startup with an error naming the variable if a required one is missing. A blank optional key, account ID or database URL counts as unset.
 

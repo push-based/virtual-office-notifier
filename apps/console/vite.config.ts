@@ -8,6 +8,9 @@ const onlyInTheBrowser = (plugin: Plugin): Plugin => ({
 });
 
 export default defineConfig(({ mode }) => ({
+  define: {
+    __SENTRY_RELEASE__: JSON.stringify(process.env["GITHUB_SHA"] ?? ""),
+  },
   plugins: lazyPlugins(() => [
     ngp({ typeChecker: "tsrs" }).map(onlyInTheBrowser),
     mode === "test" ? [] : cloudflare({ viteEnvironment: { name: "worker" } }),

@@ -41,6 +41,8 @@ declare global {
   }
 }
 
+declare const __SENTRY_RELEASE__: string;
+
 type Env = Cloudflare.Env;
 
 const connectionTo = (env: Env) =>
@@ -68,7 +70,7 @@ const api = (env: Env) =>
   );
 
 const routes = (env: Env) =>
-  Layer.mergeAll(api(env), TelemetryRoutes(telemetryFrom(env))).pipe(
+  Layer.mergeAll(api(env), TelemetryRoutes(telemetryFrom(env, __SENTRY_RELEASE__))).pipe(
     Layer.provide([RouteSpanNames.layer, FetchHttpClient.layer, HttpServer.layerServices]),
     Layer.provideMerge(ObservabilityLayer),
   );
@@ -77,6 +79,6 @@ const appFor = Function.memoize((bindings: Env) =>
   HttpRouter.toWebHandler(routes(bindings), { disableLogger: true }),
 );
 
-export default Sentry.withSentry<Env>(sentryOptions, {
+export default Sentry.withSentry<Env>((bindings) => sentryOptions(bindings, __SENTRY_RELEASE__), {
   fetch: (request) => appFor(env).handler(request),
 });

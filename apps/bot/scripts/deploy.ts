@@ -9,8 +9,10 @@ import {
   pipe,
   Redacted,
   Schema,
+  Stream,
   String,
 } from "effect";
+import { Digest } from "effect/crypto";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import {
@@ -22,6 +24,7 @@ import {
   SlackConfig,
 } from "../src/Config.ts";
 import pkg from "../package.json" with { type: "json" };
+import { RELEASE_FILE, releaseFingerprint } from "./Release.ts";
 
 const APP_DIR = "/opt/virtual-office-notifier";
 
@@ -74,6 +77,34 @@ const run = Effect.fnUntraced(function* (
   }
 });
 
+const outputLines = Effect.fnUntraced(function* (
+  step: string,
+  command: string,
+  args: ReadonlyArray<string>,
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+  yield* Effect.logInfo(step);
+
+  const handle = yield* spawner.spawn(
+    ChildProcess.make(command, args, { stdin: "inherit", stderr: "inherit" }),
+  );
+
+  const [lines, exitCode] = yield* Effect.all(
+    [
+      handle.stdout.pipe(Stream.decodeText(), Stream.splitLines, Stream.runCollect),
+      handle.exitCode,
+    ],
+    { concurrency: "unbounded" },
+  );
+
+  if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
+    return yield* DeployError.make({ step, exitCode });
+  }
+
+  return lines;
+}, Effect.scoped);
+
 const tarballName = (name: string): string =>
   `${pipe(name, String.replace("@", ""), String.replace("/", "-"))}-${DAVE_VERSION}.tgz`;
 
@@ -119,11 +150,7 @@ const envLine = (
 ): ReadonlyArray<string> =>
   Option.toArray(Option.map(value, (secret) => `${name}=${Redacted.value(secret)}`));
 
-// Writes the service's environment file into a scoped temp directory, so the
-// secrets never land in the working tree and are deleted after the upload.
-const writeEnvFile = Effect.gen(function* () {
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
+const envLines = Effect.gen(function* () {
   const discord = yield* DiscordConfig;
   const slack = yield* SlackConfig;
   const ai = yield* AiConfig;
@@ -133,41 +160,80 @@ const writeEnvFile = Effect.gen(function* () {
   // Set by GitHub Actions, so everything sent to Sentry is tagged with the commit.
   const commit = yield* Config.option(Config.NonEmptyString("GITHUB_SHA"));
 
+  return [
+    `DISCORD_BOT_TOKEN=${Redacted.value(discord.botToken)}`,
+    `DISCORD_OFFICE_CHANNEL_ID=${discord.officeChannelId}`,
+    `SLACK_BOT_TOKEN=${Redacted.value(slack.botToken)}`,
+    `SLACK_APP_TOKEN=${Redacted.value(slack.appToken)}`,
+    `SLACK_CHANNEL_ID=${slack.channelId}`,
+    ...envLine("OPENROUTER_API_KEY", ai.openRouter.apiKey),
+    ...envLine("CLOUDFLARE_ACCOUNT_ID", ai.cloudflare.accountId),
+    ...envLine("CLOUDFLARE_API_TOKEN", ai.cloudflare.apiToken),
+    `DATABASE_URL=${Redacted.value(database.url)}`,
+    ...Option.toArray(Option.map(recording.bucket, (bucket) => `RECORDINGS_BUCKET=${bucket}`)),
+    ...envLine("SENTRY_DSN", sentry.dsn),
+    "SENTRY_ENVIRONMENT=production",
+    ...Option.toArray(Option.map(commit, (sha) => `SENTRY_RELEASE=${sha}`)),
+  ];
+});
+
+// Writes the service's environment file into a scoped temp directory, so the
+// secrets never land in the working tree and are deleted after the upload.
+const writeEnvFile = Effect.fnUntraced(function* (env: ReadonlyArray<string>) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   const dir = yield* fs.makeTempDirectoryScoped({ prefix: `${SERVICE}-` });
   const file = path.join(dir, ENV_FILE);
 
-  yield* fs.writeFileString(
-    file,
-    Array.join(
-      [
-        `DISCORD_BOT_TOKEN=${Redacted.value(discord.botToken)}`,
-        `DISCORD_OFFICE_CHANNEL_ID=${discord.officeChannelId}`,
-        `SLACK_BOT_TOKEN=${Redacted.value(slack.botToken)}`,
-        `SLACK_APP_TOKEN=${Redacted.value(slack.appToken)}`,
-        `SLACK_CHANNEL_ID=${slack.channelId}`,
-        ...envLine("OPENROUTER_API_KEY", ai.openRouter.apiKey),
-        ...envLine("CLOUDFLARE_ACCOUNT_ID", ai.cloudflare.accountId),
-        ...envLine("CLOUDFLARE_API_TOKEN", ai.cloudflare.apiToken),
-        `DATABASE_URL=${Redacted.value(database.url)}`,
-        ...Option.toArray(Option.map(recording.bucket, (bucket) => `RECORDINGS_BUCKET=${bucket}`)),
-        ...envLine("SENTRY_DSN", sentry.dsn),
-        "SENTRY_ENVIRONMENT=production",
-        ...Option.toArray(Option.map(commit, (sha) => `SENTRY_RELEASE=${sha}`)),
-        "",
-      ],
-      "\n",
-    ),
-    { mode: 0o600 },
-  );
+  yield* fs.writeFileString(file, Array.join([...env, ""], "\n"), { mode: 0o600 });
 
   return file;
 });
 
-const packRelease = Effect.fnUntraced(function* (modules: string, envFile: string) {
+const fingerprintFor = Effect.fnUntraced(function* (env: ReadonlyArray<string>) {
+  const fs = yield* FileSystem.FileSystem;
+
+  const [bundle, sourceMap, unit] = yield* Effect.all([
+    fs.readFile("dist/main.js"),
+    fs.readFile("dist/main.js.map"),
+    fs.readFileString(UNIT_FILE),
+  ]);
+
+  return yield* releaseFingerprint({ bundle, sourceMap, nativeVersion: DAVE_VERSION, unit, env });
+});
+
+const installedRelease = Effect.fnUntraced(function* (
+  instance: string,
+  target: ReadonlyArray<string>,
+) {
+  const [fingerprint = "", state = ""] = yield* outputLines(
+    "Asking the VM which release it runs",
+    "gcloud",
+    [
+      "compute",
+      "ssh",
+      instance,
+      ...target,
+      "--command",
+      `printf '%s\\n' "$(cat ${APP_DIR}/${RELEASE_FILE} 2>/dev/null)" "$(systemctl is-active ${SERVICE})"`,
+    ],
+  );
+
+  return { fingerprint, active: state === "active" };
+});
+
+const packRelease = Effect.fnUntraced(function* (
+  modules: string,
+  envFile: string,
+  fingerprint: string,
+) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const dir = yield* fs.makeTempDirectoryScoped({ prefix: `${SERVICE}-release-` });
   const archive = path.join(dir, RELEASE_ARCHIVE);
+  const releaseFile = path.join(dir, RELEASE_FILE);
+
+  yield* fs.writeFileString(releaseFile, fingerprint);
 
   const entries = [
     path.resolve("dist/main.js"),
@@ -175,6 +241,7 @@ const packRelease = Effect.fnUntraced(function* (modules: string, envFile: strin
     modules,
     path.resolve(UNIT_FILE),
     envFile,
+    releaseFile,
   ];
 
   yield* run("Packing the release", "tar", [
@@ -198,16 +265,28 @@ const program = Effect.gen(function* () {
     "--ssh-key-expire-after=1h",
   ];
 
-  const envFile = yield* writeEnvFile;
+  const env = yield* envLines;
+
+  const fingerprint = yield* fingerprintFor(env);
+
+  const installed = yield* installedRelease(instance, target);
+
+  if (installed.active && installed.fingerprint === fingerprint) {
+    yield* Effect.logInfo(`The bot already runs release ${fingerprint}. Nothing to deploy.`);
+
+    return;
+  }
+
+  const envFile = yield* writeEnvFile(env);
 
   const modules = yield* packNativeDependencies;
 
-  const release = yield* packRelease(modules, envFile);
+  const release = yield* packRelease(modules, envFile, fingerprint);
 
   const fs = yield* FileSystem.FileSystem;
 
   yield* run(
-    "Uploading, installing and restarting service",
+    `Uploading, installing and restarting service (release ${fingerprint})`,
     "gcloud",
     [
       "compute",
@@ -225,7 +304,7 @@ const program = Effect.gen(function* () {
           `sudo install -m 600 -o root -g root ${ENV_FILE} /etc/${ENV_FILE}`,
           `sudo install -m 644 -o root -g root ${SERVICE}.service /etc/systemd/system/${SERVICE}.service`,
           `sudo install -m 644 -o root -g root main.js main.js.map ${APP_DIR}/`,
-          `sudo rm -rf ${APP_DIR}/node_modules`,
+          `sudo rm -rf ${APP_DIR}/node_modules ${APP_DIR}/${RELEASE_FILE}`,
           `sudo tar -xzf ${MODULES_ARCHIVE} -C ${APP_DIR} --no-same-owner`,
           "sudo systemctl daemon-reload",
           `sudo systemctl enable ${SERVICE}`,
@@ -234,6 +313,7 @@ const program = Effect.gen(function* () {
           // to catch it so the deploy fails instead of silently restart-looping.
           "sleep 15",
           `systemctl is-active --quiet ${SERVICE} || { sudo journalctl -u ${SERVICE} -n 50 --no-pager; exit 1; }`,
+          `sudo install -m 644 -o root -g root ${RELEASE_FILE} ${APP_DIR}/${RELEASE_FILE}`,
         ],
         "\n",
       ),
@@ -244,4 +324,8 @@ const program = Effect.gen(function* () {
   yield* Effect.logInfo(`Deployed. Logs: journalctl -u ${SERVICE} -f`);
 });
 
-program.pipe(Effect.scoped, Effect.provide(NodeServices.layer), NodeRuntime.runMain);
+program.pipe(
+  Effect.scoped,
+  Effect.provide([NodeServices.layer, Digest.layerWebCrypto]),
+  NodeRuntime.runMain,
+);
