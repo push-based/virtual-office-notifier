@@ -42,9 +42,9 @@ The bot token goes in `DISCORD_BOT_TOKEN`, and the office's channel ID in `DISCO
 
 1. Create an app at <https://api.slack.com/apps> → **From scratch** → pick the workspace, or open the app that had the old webhook.
 2. **Settings → Socket Mode** → turn it on, and create an app-level token with the `connections:write` scope. That's `SLACK_APP_TOKEN`.
-3. **Features → OAuth & Permissions → Bot Token Scopes**: add `chat:write`, `reactions:write`, `reactions:read`, `app_mentions:read`, `channels:history` and `users:read`. If the channel is private, add `groups:history` too.
+3. **Features → OAuth & Permissions → Bot Token Scopes**: add `chat:write`, `reactions:write`, `reactions:read`, `app_mentions:read`, `channels:history`, `users:read` and `im:write`. If the channel is private, add `groups:history` too. `im:write` lets the bot open a DM with an admin about a [deletion request](privacy.md#consent).
 4. **Features → Event Subscriptions** → turn it on and subscribe to the bot events `app_mention`, `message.channels`, `reaction_added` and `reaction_removed`, plus `message.groups` for a private channel. With Socket Mode on, there's no request URL to fill in.
-5. Leave **Interactivity** off. The join buttons only open a link.
+5. **Features → Interactivity & Shortcuts** → turn it on. With Socket Mode there's no request URL. The join buttons only open a link, but the buttons on a [deletion request](privacy.md#consent) in an admin's DM, and the refusal form, come back over the socket.
 6. **Install to Workspace**, and copy the **Bot User OAuth Token** into `SLACK_BOT_TOKEN`.
 7. Invite the bot to the channel (`/invite @your-bot`), and copy the channel ID (channel details → **About**, at the bottom) into `SLACK_CHANNEL_ID`.
 
