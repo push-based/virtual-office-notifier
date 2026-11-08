@@ -100,7 +100,6 @@ export default Stack(
         SESSION_SECRET: yield* Config.Redacted("SESSION_SECRET"),
         SENTRY_DSN: yield* Config.Redacted("SENTRY_CONSOLE_DSN"),
         SENTRY_ENVIRONMENT: "production",
-        SENTRY_RELEASE: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("local")),
       },
     });
 
