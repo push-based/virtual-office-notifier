@@ -244,7 +244,7 @@ export class ConsentRequests extends Context.Service<
             Effect.andThen(Effect.logInfo("Ignored a consent withdrawal with nothing to withdraw")),
           );
 
-        yield* committing(
+        yield* committing<Committable<E, R>, E, R>(
           sql,
           Effect.succeed(made.value),
           () => recordWithdrawal(sql, withdrawal),
