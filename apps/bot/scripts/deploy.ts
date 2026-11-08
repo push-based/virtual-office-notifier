@@ -9,7 +9,6 @@ import {
   pipe,
   Redacted,
   Schema,
-  Stream,
   String,
 } from "effect";
 import { Digest } from "effect/crypto";
@@ -76,34 +75,6 @@ const run = Effect.fnUntraced(function* (
     return yield* DeployError.make({ step, exitCode });
   }
 });
-
-const outputLines = Effect.fnUntraced(function* (
-  step: string,
-  command: string,
-  args: ReadonlyArray<string>,
-) {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-
-  yield* Effect.logInfo(step);
-
-  const handle = yield* spawner.spawn(
-    ChildProcess.make(command, args, { stdin: "inherit", stderr: "inherit" }),
-  );
-
-  const [lines, exitCode] = yield* Effect.all(
-    [
-      handle.stdout.pipe(Stream.decodeText(), Stream.splitLines, Stream.runCollect),
-      handle.exitCode,
-    ],
-    { concurrency: "unbounded" },
-  );
-
-  if (exitCode !== ChildProcessSpawner.ExitCode(0)) {
-    return yield* DeployError.make({ step, exitCode });
-  }
-
-  return lines;
-}, Effect.scoped);
 
 const tarballName = (name: string): string =>
   `${pipe(name, String.replace("@", ""), String.replace("/", "-"))}-${DAVE_VERSION}.tgz`;
@@ -202,26 +173,6 @@ const fingerprintFor = Effect.fnUntraced(function* (env: ReadonlyArray<string>) 
   return yield* releaseFingerprint({ bundle, sourceMap, nativeVersion: DAVE_VERSION, unit, env });
 });
 
-const installedRelease = Effect.fnUntraced(function* (
-  instance: string,
-  target: ReadonlyArray<string>,
-) {
-  const [fingerprint = "", state = ""] = yield* outputLines(
-    "Asking the VM which release it runs",
-    "gcloud",
-    [
-      "compute",
-      "ssh",
-      instance,
-      ...target,
-      "--command",
-      `printf '%s\\n' "$(cat ${APP_DIR}/${RELEASE_FILE} 2>/dev/null)" "$(systemctl is-active ${SERVICE})"`,
-    ],
-  );
-
-  return { fingerprint, active: state === "active" };
-});
-
 const packRelease = Effect.fnUntraced(function* (
   modules: string,
   envFile: string,
@@ -269,14 +220,6 @@ const program = Effect.gen(function* () {
 
   const fingerprint = yield* fingerprintFor(env);
 
-  const installed = yield* installedRelease(instance, target);
-
-  if (installed.active && installed.fingerprint === fingerprint) {
-    yield* Effect.logInfo(`The bot already runs release ${fingerprint}. Nothing to deploy.`);
-
-    return;
-  }
-
   const envFile = yield* writeEnvFile(env);
 
   const modules = yield* packNativeDependencies;
@@ -285,8 +228,10 @@ const program = Effect.gen(function* () {
 
   const fs = yield* FileSystem.FileSystem;
 
+  // One SSH connection per deploy: a second one moments later re-registers the
+  // runner's OS Login key with a new expiry, and the VM refuses it for a moment.
   yield* run(
-    `Uploading, installing and restarting service (release ${fingerprint})`,
+    `Uploading release ${fingerprint}; the VM installs and restarts the service unless it already runs it`,
     "gcloud",
     [
       "compute",
@@ -301,6 +246,10 @@ const program = Effect.gen(function* () {
           `trap 'rm -rf "$release"' EXIT`,
           'tar -xzf - -C "$release"',
           'cd "$release"',
+          `if [ "$(cat ${APP_DIR}/${RELEASE_FILE} 2>/dev/null)" = "$(cat ${RELEASE_FILE})" ] && systemctl is-active --quiet ${SERVICE}; then`,
+          `  echo "The bot already runs this release. Nothing to deploy."`,
+          "  exit 0",
+          "fi",
           `sudo install -m 600 -o root -g root ${ENV_FILE} /etc/${ENV_FILE}`,
           `sudo install -m 644 -o root -g root ${SERVICE}.service /etc/systemd/system/${SERVICE}.service`,
           `sudo install -m 644 -o root -g root main.js main.js.map ${APP_DIR}/`,
@@ -314,6 +263,7 @@ const program = Effect.gen(function* () {
           "sleep 15",
           `systemctl is-active --quiet ${SERVICE} || { sudo journalctl -u ${SERVICE} -n 50 --no-pager; exit 1; }`,
           `sudo install -m 644 -o root -g root ${RELEASE_FILE} ${APP_DIR}/${RELEASE_FILE}`,
+          'echo "Installed and restarted the service."',
         ],
         "\n",
       ),
@@ -321,7 +271,7 @@ const program = Effect.gen(function* () {
     fs.stream(release),
   );
 
-  yield* Effect.logInfo(`Deployed. Logs: journalctl -u ${SERVICE} -f`);
+  yield* Effect.logInfo(`Done. Logs: journalctl -u ${SERVICE} -f`);
 });
 
 program.pipe(
