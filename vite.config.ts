@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import { strict as effectStrict } from "@effect/tsgo/oxlint-presets";
 import { defineConfig } from "vite-plus";
 
+import { typecheck } from "./tools/vite-task/typecheck.ts";
+
 const plugin = (path: string): string => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
@@ -158,7 +160,7 @@ export default defineConfig({
   },
   run: {
     tasks: {
-      typecheck: "tsc --noEmit",
+      typecheck: typecheck(),
       check: "vp check",
       ci: ["vp run -r typecheck", "vp run check", "vp run -r test", "vp run -r build"],
     },

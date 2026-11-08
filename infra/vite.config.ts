@@ -1,9 +1,11 @@
 import { defineConfig } from "vite-plus";
 
+import { typecheck } from "../tools/vite-task/typecheck.ts";
+
 export default defineConfig({
   run: {
     tasks: {
-      typecheck: "tsc --noEmit",
+      typecheck: typecheck(),
       plan: {
         command: "alchemy plan --stage prod --adopt",
         cache: false,
