@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Option } from "effect";
+import { Option, type Schema } from "effect";
 
 import { decodeEnvelope, eligibleActivity, SlackActivity } from "../../src/slack/SlackEvent.ts";
 
@@ -222,5 +222,75 @@ describe("eligibleActivity", () => {
       ),
     );
     assert.isTrue(Option.isNone(activityOf({ ...reaction, user: BOT })));
+  });
+});
+
+describe("decodeEnvelope interactions", () => {
+  const interactive = (payload: Schema.Json) =>
+    JSON.stringify({
+      envelope_id: "env-2",
+      type: "interactive",
+      accepts_response_payload: false,
+      retry_attempt: 0,
+      payload,
+    });
+
+  it("reads a button press, with who pressed it and what", () => {
+    const decoded = Option.getOrThrow(
+      decodeEnvelope(
+        interactive({
+          type: "block_actions",
+          user: { id: "U1", username: "ada" },
+          trigger_id: "trigger-1",
+          channel: { id: "D1" },
+          message: { ts: "9.0" },
+          actions: [{ action_id: "erasure_now", value: "12", block_id: "b" }],
+        }),
+      ),
+    );
+
+    assert.isTrue(Option.isNone(decoded.event));
+
+    const interaction = Option.getOrThrow(decoded.interaction);
+
+    assert.strictEqual(interaction.type, "block_actions");
+
+    if (interaction.type === "block_actions") {
+      assert.strictEqual(interaction.user.id, "U1");
+      assert.strictEqual(interaction.trigger_id, "trigger-1");
+      assert.deepStrictEqual(interaction.actions, [{ action_id: "erasure_now", value: "12" }]);
+    }
+  });
+
+  it("reads a submitted form, with its metadata and typed values", () => {
+    const decoded = Option.getOrThrow(
+      decodeEnvelope(
+        interactive({
+          type: "view_submission",
+          user: { id: "U1" },
+          view: {
+            callback_id: "erasure_refuse",
+            private_metadata: '{"id":12,"ground":"legal_claim","channel":"D1"}',
+            state: {
+              values: { reason: { reason: { type: "plain_text_input", value: "Evidence." } } },
+            },
+          },
+        }),
+      ),
+    );
+
+    const interaction = Option.getOrThrow(decoded.interaction);
+
+    assert.strictEqual(interaction.type, "view_submission");
+
+    if (interaction.type === "view_submission")
+      assert.strictEqual(interaction.view.state.values["reason"]?.["reason"]?.value, "Evidence.");
+  });
+
+  it("still reads an event envelope as before, without an interaction", () => {
+    const decoded = Option.getOrThrow(decodeEnvelope(envelope(threadReply)));
+
+    assert.isTrue(Option.isSome(decoded.event));
+    assert.isTrue(Option.isNone(decoded.interaction));
   });
 });

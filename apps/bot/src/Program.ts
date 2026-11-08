@@ -6,10 +6,10 @@ import { AiProviders } from "./ai/index.ts";
 import { banter, QuietBanterLayer, reminders, SlackNotifier } from "./announcing/index.ts";
 import { ConsentGate, DiscordGateway, OfficeEvent, OfficeSeat } from "./office/index.ts";
 import { Eraser } from "./erasure/index.ts";
-import { ConsentDeskLayer } from "./reception/index.ts";
+import { ConsentDeskLayer, SlackAdminLine } from "./reception/index.ts";
 import { RecordingLayer } from "./recording/index.ts";
 import { ResponderLayer } from "./answering/index.ts";
-import { isRetryable, type SlackError } from "./slack/index.ts";
+import { isRetryable, type SlackError, SlackSocket } from "./slack/index.ts";
 import { StorageLayer } from "./Storage.ts";
 
 const logSlackError = (error: SlackError) =>
@@ -85,8 +85,9 @@ export const MainLayer = Layer.mergeAll(
   ResponderLayer,
   RecordingLayer,
   QuietBanterLayer,
-  ConsentDeskLayer.pipe(Layer.provide(Eraser.layer)),
+  ConsentDeskLayer.pipe(Layer.provide([Eraser.layer, SlackAdminLine.layer])),
 ).pipe(
+  Layer.provideMerge(SlackSocket.layer),
   Layer.provideMerge(OfficeSeat.layer),
   Layer.provideMerge(DiscordGateway.layer),
   Layer.provideMerge(ConsentGate.layer),

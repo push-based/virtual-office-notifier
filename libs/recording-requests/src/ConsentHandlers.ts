@@ -1,10 +1,12 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { HttpApiBuilder, HttpApiError } from "effect/http-api";
 
+import { isAdmin } from "./Admins.ts";
 import { ConsentRequests } from "./ConsentRequests.ts";
 import {
   CurrentRequester,
   ErasureNotFound,
+  NotAnAdmin,
   RecordingApi,
   WithdrawalNotFound,
 } from "./RecordingApi.ts";
@@ -15,6 +17,9 @@ const serviceUnavailable = (error: RecordingUnavailable) =>
     Effect.annotateLogs({ reason: error.reason }),
     Effect.andThen(Effect.fail(HttpApiError.ServiceUnavailable.make({}))),
   );
+
+const orErasureNotFound = <A>(found: Option.Option<A>) =>
+  Effect.fromOption(found).pipe(Effect.mapError(() => ErasureNotFound.make()));
 
 export const ConsentHandlers = HttpApiBuilder.group(
   RecordingApi,
@@ -61,11 +66,67 @@ export const ConsentHandlers = HttpApiBuilder.group(
       findErasure: Effect.fnUntraced(
         function* ({ params }) {
           const requester = yield* CurrentRequester;
-          const found = yield* consent.findErasure(requester.id, params.id);
 
-          return yield* Effect.fromOption(found).pipe(
-            Effect.mapError(() => ErasureNotFound.make()),
-          );
+          return yield* orErasureNotFound(yield* consent.findErasure(requester.id, params.id));
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+      cancelErasure: Effect.fnUntraced(
+        function* ({ params }) {
+          const requester = yield* CurrentRequester;
+
+          return yield* orErasureNotFound(yield* consent.cancelErasure(requester.id, params.id));
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+    });
+  }),
+);
+
+const asAdmin = Effect.gen(function* () {
+  const requester = yield* CurrentRequester;
+
+  if (!isAdmin(requester.id)) return yield* NotAnAdmin.make();
+
+  return requester;
+});
+
+export const ErasureAdminHandlers = HttpApiBuilder.group(
+  RecordingApi,
+  "erasureAdmin",
+  Effect.fn(function* (handlers) {
+    const consent = yield* ConsentRequests;
+
+    return handlers.handleAll({
+      cases: Effect.fnUntraced(
+        function* () {
+          yield* asAdmin;
+
+          return yield* consent.cases;
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+      expedite: Effect.fnUntraced(
+        function* ({ params }) {
+          const admin = yield* asAdmin;
+
+          return yield* orErasureNotFound(yield* consent.expedite(params.id, admin.id));
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+      seen: Effect.fnUntraced(
+        function* ({ params }) {
+          const admin = yield* asAdmin;
+
+          return yield* orErasureNotFound(yield* consent.seen(params.id, admin.id));
+        },
+        Effect.catchTag("RecordingUnavailable", serviceUnavailable),
+      ),
+      refuse: Effect.fnUntraced(
+        function* ({ params, payload }) {
+          const admin = yield* asAdmin;
+
+          return yield* orErasureNotFound(yield* consent.refuse(params.id, admin.id, payload));
         },
         Effect.catchTag("RecordingUnavailable", serviceUnavailable),
       ),

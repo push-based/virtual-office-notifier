@@ -16,6 +16,7 @@ export {
   type ActivityContext,
   eligibleActivity,
   type Envelope,
+  type InteractionPayload,
   SlackActivity,
 } from "./SlackEvent.ts";
 
@@ -30,6 +31,7 @@ export {
 } from "./SlackHistory.ts";
 
 export {
+  type ActionButton,
   type ActionsBlock,
   AI_DISCLAIMER,
   context,

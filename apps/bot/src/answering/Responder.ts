@@ -499,4 +499,4 @@ export const ResponderLayer = Layer.effectDiscard(
     ),
     Effect.forkScoped,
   ),
-).pipe(Layer.provide(Layer.mergeAll(SlackSocket.layer, ReplyDecider.layer, ReplyWriter.layer)));
+).pipe(Layer.provide(Layer.mergeAll(ReplyDecider.layer, ReplyWriter.layer)));

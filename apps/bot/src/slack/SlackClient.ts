@@ -237,6 +237,8 @@ export interface SlackProfile {
 
 const Posted = slackReply({ channel: Schema.String, ts: Schema.String });
 
+const OpenedConversation = slackReply({ channel: Schema.Struct({ id: Schema.String }) });
+
 const Nothing = slackReply({});
 
 const Replies = slackReply({
@@ -347,6 +349,15 @@ interface CompleteUploadBody {
   readonly thread_ts: string;
 }
 
+interface OpenConversationBody {
+  readonly users: string;
+}
+
+interface OpenViewBody {
+  readonly trigger_id: string;
+  readonly view: Schema.Json;
+}
+
 type WriteBody =
   | PostBody
   | UpdateBody
@@ -355,6 +366,8 @@ type WriteBody =
   | FileBody
   | ReactionBody
   | CompleteUploadBody
+  | OpenConversationBody
+  | OpenViewBody
   | Readonly<Record<string, never>>;
 
 const postBody = (message: OutgoingMessage): PostBody => {
@@ -399,6 +412,8 @@ export class SlackClient extends Context.Service<
     deleteFile(fileId: string): Effect.Effect<void, SlackError>;
     userProfile(userId: string): Effect.Effect<SlackProfile, SlackError>;
     permalink(channel: string, ts: string): Effect.Effect<string, SlackError>;
+    openDirectMessage(userId: string): Effect.Effect<string, SlackError>;
+    openView(triggerId: string, view: Schema.Json): Effect.Effect<void, SlackError>;
     readonly botUserId: Effect.Effect<string, SlackError>;
     readonly openConnection: Effect.Effect<string, SlackError>;
   }
@@ -651,6 +666,14 @@ export class SlackClient extends Context.Service<
 
       const botUserId = write("auth.test", {}, AuthTest).pipe(Effect.map(({ user_id }) => user_id));
 
+      const openDirectMessage = (userId: string) =>
+        write("conversations.open", { users: userId }, OpenedConversation).pipe(
+          Effect.map(({ channel }) => channel.id),
+        );
+
+      const openView = (triggerId: string, view: Schema.Json) =>
+        write("views.open", { trigger_id: triggerId, view }, Nothing).pipe(Effect.asVoid);
+
       const openConnection = send(
         "apps.connections.open",
         HttpClientRequest.post("https://slack.com/api/apps.connections.open"),
@@ -672,6 +695,8 @@ export class SlackClient extends Context.Service<
         deleteFile,
         userProfile,
         permalink,
+        openDirectMessage,
+        openView,
         botUserId,
         openConnection,
       });

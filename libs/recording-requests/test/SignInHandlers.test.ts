@@ -7,7 +7,7 @@ import { Effect, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
-import { ConsentHandlers } from "../src/ConsentHandlers.ts";
+import { ConsentHandlers, ErasureAdminHandlers } from "../src/ConsentHandlers.ts";
 import { ConsentRequests } from "../src/ConsentRequests.ts";
 import { OfficeStatsReader } from "../src/OfficeStats.ts";
 import { RecordingApi } from "../src/RecordingApi.ts";
@@ -48,6 +48,7 @@ const app = HttpRouter.toWebHandler(
       HistoryHandlers.pipe(Layer.provide(RecordingHistory.layerDisabled)),
       EditHandlers.pipe(Layer.provide(RecordingEdits.layerDisabled)),
       ConsentHandlers.pipe(Layer.provide(ConsentRequests.layerDisabled)),
+      ErasureAdminHandlers.pipe(Layer.provide(ConsentRequests.layerDisabled)),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),

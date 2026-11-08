@@ -113,7 +113,21 @@ export type SubmittedWithdrawal = typeof Consent.SubmittedWithdrawal.Encoded;
 
 export type ErasureOutcome = typeof Consent.ErasureOutcome.Encoded;
 
+export type ErasureDecision = typeof Consent.ErasureDecision.Encoded;
+
+export type RefusalGround = typeof Consent.RefusalGround.Encoded;
+
 export type SubmittedErasure = typeof Consent.SubmittedErasure.Encoded;
+
+export type PendingErasure = typeof Consent.PendingErasure.Encoded;
+
+export type Refusal = typeof Consent.Refusal.Encoded;
+
+export type ErasureInventory = typeof Consent.ErasureInventory.Encoded;
+
+export type ErasureCase = typeof Consent.ErasureCase.Encoded;
+
+export type ErasureRefusal = typeof Consent.ErasureRefusal.Encoded;
 
 export const CONSENT_NOTICE_VERSION = 1;
 
@@ -124,6 +138,16 @@ export const FORMER_MEMBER_ID = "former_member";
 export const FORMER_MEMBER = "a former member";
 
 export const ERASURE_WAIT_MS = 5 * 60_000;
+
+export const ERASURE_REVIEW_DAYS = 30;
+
+export const DATA_PROTECTION_AUTHORITIES_URL =
+  "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en";
+
+export const REFUSAL_GROUNDS: Readonly<Record<RefusalGround, string>> = {
+  legal_obligation: "a legal obligation to keep it",
+  legal_claim: "an ongoing legal claim that needs it",
+};
 
 export const RECORDED_IN_THE_OFFICE = [
   "when you join and leave, mute, deafen, turn on your camera or share your screen",

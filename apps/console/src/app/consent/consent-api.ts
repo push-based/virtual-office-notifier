@@ -1,6 +1,12 @@
 import { HttpClient } from "@angular/common/http";
 import { Service, inject } from "@angular/core";
-import type { ConsentStatus, SubmittedErasure, SubmittedWithdrawal } from "recording-requests/wire";
+import type {
+  ConsentStatus,
+  ErasureCase,
+  ErasureRefusal,
+  SubmittedErasure,
+  SubmittedWithdrawal,
+} from "recording-requests/wire";
 import type { Observable } from "rxjs";
 
 @Service()
@@ -25,5 +31,25 @@ export class ConsentApi {
 
   findErasure(id: number): Observable<SubmittedErasure> {
     return this.http.get<SubmittedErasure>(`/api/consent/erasures/${id}`);
+  }
+
+  cancelErasure(id: number): Observable<SubmittedErasure> {
+    return this.http.post<SubmittedErasure>(`/api/consent/erasures/${id}/cancel`, null);
+  }
+
+  cases(): Observable<ReadonlyArray<ErasureCase>> {
+    return this.http.get<ReadonlyArray<ErasureCase>>("/api/admin/erasures");
+  }
+
+  expedite(id: number): Observable<SubmittedErasure> {
+    return this.http.post<SubmittedErasure>(`/api/admin/erasures/${id}/now`, null);
+  }
+
+  seen(id: number): Observable<SubmittedErasure> {
+    return this.http.post<SubmittedErasure>(`/api/admin/erasures/${id}/seen`, null);
+  }
+
+  refuse(id: number, refusal: ErasureRefusal): Observable<SubmittedErasure> {
+    return this.http.post<SubmittedErasure>(`/api/admin/erasures/${id}/refuse`, refusal);
   }
 }

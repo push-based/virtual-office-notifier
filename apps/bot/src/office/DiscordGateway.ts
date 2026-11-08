@@ -31,16 +31,23 @@ import {
   type Interaction,
   type Message,
   MessageFlags,
+  ModalBuilder,
   PermissionFlagsBits,
   Routes,
   Status,
+  TextInputBuilder,
+  TextInputStyle,
   type VoiceBasedChannel,
   type VoiceChannelEffect,
   type VoiceState,
 } from "discord.js";
+import { type Admin, adminByDiscordId } from "recording-requests/Admins";
+import { type ErasureCase, RefusalGround } from "recording-requests/Consent";
+import type { ErasureNotice } from "recording-requests/ConsentRequests";
 import type { PersonInOffice } from "recording-requests/RecordingRequest";
 
 import { Notice } from "../consent/index.ts";
+import type { AdminLine, ErasureAction, ErasureVerdict } from "./AdminLine.ts";
 import {
   type Choice,
   type ConsentAnswer,
@@ -489,6 +496,190 @@ const consentLineIn = (
   return { ask, tell, showOut, answers: consentAnswers(client, runFork) };
 };
 
+const ERASURE_PREFIX = "erasure";
+
+const REFUSAL_PREFIX = "erasure-refuse";
+
+const ErasureButton = Schema.Tuple([
+  Schema.Literal(ERASURE_PREFIX),
+  Schema.String,
+  Schema.Literals(["now", "seen", "refuse_legal_obligation", "refuse_legal_claim"]),
+]);
+
+const decodeErasureButton = Schema.decodeUnknownOption(ErasureButton);
+
+const RefusalModal = Schema.Tuple([Schema.Literal(REFUSAL_PREFIX), Schema.String, RefusalGround]);
+
+const decodeRefusalModal = Schema.decodeUnknownOption(RefusalModal);
+
+const requestIdOf = (text: string): Option.Option<number> =>
+  Number.isInteger(Number(text)) ? Option.some(Number(text)) : Option.none();
+
+const erasureButtons = (requestId: number) =>
+  new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${ERASURE_PREFIX}:${requestId}:now`)
+      .setLabel(Notice.DELETE_NOW_LABEL)
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`${ERASURE_PREFIX}:${requestId}:seen`)
+      .setLabel(Notice.LET_IT_RUN_LABEL)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`${ERASURE_PREFIX}:${requestId}:refuse_legal_obligation`)
+      .setLabel(Notice.REFUSE_LABELS.legal_obligation)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`${ERASURE_PREFIX}:${requestId}:refuse_legal_claim`)
+      .setLabel(Notice.REFUSE_LABELS.legal_claim)
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+const refusalModal = (requestId: number, ground: RefusalGround) =>
+  new ModalBuilder()
+    .setCustomId(`${REFUSAL_PREFIX}:${requestId}:${ground}`)
+    .setTitle(Notice.REFUSAL_MODAL_TITLE)
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("reason")
+          .setLabel(Notice.REFUSAL_INPUT_LABEL)
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1000),
+      ),
+    );
+
+const erasureActions = (client: Client, runFork: RunFork) =>
+  Stream.callback<ErasureAction>(
+    Effect.fnUntraced(function* (queue) {
+      const ephemeral = (interaction: Interaction, text: string) =>
+        interaction.isRepliable()
+          ? Effect.tryPromise(() =>
+              interaction.reply({ content: text, flags: MessageFlags.Ephemeral }),
+            ).pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't answer an admin's button")))
+          : Effect.void;
+
+      const offer = (
+        interaction: Interaction,
+        requestId: number,
+        admin: Admin,
+        verdict: ErasureVerdict,
+      ) =>
+        Queue.offerUnsafe(queue, {
+          requestId,
+          admin,
+          verdict,
+          reply: (text) => ephemeral(interaction, text),
+        });
+
+      const onInteraction = (interaction: Interaction) => {
+        if (interaction.isButton()) {
+          const button = decodeErasureButton(Text.split(interaction.customId, ":"));
+
+          if (Option.isNone(button)) return;
+
+          const [, rawId, choice] = button.value;
+          const requestId = requestIdOf(rawId);
+          const admin = adminByDiscordId(interaction.user.id);
+
+          if (Option.isNone(requestId)) return;
+
+          if (Option.isNone(admin)) {
+            runFork(ephemeral(interaction, Notice.NOT_AN_ADMIN));
+
+            return;
+          }
+
+          if (choice === "now" || choice === "seen") {
+            offer(interaction, requestId.value, admin.value, { kind: choice });
+
+            return;
+          }
+
+          const ground: RefusalGround =
+            choice === "refuse_legal_claim" ? "legal_claim" : "legal_obligation";
+
+          runFork(
+            Effect.tryPromise(() =>
+              interaction.showModal(refusalModal(requestId.value, ground)),
+            ).pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't open the refusal form"))),
+          );
+
+          return;
+        }
+
+        if (!interaction.isModalSubmit()) return;
+
+        const modal = decodeRefusalModal(Text.split(interaction.customId, ":"));
+
+        if (Option.isNone(modal)) return;
+
+        const [, rawId, ground] = modal.value;
+        const requestId = requestIdOf(rawId);
+        const admin = adminByDiscordId(interaction.user.id);
+        const reason = Text.trim(interaction.fields.getTextInputValue("reason"));
+
+        if (Option.isNone(requestId) || reason === "") return;
+
+        if (Option.isNone(admin)) {
+          runFork(ephemeral(interaction, Notice.NOT_AN_ADMIN));
+
+          return;
+        }
+
+        offer(interaction, requestId.value, admin.value, { kind: "refuse", ground, reason });
+      };
+
+      yield* Effect.acquireRelease(
+        Effect.sync(() => client.on(Events.InteractionCreate, onInteraction)),
+        () => Effect.sync(() => client.off(Events.InteractionCreate, onInteraction)),
+      );
+    }),
+  );
+
+const adminLineIn = (client: Client, runFork: RunFork): AdminLine => ({
+  medium: "discord",
+  notify: (admin: Admin, erasure: ErasureCase) =>
+    Effect.tryPromise(() =>
+      client.users.send(admin.discordUserId, {
+        embeds: [{ description: Notice.adminNotice(erasure, "discord") }],
+        components: [erasureButtons(erasure.id)],
+      }),
+    ).pipe(
+      Effect.map((message) => Option.some({ channel: message.channelId, messageId: message.id })),
+      Effect.catch((error) =>
+        logFailure("Couldn't tell an admin on Discord about a deletion request")(error).pipe(
+          Effect.as(Option.none()),
+        ),
+      ),
+    ),
+  update: (notice: ErasureNotice, text: string) =>
+    Effect.tryPromise(() => client.channels.fetch(notice.channel)).pipe(
+      Effect.flatMap((channel) =>
+        channel !== null && channel.isSendable()
+          ? Effect.tryPromise(() =>
+              channel.messages.edit(notice.messageId, {
+                embeds: [{ description: text }],
+                components: [],
+                allowedMentions: NO_PINGS,
+              }),
+            )
+          : Effect.void,
+      ),
+      Effect.asVoid,
+      Effect.catch(logFailure("Couldn't update an admin's Discord message")),
+    ),
+  actions: erasureActions(client, runFork),
+});
+
+const SILENT_ADMIN_LINE: AdminLine = {
+  medium: "discord",
+  notify: () => Effect.succeedNone,
+  update: () => Effect.void,
+  actions: Stream.never,
+};
+
 const login = (client: Client, token: Redacted.Redacted<string>) =>
   Effect.callback<Client<true>, DiscordLoginError>((resume) => {
     client.once(Events.ClientReady, (ready) => resume(Effect.succeed(ready)));
@@ -507,6 +698,7 @@ export interface TestGateway {
   readonly selfId?: string;
   readonly gate?: Gate;
   readonly line?: ConsentLine;
+  readonly admin?: AdminLine;
 }
 
 export class DiscordGateway extends Context.Service<
@@ -522,6 +714,7 @@ export class DiscordGateway extends Context.Service<
     isAdmitted(userId: string): Effect.Effect<boolean>;
     admittedSince(userId: string): Effect.Effect<Option.Option<DateTime.Utc>>;
     readonly consentLine: Option.Option<ConsentLine>;
+    readonly adminLine: AdminLine;
     readonly selfUserId: string;
     readonly voice: Option.Option<OfficeVoice>;
     // None when the office channel wasn't found at startup.
@@ -691,6 +884,7 @@ export class DiscordGateway extends Context.Service<
         isAdmitted: gate.isAdmitted,
         admittedSince: gate.admittedSince,
         consentLine: Option.map(office, (channel) => consentLineIn(client, channel, runFork)),
+        adminLine: adminLineIn(client, runFork),
         selfUserId: ready.user.id,
         voice,
         office: Option.map(office, (channel) => ({
@@ -714,6 +908,7 @@ export class DiscordGateway extends Context.Service<
     selfId = "self",
     gate = ConsentGate.open,
     line,
+    admin = SILENT_ADMIN_LINE,
   }: TestGateway) =>
     Layer.effect(
       DiscordGateway,
@@ -788,6 +983,7 @@ export class DiscordGateway extends Context.Service<
           isAdmitted: gate.isAdmitted,
           admittedSince: gate.admittedSince,
           consentLine: Option.fromUndefinedOr(line),
+          adminLine: admin,
           selfUserId: selfId,
           voice: Option.none(),
           office: Option.some({ guildId, channelId: officeChannelId }),

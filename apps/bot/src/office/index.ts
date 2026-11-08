@@ -41,3 +41,5 @@ export {
 export type { TimedVoiceEffect } from "./VoiceEffect.ts";
 
 export type { VoiceObservation } from "./VoiceObservation.ts";
+
+export type { AdminLine, ErasureAction, ErasureVerdict, SentNotice } from "./AdminLine.ts";

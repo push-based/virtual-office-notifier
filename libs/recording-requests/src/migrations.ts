@@ -638,4 +638,56 @@ export const migrations = Migrator.fromRecord({
       $$
     `;
   }),
+
+  "0016_erasure_review": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      ALTER TABLE office.consent_requests
+        ADD COLUMN due_at timestamptz,
+        ADD COLUMN announced_at timestamptz,
+        ADD COLUMN decision text CHECK (decision IN ('now', 'refused', 'cancelled')),
+        ADD COLUMN decided_by text,
+        ADD COLUMN decided_at timestamptz,
+        ADD COLUMN refusal_ground text CHECK (refusal_ground IN ('legal_obligation', 'legal_claim')),
+        ADD COLUMN refusal_reason text,
+        ADD COLUMN seen_by jsonb NOT NULL DEFAULT '[]'::jsonb,
+        DROP CONSTRAINT IF EXISTS consent_requests_outcome_check,
+        ADD CONSTRAINT consent_requests_outcome_check
+          CHECK (outcome IN ('withdrawn', 'ignored', 'erased', 'refused', 'cancelled')),
+        ADD CONSTRAINT consent_requests_due_check CHECK ((kind = 'erase') = (due_at IS NOT NULL)),
+        ADD CONSTRAINT consent_requests_refusal_check
+          CHECK ((decision = 'refused') = (refusal_ground IS NOT NULL AND refusal_reason IS NOT NULL))
+    `;
+
+    yield* sql`
+      UPDATE office.consent_requests
+      SET due_at = coalesce(handled_at, requested_at), announced_at = requested_at
+      WHERE kind = 'erase' AND due_at IS NULL
+    `;
+
+    yield* sql`
+      CREATE TABLE office.erasure_notices (
+        request_id bigint NOT NULL REFERENCES office.consent_requests (id) ON DELETE CASCADE,
+        medium text NOT NULL CHECK (medium IN ('discord', 'slack')),
+        recipient text NOT NULL,
+        channel text NOT NULL,
+        message_id text NOT NULL,
+        PRIMARY KEY (request_id, medium, recipient)
+      )
+    `;
+
+    yield* sql`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'activity') THEN
+          GRANT UPDATE ON office.consent_requests TO activity;
+          GRANT SELECT ON office.voice_snapshots, office.voice_effects TO activity;
+          GRANT SELECT ON office.slack_messages, office.slack_reactions, office.slack_posts TO activity;
+          GRANT SELECT ON office.recording_summaries TO activity;
+        END IF;
+      END
+      $$
+    `;
+  }),
 });

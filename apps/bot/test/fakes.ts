@@ -412,6 +412,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
   const deletions = yield* Ref.make<ReadonlyArray<readonly [string, string]>>([]);
   const rewrites = yield* Ref.make<ReadonlyArray<RewrittenMessage>>([]);
   const deletedFiles = yield* Ref.make<ReadonlyArray<string>>([]);
+  const views = yield* Ref.make<ReadonlyArray<{ triggerId: string; view: Schema.Json }>>([]);
   const threads = yield* Ref.make(new Map(options.threads ?? []));
   const profiles = options.profiles ?? new Map<string, SlackProfile>();
 
@@ -466,6 +467,8 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
         options.permalinkFailure === undefined
           ? Effect.succeed(permalinkOf(channel, ts))
           : Effect.fail(SlackError.make({ reason: options.permalinkFailure })),
+      openDirectMessage: (userId) => Effect.succeed(`D-${userId}`),
+      openView: (triggerId, view) => Ref.update(views, (all) => [...all, { triggerId, view }]),
       botUserId: Effect.succeed(BOT_USER_ID),
       openConnection: Effect.never,
     }),
@@ -480,6 +483,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
     deletions: Ref.get(deletions),
     rewrites: Ref.get(rewrites),
     deletedFiles: Ref.get(deletedFiles),
+    views: Ref.get(views),
     addToThread: (threadTs: string, message: ThreadMessage) =>
       Ref.update(threads, (all) =>
         new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message]),

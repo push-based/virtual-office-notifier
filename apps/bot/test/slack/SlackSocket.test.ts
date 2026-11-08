@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Array, Effect, Layer, Option, pipe, Queue, Schema, Stream, String } from "effect";
+import { Array, Context, Effect, Layer, Option, pipe, Queue, Schema, Stream, String } from "effect";
 import { Socket } from "effect/socket";
 import { TestClock } from "effect/testing";
 
@@ -111,8 +111,8 @@ const connect = Effect.fnUntraced(function* (replies: ReadonlyArray<Reply>) {
     ),
   );
 
-  const slackSocket = yield* Effect.service(SlackSocket).pipe(
-    Effect.provide(layer),
+  const slackSocket = yield* Layer.build(layer).pipe(
+    Effect.map((context) => Context.get(context, SlackSocket)),
     withEnv(SLACK_ENV),
   );
 

@@ -1,4 +1,5 @@
 import {
+  Array,
   Cause,
   DateTime,
   Deferred,
@@ -15,16 +16,19 @@ import {
   Stream,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
+import { ADMINS, adminByDiscordId } from "recording-requests/Admins";
 import type {
   ConsentEventKind,
   ConsentStanding,
   Delivery,
+  ErasureCase,
   Wording,
 } from "recording-requests/Consent";
 import {
-  type Erasure,
-  type ErasureHandler,
   ConsentRequests,
+  type ErasureHandler,
+  type ErasureNotice,
+  type Settled,
   type Withdrawal,
 } from "recording-requests/ConsentRequests";
 import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
@@ -32,28 +36,38 @@ import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
 import { ConsentBook, LOOKUP_WAIT, Notice } from "../consent/index.ts";
 import { Eraser, type PrepareError } from "../erasure/index.ts";
 import {
+  type AdminLine,
   Admission,
   type ConsentAnswer,
   ConsentGate,
   type ConsentLine,
   DiscordGateway,
+  type ErasureAction,
   type Visit,
 } from "../office/index.ts";
 import { StoreHealth } from "../recording/index.ts";
+import { SlackAdminLine } from "./SlackAdminLine.ts";
 
 const {
   AGREED,
+  ALREADY_DECIDED,
   ANSWER_TIME,
-  askFor,
+  askAbout,
+  CANCELLED,
   DECLINED,
   ERASED,
   ERASED_AND_SHOWN_OUT,
   ERASED_REASON,
   EXPIRED,
   LEFT,
+  NOTED_NOW,
+  NOTED_REFUSED,
+  NOTED_SEEN,
   QUESTION_ERASED,
   QUESTION_WITHDRAWN,
+  REFUSED,
   RESTARTING,
+  SCHEDULED,
   SHOWN_OUT_REASON,
   TIMED_OUT,
   WITHDRAWN,
@@ -61,6 +75,8 @@ const {
 } = Notice;
 
 const HANDLING_WITHDRAWALS = "Couldn't handle consent withdrawals";
+
+const DATABASE_DOWN = "Couldn't reach the database. Try again in a moment.";
 
 export const ERASURE_RETRY_FIRST = Duration.seconds(30);
 
@@ -79,7 +95,13 @@ type Lapse = "left" | "withdrawn" | "erased";
 const deliveryOf = (via: Option.Option<{ readonly via: Delivery }>): Delivery =>
   Option.match(via, { onNone: () => "undelivered", onSome: ({ via }) => via });
 
-const run = Effect.fnUntraced(function* (line: ConsentLine) {
+const adminName = (userId: string | null): Option.Option<string> =>
+  Option.fromNullOr(userId).pipe(
+    Option.flatMap(adminByDiscordId),
+    Option.map((admin) => admin.name),
+  );
+
+const run = Effect.fnUntraced(function* (line: ConsentLine, adminLines: ReadonlyArray<AdminLine>) {
   const gate = yield* ConsentGate;
   const book = yield* ConsentBook;
   const requests = yield* ConsentRequests;
@@ -161,15 +183,44 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
       ),
     );
 
+  const databaseDown = (what: string) => (error: { readonly reason: string }) =>
+    Effect.logWarning(what).pipe(Effect.annotateLogs({ reason: error.reason }));
+
+  const hasPendingErasure = (userId: string) =>
+    requests.pendingErasureOf(userId).pipe(
+      Effect.map(Option.isSome),
+      Effect.catchTag("RecordingUnavailable", (error) =>
+        databaseDown("Couldn't check for a pending deletion request before asking")(error).pipe(
+          Effect.as(false),
+        ),
+      ),
+    );
+
+  const cancelErasures = (userId: string) =>
+    requests
+      .cancelErasuresOf(userId)
+      .pipe(
+        Effect.catchTag(
+          "RecordingUnavailable",
+          databaseDown("Couldn't cancel a deletion request after someone agreed"),
+        ),
+      );
+
   const ask = Effect.fn("ConsentDesk.ask")(function* (userId: string, displayName: string) {
     const record = yield* book.lookup(userId);
 
     if (record.agreed) return yield* gate.decide(Admission.Agreed({ userId }));
 
     const wording: Wording = record.asked === 0 ? "first" : "again";
+    const pendingErasure = yield* hasPendingErasure(userId);
     const promptId = yield* random.uuidV4();
     const answer = yield* awaitAnswer(promptId);
-    const delivery = yield* line.ask(userId, promptId, askFor(wording, displayName));
+
+    const delivery = yield* line.ask(
+      userId,
+      promptId,
+      askAbout(wording, displayName, pendingErasure),
+    );
 
     yield* note(userId, "asked", wording, deliveryOf(delivery));
 
@@ -192,6 +243,9 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
     if (answered.value.choice === "agree") {
       yield* note(userId, "agreed");
       yield* gate.decide(Admission.Agreed({ userId }));
+
+      if (pendingErasure) yield* cancelErasures(userId);
+
       yield* answered.value.reply(AGREED(displayName));
 
       return yield* Effect.logInfo("Someone agreed to being recorded in the office");
@@ -285,33 +339,136 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
       Effect.asVoid,
     );
 
+  const lineFor = (medium: ErasureNotice["medium"]) =>
+    Array.findFirst(adminLines, (candidate) => candidate.medium === medium);
+
+  const notifyAdmins = (erasure: ErasureCase) =>
+    Effect.forEach(
+      ADMINS,
+      (admin) =>
+        Effect.forEach(
+          adminLines,
+          (candidate) =>
+            candidate.notify(admin, erasure).pipe(
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.void,
+                  onSome: (sent) =>
+                    requests
+                      .recordNotice({
+                        requestId: erasure.id,
+                        medium: candidate.medium,
+                        recipient: admin.discordUserId,
+                        channel: sent.channel,
+                        messageId: sent.messageId,
+                      })
+                      .pipe(
+                        Effect.catchTag(
+                          "RecordingUnavailable",
+                          databaseDown("Couldn't remember an admin's message about a deletion"),
+                        ),
+                      ),
+                }),
+              ),
+            ),
+          { discard: true },
+        ),
+      { discard: true },
+    );
+
+  const updateNotices = (erasure: ErasureCase, outcome: Notice.AdminOutcome) =>
+    requests.noticesOf(erasure.id).pipe(
+      Effect.flatMap((notices) =>
+        Effect.forEach(
+          notices,
+          (notice) =>
+            Option.match(lineFor(notice.medium), {
+              onNone: () => Effect.void,
+              onSome: (candidate) =>
+                candidate.update(
+                  notice,
+                  Notice.adminSettled(
+                    erasure,
+                    outcome,
+                    adminName(erasure.decidedBy),
+                    notice.medium,
+                  ),
+                ),
+            }),
+          { discard: true },
+        ),
+      ),
+      Effect.catchTag(
+        "RecordingUnavailable",
+        databaseDown("Couldn't find the admins' messages about a deletion to update them"),
+      ),
+    );
+
   const erasures: ErasureHandler<PrepareError, never> = {
-    prepare: Effect.fnUntraced(function* ({ userId }: Erasure) {
+    announce: Effect.fnUntraced(function* (erasure: ErasureCase) {
+      const { userId } = erasure;
+
       yield* book.remember({ userId, at: yield* DateTime.now, kind: "withdrawn" });
+      yield* stopAsking(userId, "erased");
+      yield* gate.decide(Admission.Withdrawn({ userId }));
+
+      const shown = yield* line.showOut(userId, ERASED_REASON);
+
+      if (shown) yield* note(userId, "disconnected");
+
+      yield* line.tell(userId, SCHEDULED(erasure.dueAt, shown));
+      yield* notifyAdmins(erasure);
+      yield* Effect.logInfo("Told the admins about a deletion request");
+    }),
+    settle: (erasure: ErasureCase, outcome: Settled) =>
+      Effect.succeed({
+        afterCommit: Effect.gen(function* () {
+          yield* line.tell(
+            erasure.userId,
+            outcome === "refused" && erasure.refusal !== null
+              ? REFUSED(erasure.refusal.ground, erasure.refusal.reason)
+              : CANCELLED,
+          );
+          yield* updateNotices(erasure, outcome);
+        }),
+      }),
+    prepare: Effect.fnUntraced(function* ({ userId }: ErasureCase) {
       yield* stopAsking(userId, "erased");
       yield* gate.decide(Admission.Withdrawn({ userId }));
       yield* markShownOut(userId, yield* line.showOut(userId, ERASED_REASON));
       yield* eraser.prepare(userId);
     }),
-    erase: ({ userId }) =>
-      eraser.erase(userId).pipe(
-        Effect.map((erased) => ({
-          afterCommit: Effect.gen(function* () {
-            yield* book.forget(userId);
-            yield* sweepLater(userId);
-            yield* eraser.removeAudio(erased.objectPaths);
-            yield* line.tell(userId, (yield* takeShownOut(userId)) ? ERASED_AND_SHOWN_OUT : ERASED);
-            yield* Effect.logInfo("Erased someone's data and told them").pipe(
-              Effect.annotateLogs({ recordingsToRepublish: erased.republishing }),
-            );
-          }),
-        })),
+    erase: (erasure: ErasureCase) =>
+      book.lookupWithin(erasure.userId, LOOKUP_WAIT).pipe(
+        Effect.flatMap((noted) =>
+          Option.exists(noted, (record) => record.agreed)
+            ? Effect.succeedNone
+            : eraser.erase(erasure.userId).pipe(
+                Effect.map((erased) =>
+                  Option.some({
+                    afterCommit: Effect.gen(function* () {
+                      yield* book.forget(erasure.userId);
+                      yield* sweepLater(erasure.userId);
+                      yield* eraser.removeAudio(erased.objectPaths);
+                      yield* line.tell(
+                        erasure.userId,
+                        (yield* takeShownOut(erasure.userId)) ? ERASED_AND_SHOWN_OUT : ERASED,
+                      );
+                      yield* updateNotices(erasure, "erased");
+                      yield* Effect.logInfo("Erased someone's data and told them").pipe(
+                        Effect.annotateLogs({ recordingsToRepublish: erased.republishing }),
+                      );
+                    }),
+                  }),
+                ),
+              ),
+        ),
       ),
   };
 
   const handleErasures = requests.handleErasures(erasures).pipe(
     Effect.tapError((error) =>
-      Effect.logWarning("Couldn't erase someone's data yet, trying again later").pipe(
+      Effect.logWarning("Couldn't handle a deletion request yet, trying again later").pipe(
         Effect.annotateLogs({ reason: error.message }),
         Effect.andThen(ErrorReporter.report(Cause.fail(error))),
       ),
@@ -320,10 +477,45 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
     Effect.orDie,
   );
 
+  const decide = Effect.fnUntraced(function* (action: ErasureAction) {
+    const adminId = action.admin.discordUserId;
+
+    const decided = yield* Match.value(action.verdict).pipe(
+      Match.when({ kind: "now" }, () =>
+        requests.expedite(action.requestId, adminId).pipe(Effect.map(Option.as(NOTED_NOW))),
+      ),
+      Match.when({ kind: "seen" }, () =>
+        requests.seen(action.requestId, adminId).pipe(Effect.map(Option.as(NOTED_SEEN))),
+      ),
+      Match.when({ kind: "refuse" }, ({ ground, reason }) =>
+        requests
+          .refuse(action.requestId, adminId, { ground, reason })
+          .pipe(Effect.map(Option.as(NOTED_REFUSED))),
+      ),
+      Match.exhaustive,
+      Effect.catchTag("RecordingUnavailable", (error) =>
+        databaseDown("Couldn't record an admin's decision about a deletion")(error).pipe(
+          Effect.as(Option.some(DATABASE_DOWN)),
+        ),
+      ),
+    );
+
+    yield* action.reply(Option.getOrElse(decided, () => ALREADY_DECIDED));
+    yield* Effect.logInfo("An admin decided about a deletion request").pipe(
+      Effect.annotateLogs({ request: action.requestId, verdict: action.verdict.kind }),
+    );
+  });
+
+  const adminActions = Stream.mergeAll(
+    Array.map(adminLines, (candidate) => candidate.actions),
+    { concurrency: "unbounded" },
+  );
+
   yield* Effect.all(
     [
       Stream.runForEach(gate.visits, onVisit),
       Stream.runForEach(line.answers, route),
+      Stream.runForEach(adminActions, decide),
       Effect.schedule(handleWithdrawals, Schedule.spaced(CHECK_INTERVAL)),
       Effect.schedule(handleErasures, Schedule.spaced(CHECK_INTERVAL)),
     ],
@@ -334,10 +526,11 @@ const run = Effect.fnUntraced(function* (line: ConsentLine) {
 export const ConsentDeskLayer = Layer.effectDiscard(
   Effect.gen(function* () {
     const gateway = yield* DiscordGateway;
+    const slackAdmins = yield* SlackAdminLine;
 
     yield* Option.match(gateway.consentLine, {
       onNone: () => Effect.logInfo("No office voice channel, so nobody is asked for consent"),
-      onSome: run,
+      onSome: (line) => run(line, [gateway.adminLine, slackAdmins]),
     }).pipe(
       Effect.catchCause((cause) =>
         Effect.logError("Stopped asking for consent", cause).pipe(

@@ -154,11 +154,14 @@ GRANT SELECT, INSERT ON office.recording_edits TO activity;
 GRANT USAGE ON SEQUENCE office.recording_edits_id_seq TO activity;
 GRANT SELECT ON office.recording_action_items TO activity;
 GRANT SELECT ON office.consent_events TO activity;
-GRANT SELECT, INSERT ON office.consent_requests TO activity;
+GRANT SELECT, INSERT, UPDATE ON office.consent_requests TO activity;
 GRANT USAGE ON SEQUENCE office.consent_requests_id_seq TO activity;
+GRANT SELECT ON office.voice_snapshots, office.voice_effects TO activity;
+GRANT SELECT ON office.slack_messages, office.slack_reactions, office.slack_posts TO activity;
+GRANT SELECT ON office.recording_summaries TO activity;
 ```
 
-The grants on `office.consent_events` and `office.consent_requests` are also made by the bot's migrations, if the `activity` role already exists when they run, so an install that predates them needs no SQL for them. The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the grant on `office.voice_activity` and `office.office_activity`, the [Stats](recording.md#office-stats) tab answers `503` and the rest of the Console works as before.
+The grants from `office.consent_events` down are also made by the bot's migrations, if the `activity` role already exists when they run, so an install that predates them needs no SQL for them. The last three let the Console show the admins exactly what a deletion request will delete. The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the grant on `office.voice_activity` and `office.office_activity`, the [Stats](recording.md#office-stats) tab answers `503` and the rest of the Console works as before.
 
 ### Hyperdrive
 
