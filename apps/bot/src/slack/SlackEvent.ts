@@ -38,31 +38,80 @@ const SlackEventPayload = Schema.Union([AppMention, Message, Reaction]);
 
 export type SlackEventPayload = typeof SlackEventPayload.Type;
 
+const BlockActions = Schema.Struct({
+  type: Schema.Literal("block_actions"),
+  user: Schema.Struct({ id: Schema.String }),
+  trigger_id: Schema.String,
+  channel: Schema.optional(Schema.Struct({ id: Schema.String })),
+  message: Schema.optional(Schema.Struct({ ts: Schema.String })),
+  actions: Schema.Array(
+    Schema.Struct({ action_id: Schema.String, value: Schema.optional(Schema.String) }),
+  ),
+});
+
+const ViewSubmission = Schema.Struct({
+  type: Schema.Literal("view_submission"),
+  user: Schema.Struct({ id: Schema.String }),
+  view: Schema.Struct({
+    callback_id: Schema.String,
+    private_metadata: Schema.optional(Schema.String),
+    state: Schema.Struct({
+      values: Schema.Record(
+        Schema.String,
+        Schema.Record(
+          Schema.String,
+          Schema.Struct({ value: Schema.optional(Schema.NullOr(Schema.String)) }),
+        ),
+      ),
+    }),
+  }),
+});
+
+const InteractionPayload = Schema.Union([BlockActions, ViewSubmission]);
+
+export type InteractionPayload = typeof InteractionPayload.Type;
+
+const WithEvent = Schema.Struct({ event: Schema.optional(Schema.Json) });
+
 const RawEnvelope = Schema.Struct({
   type: Schema.String,
   envelope_id: Schema.optional(Schema.String),
   retry_attempt: Schema.optional(Schema.Int),
-  payload: Schema.optional(Schema.Struct({ event: Schema.optional(Schema.Json) })),
+  payload: Schema.optional(Schema.Json),
 });
 
 const decodeRawEnvelope = Schema.decodeUnknownOption(Schema.fromJsonString(RawEnvelope));
 
 const decodeEvent = Schema.decodeUnknownOption(SlackEventPayload);
 
+const decodeWithEvent = Schema.decodeUnknownOption(WithEvent);
+
+const decodeInteraction = Schema.decodeUnknownOption(InteractionPayload);
+
 export interface Envelope {
   readonly type: string;
   readonly envelopeId: Option.Option<string>;
   readonly retryAttempt: number;
   readonly event: Option.Option<SlackEventPayload>;
+  readonly interaction: Option.Option<InteractionPayload>;
 }
 
 export const decodeEnvelope = (text: string): Option.Option<Envelope> =>
-  Option.map(decodeRawEnvelope(text), (raw): Envelope => ({
-    type: raw.type,
-    envelopeId: Option.fromUndefinedOr(raw.envelope_id),
-    retryAttempt: raw.retry_attempt ?? 0,
-    event: Option.flatMap(Option.fromUndefinedOr(raw.payload?.event), decodeEvent),
-  }));
+  Option.map(decodeRawEnvelope(text), (raw): Envelope => {
+    const payload = Option.fromUndefinedOr(raw.payload);
+
+    return {
+      type: raw.type,
+      envelopeId: Option.fromUndefinedOr(raw.envelope_id),
+      retryAttempt: raw.retry_attempt ?? 0,
+      event: payload.pipe(
+        Option.flatMap(decodeWithEvent),
+        Option.flatMap((found) => Option.fromUndefinedOr(found.event)),
+        Option.flatMap(decodeEvent),
+      ),
+      interaction: Option.flatMap(payload, decodeInteraction),
+    };
+  });
 
 export type SlackActivity = Data.TaggedEnum<{
   Message: {

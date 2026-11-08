@@ -1,6 +1,8 @@
 import { Array, Effect } from "effect";
 import { Migrator, SqlClient } from "effect/sql";
 
+import { FORMER_MEMBER, FORMER_MEMBER_ID } from "./Wire.ts";
+
 // Each flag turns into a pair of events in the voice_activity view.
 const FLAG_EVENTS = [
   ["self_mute", "Muted", "Unmuted"],
@@ -554,5 +556,138 @@ export const migrations = Migrator.fromRecord({
     const sql = yield* SqlClient.SqlClient;
 
     yield* sql`ALTER TABLE office.slack_posts ADD COLUMN deleted_at timestamptz`;
+  }),
+
+  "0013_consent": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      CREATE TABLE office.consent_events (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id text NOT NULL,
+        happened_at timestamptz NOT NULL,
+        kind text NOT NULL CHECK (
+          kind IN ('asked', 'agreed', 'declined', 'timed_out', 'left', 'disconnected', 'withdrawn')
+        ),
+        notice_version integer NOT NULL,
+        wording text CHECK (wording IN ('first', 'again')),
+        delivery text CHECK (delivery IN ('direct_message', 'voice_chat', 'undelivered')),
+        CHECK ((kind = 'asked') = (wording IS NOT NULL AND delivery IS NOT NULL))
+      )
+    `;
+
+    yield* sql`CREATE INDEX consent_events_user ON office.consent_events (user_id, id)`;
+
+    yield* sql`
+      CREATE TABLE office.consent_requests (
+        id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id text NOT NULL,
+        kind text NOT NULL CHECK (kind IN ('withdraw')),
+        requested_at timestamptz NOT NULL DEFAULT now(),
+        handled_at timestamptz,
+        outcome text CHECK (outcome IN ('withdrawn', 'ignored')),
+        CHECK ((handled_at IS NULL) = (outcome IS NULL))
+      )
+    `;
+
+    yield* sql`CREATE INDEX consent_requests_pending ON office.consent_requests (id) WHERE handled_at IS NULL`;
+  }),
+
+  "0014_erasure": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      ALTER TABLE office.consent_requests
+        ALTER COLUMN user_id DROP NOT NULL,
+        DROP CONSTRAINT IF EXISTS consent_requests_kind_check,
+        ADD CONSTRAINT consent_requests_kind_check CHECK (kind IN ('withdraw', 'erase')),
+        DROP CONSTRAINT IF EXISTS consent_requests_outcome_check,
+        ADD CONSTRAINT consent_requests_outcome_check CHECK (outcome IN ('withdrawn', 'ignored', 'erased')),
+        ADD CONSTRAINT consent_requests_user_check CHECK ((user_id IS NULL) = (outcome IS NOT DISTINCT FROM 'erased'))
+    `;
+
+    yield* sql`
+      INSERT INTO office.members (user_id, display_name, first_seen_at, last_seen_at)
+      VALUES (${FORMER_MEMBER_ID}, ${FORMER_MEMBER}, now(), now())
+    `;
+
+    yield* sql`
+      ALTER TABLE office.recordings
+        ADD COLUMN republish_requested_at timestamptz,
+        ADD COLUMN republish_resummarize boolean NOT NULL DEFAULT false
+    `;
+
+    yield* sql`
+      CREATE INDEX recordings_republish ON office.recordings (started_at)
+      WHERE republish_requested_at IS NOT NULL
+    `;
+  }),
+
+  "0015_console_consent_grants": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'activity') THEN
+          GRANT SELECT ON office.consent_events TO activity;
+          GRANT SELECT, INSERT ON office.consent_requests TO activity;
+          GRANT USAGE ON SEQUENCE office.consent_requests_id_seq TO activity;
+        END IF;
+      END
+      $$
+    `;
+  }),
+
+  "0016_erasure_review": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      ALTER TABLE office.consent_requests
+        ADD COLUMN due_at timestamptz,
+        ADD COLUMN announced_at timestamptz,
+        ADD COLUMN decision text CHECK (decision IN ('now', 'refused', 'cancelled')),
+        ADD COLUMN decided_by text,
+        ADD COLUMN decided_at timestamptz,
+        ADD COLUMN refusal_ground text CHECK (refusal_ground IN ('legal_obligation', 'legal_claim')),
+        ADD COLUMN refusal_reason text,
+        ADD COLUMN seen_by jsonb NOT NULL DEFAULT '[]'::jsonb,
+        DROP CONSTRAINT IF EXISTS consent_requests_outcome_check,
+        ADD CONSTRAINT consent_requests_outcome_check
+          CHECK (outcome IN ('withdrawn', 'ignored', 'erased', 'refused', 'cancelled')),
+        ADD CONSTRAINT consent_requests_due_check CHECK ((kind = 'erase') = (due_at IS NOT NULL)),
+        ADD CONSTRAINT consent_requests_refusal_check
+          CHECK ((decision = 'refused') = (refusal_ground IS NOT NULL AND refusal_reason IS NOT NULL))
+    `;
+
+    yield* sql`
+      UPDATE office.consent_requests
+      SET due_at = coalesce(handled_at, requested_at), announced_at = requested_at
+      WHERE kind = 'erase' AND due_at IS NULL
+    `;
+
+    yield* sql`
+      CREATE TABLE office.erasure_notices (
+        request_id bigint NOT NULL REFERENCES office.consent_requests (id) ON DELETE CASCADE,
+        medium text NOT NULL CHECK (medium IN ('discord', 'slack')),
+        recipient text NOT NULL,
+        channel text NOT NULL,
+        message_id text NOT NULL,
+        PRIMARY KEY (request_id, medium, recipient)
+      )
+    `;
+
+    yield* sql`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'activity') THEN
+          GRANT UPDATE ON office.consent_requests TO activity;
+          GRANT SELECT ON office.voice_snapshots, office.voice_effects TO activity;
+          GRANT SELECT ON office.slack_messages, office.slack_reactions, office.slack_posts TO activity;
+          GRANT SELECT ON office.recording_summaries TO activity;
+        END IF;
+      END
+      $$
+    `;
   }),
 });

@@ -36,9 +36,17 @@ export interface SectionBlock {
   readonly accessory?: Image;
 }
 
+export interface ActionButton {
+  readonly type: "button";
+  readonly text: { readonly type: "plain_text"; readonly text: string; readonly emoji: boolean };
+  readonly action_id: string;
+  readonly value: string;
+  readonly style?: "primary" | "danger";
+}
+
 export interface ActionsBlock {
   readonly type: "actions";
-  readonly elements: ReadonlyArray<LinkButton>;
+  readonly elements: ReadonlyArray<LinkButton | ActionButton>;
 }
 
 export interface ContextBlock {

@@ -108,6 +108,11 @@ const make = Effect.fnUntraced(function* (
 
   const saveClip = Effect.fn("Capture.saveClip")(
     function* (recordingId: string, clip: Clip) {
+      if (Option.isNone(yield* gateway.admittedSince(clip.userId)))
+        return yield* Effect.logInfo(
+          "Dropped a clip from someone who withdrew while it was saving",
+        );
+
       const durationMs = opusPacketsDuration(clip.packets);
       const ogg = oggOpusFile(clip.packets);
       const occupants = yield* gateway.occupants;
@@ -167,6 +172,22 @@ const make = Effect.fnUntraced(function* (
       );
 
       yield* voice.capture(Deferred.await(stop)).pipe(
+        Stream.filterEffect(
+          Heard.$match({
+            Spoke: ({ clip }) =>
+              gateway
+                .admittedSince(clip.userId)
+                .pipe(
+                  Effect.map(
+                    Option.exists((since) =>
+                      DateTime.isGreaterThanOrEqualTo(clip.startedAt, since),
+                    ),
+                  ),
+                ),
+            StartedSpeaking: ({ userId }) => gateway.isAdmitted(userId),
+            StoppedSpeaking: () => Effect.succeed(true),
+          }),
+        ),
         Stream.runForEach((heard) =>
           Heard.$match(heard, {
             Spoke: ({ clip }) => Queue.offer(clips, clip),

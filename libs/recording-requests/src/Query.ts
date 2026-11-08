@@ -22,9 +22,9 @@ export interface Connected<U> {
 
 const messageOf = (error: Error): string => error.message;
 
-const timedOut = <U>(unavailable: (reason: string) => U) => ({
-  duration: QUERY_TIMEOUT,
-  orElse: () => Effect.fail(unavailable(TIMED_OUT)),
+const timedOut = <U>(unavailable: (reason: string) => U, duration = QUERY_TIMEOUT) => ({
+  duration,
+  orElse: () => Effect.fail(unavailable(`Timed out after ${Duration.toSeconds(duration)} seconds`)),
 });
 
 const classify =
@@ -54,7 +54,7 @@ export const guardChange =
     );
 
 export const guardTransaction =
-  <U>(guard: QueryGuard<U>) =>
+  <U>(guard: QueryGuard<U>, timeout: Duration.Duration = QUERY_TIMEOUT) =>
   <A extends Committable<E, R>, E, R>(
     sql: SqlClient.SqlClient,
     change: Effect.Effect<A, E, R>,
@@ -64,7 +64,7 @@ export const guardTransaction =
     guard.ready.pipe(
       Effect.andThen(sql.withTransaction(Effect.tap(change, resolve))),
       Effect.catchIf(SqlError.isSqlError, (error) => Effect.fail(classify(guard)(error))),
-      Effect.timeoutOrElse(timedOut(guard.unavailable)),
+      Effect.timeoutOrElse(timedOut(guard.unavailable, timeout)),
       Effect.tap(() => committed),
       Effect.flatMap((made) => made.afterCommit),
     );
