@@ -10,7 +10,7 @@ export type ErasureVerdict =
 
 export interface ErasureAction {
   readonly requestId: number;
-  readonly admin: Admin;
+  readonly userId: string;
   readonly verdict: ErasureVerdict;
   reply(text: string): Effect.Effect<void>;
 }

@@ -690,4 +690,34 @@ export const migrations = Migrator.fromRecord({
       $$
     `;
   }),
+
+  "0017_admins": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    yield* sql`
+      CREATE TABLE office.admins (
+        discord_user_id text PRIMARY KEY,
+        slack_user_id text UNIQUE,
+        name text NOT NULL,
+        added_at timestamptz NOT NULL DEFAULT now()
+      )
+    `;
+
+    yield* sql`
+      INSERT INTO office.admins (discord_user_id, slack_user_id, name) VALUES
+        ('553340374836314142', 'U03PVMGCJNP', 'Christopher Holder'),
+        ('757606441010855957', 'U01UR2HS2TH', 'Julian Jandl'),
+        ('459694169397526538', 'U01V2MQBPUM', 'Michael Hladky')
+    `;
+
+    yield* sql`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'activity') THEN
+          GRANT SELECT ON office.admins TO activity;
+        END IF;
+      END
+      $$
+    `;
+  }),
 });

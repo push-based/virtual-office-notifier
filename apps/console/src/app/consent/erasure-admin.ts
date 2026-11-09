@@ -321,15 +321,15 @@ export class ErasureAdmin {
   protected standing(erasure: ErasureCase): string {
     switch (erasure.decision) {
       case "now":
-        return `${adminName(erasure.decidedBy ?? "")} asked for it to run now; the bot is on it.`;
+        return `${adminName(erasure.decidedByName)} asked for it to run now; the bot is on it.`;
       case "refused":
-        return `${adminName(erasure.decidedBy ?? "")} refused it because of ${groundLabel(erasure.refusal?.ground ?? "legal_obligation")}; the bot is telling them.`;
+        return `${adminName(erasure.decidedByName)} refused it because of ${groundLabel(erasure.refusal?.ground ?? "legal_obligation")}; the bot is telling them.`;
       case "cancelled":
         return "They cancelled it, or agreed to being recorded again; the bot is closing it.";
       case null:
         return erasure.seenBy.length === 0
           ? "Nobody has looked at it yet."
-          : `Seen by ${erasure.seenBy.map(adminName).join(" and ")}.`;
+          : `Seen by ${erasure.seenByNames.map(adminName).join(" and ")}.`;
     }
   }
 

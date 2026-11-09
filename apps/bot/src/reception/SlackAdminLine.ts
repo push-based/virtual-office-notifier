@@ -1,5 +1,5 @@
 import { Array, Context, Effect, Layer, Option, pipe, Schema, Stream, String } from "effect";
-import { type Admin, adminBySlackId } from "recording-requests/Admins";
+import type { Admin } from "recording-requests/Admins";
 import type { ErasureCase, RefusalGround } from "recording-requests/Consent";
 import { RefusalGround as RefusalGroundSchema } from "recording-requests/Consent";
 import type { ErasureNotice } from "recording-requests/ConsentRequests";
@@ -136,7 +136,10 @@ export class SlackAdminLine extends Context.Service<SlackAdminLine, AdminLine>()
           .pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't answer an admin in Slack")));
 
       const notify = (admin: Admin, erasure: ErasureCase) =>
-        slack.openDirectMessage(admin.slackUserId).pipe(
+        admin.slackUserId === null ? Effect.succeedNone : postNotice(admin.slackUserId, erasure);
+
+      const postNotice = (slackUserId: string, erasure: ErasureCase) =>
+        slack.openDirectMessage(slackUserId).pipe(
           Effect.flatMap((channel) => {
             const text = Notice.adminNotice(erasure, "slack");
 
@@ -175,16 +178,12 @@ export class SlackAdminLine extends Context.Service<SlackAdminLine, AdminLine>()
 
         const channel = payload.channel?.id;
         const reply = (text: string) => (channel === undefined ? Effect.void : say(channel, text));
-        const admin = adminBySlackId(payload.user.id);
-
-        if (Option.isNone(admin)) return reply(Notice.NOT_AN_ADMIN).pipe(Effect.as(Option.none()));
-
         const { verdict, requestId } = pressed.value;
 
         if (verdict === "now" || verdict === "seen")
           return Effect.succeedSome({
             requestId,
-            admin: admin.value,
+            userId: payload.user.id,
             verdict: { kind: verdict },
             reply,
           });
@@ -209,15 +208,13 @@ export class SlackAdminLine extends Context.Service<SlackAdminLine, AdminLine>()
           String.trim,
         );
 
-        const admin = adminBySlackId(payload.user.id);
-
-        if (Option.isNone(metadata) || Option.isNone(admin) || reason === "") return Option.none();
+        if (Option.isNone(metadata) || reason === "") return Option.none();
 
         const verdict: ErasureVerdict = { kind: "refuse", ground: metadata.value.ground, reason };
 
         return Option.some({
           requestId: metadata.value.id,
-          admin: admin.value,
+          userId: payload.user.id,
           verdict,
           reply: (text) =>
             metadata.value.channel === "" ? Effect.void : say(metadata.value.channel, text),

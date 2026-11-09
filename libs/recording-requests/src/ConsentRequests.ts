@@ -1,7 +1,7 @@
 import { Array, Context, Duration, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 
-import { isAdmin } from "./Admins.ts";
+import { Admin } from "./Admins.ts";
 import {
   type ConsentStanding,
   type ConsentStatus,
@@ -104,6 +104,8 @@ const RefusalRow = Schema.Struct({
 
 const SeenBy = Schema.fromJsonString(Schema.Array(Schema.String));
 
+const SeenByNames = Schema.fromJsonString(Schema.Array(Schema.NullOr(Schema.String)));
+
 const CaseRow = Schema.Struct({
   id: RowId,
   userId: Schema.String,
@@ -112,11 +114,13 @@ const CaseRow = Schema.Struct({
   dueAt: Schema.DateTimeUtcFromDate,
   decision: Schema.NullOr(ErasureDecision),
   decidedBy: Schema.NullOr(Schema.String),
+  decidedByName: Schema.NullOr(Schema.String),
   refusalGround: Schema.NullOr(RefusalGround),
   refusalReason: Schema.NullOr(Schema.String),
   announced: Schema.Boolean,
   due: Schema.Boolean,
   seenBy: SeenBy,
+  seenByNames: SeenByNames,
 });
 
 const NoticeRow = Schema.Struct({
@@ -263,14 +267,43 @@ const findCases = (sql: SqlClient.SqlClient) =>
     Result: CaseRow,
     execute: () => sql`
       SELECT r.id, r.user_id, m.display_name, r.requested_at, r.due_at, r.decision,
-             r.decided_by, r.refusal_ground, r.refusal_reason,
+             r.decided_by, d.name AS decided_by_name, r.refusal_ground, r.refusal_reason,
              r.announced_at IS NOT NULL AS announced,
              r.due_at <= now() AS due,
-             r.seen_by::text AS seen_by
+             r.seen_by::text AS seen_by,
+             (
+               SELECT coalesce(jsonb_agg(a.name ORDER BY s.position), '[]'::jsonb)
+               FROM jsonb_array_elements_text(r.seen_by) WITH ORDINALITY AS s (user_id, position)
+               LEFT JOIN office.admins a ON a.discord_user_id = s.user_id
+             )::text AS seen_by_names
       FROM office.consent_requests r
       LEFT JOIN office.members m ON m.user_id = r.user_id
+      LEFT JOIN office.admins d ON d.discord_user_id = r.decided_by
       WHERE r.kind = 'erase' AND r.handled_at IS NULL
       ORDER BY r.id
+    `,
+  });
+
+const findAdmins = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: Admin,
+    execute: () => sql`
+      SELECT name, discord_user_id, slack_user_id FROM office.admins
+      ORDER BY added_at, name
+    `,
+  });
+
+const findAdmin = (sql: SqlClient.SqlClient) =>
+  SqlSchema.findOneOption({
+    Request: Schema.Struct({
+      medium: Schema.Literals(["discord", "slack"]),
+      userId: Schema.String,
+    }),
+    Result: Admin,
+    execute: ({ medium, userId }) => sql`
+      SELECT name, discord_user_id, slack_user_id FROM office.admins
+      WHERE ${medium === "discord" ? sql`discord_user_id` : sql`slack_user_id`} = ${userId}
     `,
   });
 
@@ -315,6 +348,11 @@ export class ConsentRequests extends Context.Service<
       userId: string,
     ): Effect.Effect<Option.Option<PendingErasure>, RecordingUnavailable>;
     readonly cases: Effect.Effect<ReadonlyArray<ErasureCase>, RecordingUnavailable>;
+    readonly admins: Effect.Effect<ReadonlyArray<Admin>, RecordingUnavailable>;
+    adminOf(
+      medium: NoticeMedium,
+      userId: string,
+    ): Effect.Effect<Option.Option<Admin>, RecordingUnavailable>;
     expedite(
       id: number,
       adminId: string,
@@ -374,6 +412,7 @@ export class ConsentRequests extends Context.Service<
           const withdrawal = yield* onceReady(pendingOf(sql, "withdraw")({ userId }));
           const erasure = yield* onceReady(pendingErasureOf(sql)({ userId }));
           const refusal = yield* onceReady(latestRefusalOf(sql)({ userId }));
+          const admin = yield* onceReady(findAdmin(sql)({ medium: "discord", userId }));
           const { standing, since } = standingOf(latest);
 
           const current: ConsentStatus = {
@@ -382,7 +421,7 @@ export class ConsentRequests extends Context.Service<
             pendingWithdrawal: Option.getOrNull(Option.map(withdrawal, ({ id }) => id)),
             pendingErasure: Option.getOrNull(Option.map(erasure, toPending)),
             refusedErasure: Option.getOrNull(Option.map(refusal, toRefusal)),
-            admin: isAdmin(userId),
+            admin: Option.isSome(admin),
           };
 
           return current;
@@ -577,11 +616,13 @@ export class ConsentRequests extends Context.Service<
                   dueAt: row.dueAt,
                   decision: row.decision,
                   decidedBy: row.decidedBy,
+                  decidedByName: row.decidedByName,
                   refusal:
                     row.refusalGround === null || row.refusalReason === null
                       ? null
                       : { ground: row.refusalGround, reason: row.refusalReason },
                   seenBy: row.seenBy,
+                  seenByNames: row.seenByNames,
                   inventory,
                   announced: row.announced,
                   due: row.due,
@@ -600,14 +641,24 @@ export class ConsentRequests extends Context.Service<
       dueAt: erasure.dueAt,
       decision: erasure.decision,
       decidedBy: erasure.decidedBy,
+      decidedByName: erasure.decidedByName,
       refusal: erasure.refusal,
       seenBy: erasure.seenBy,
+      seenByNames: erasure.seenByNames,
       inventory: erasure.inventory,
     });
 
     const cases = connected((sql) =>
       reviewedCases(sql).pipe(Effect.map(Array.map(publicCase))),
     ).pipe(Effect.withSpan("ConsentRequests.cases"));
+
+    const admins = connected((sql) => onceReady(findAdmins(sql)())).pipe(
+      Effect.withSpan("ConsentRequests.admins"),
+    );
+
+    const adminOf = Effect.fn("ConsentRequests.adminOf")((medium: NoticeMedium, userId: string) =>
+      connected((sql) => onceReady(findAdmin(sql)({ medium, userId }))),
+    );
 
     const recordNotice = Effect.fn("ConsentRequests.recordNotice")((notice: ErasureNotice) =>
       connected((sql) =>
@@ -834,6 +885,8 @@ export class ConsentRequests extends Context.Service<
       cancelErasuresOf,
       pendingErasureOf: pendingErasure,
       cases,
+      admins,
+      adminOf,
       expedite,
       refuse,
       seen,
@@ -872,6 +925,8 @@ export class ConsentRequests extends Context.Service<
       cancelErasuresOf: () => Effect.void,
       pendingErasureOf: () => Effect.succeedNone,
       cases: unavailable("Nothing is recorded"),
+      admins: Effect.succeed([]),
+      adminOf: () => Effect.succeedNone,
       expedite: () => unavailable("Nothing is recorded"),
       refuse: () => unavailable("Nothing is recorded"),
       seen: () => unavailable("Nothing is recorded"),
