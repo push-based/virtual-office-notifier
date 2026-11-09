@@ -46,6 +46,7 @@ const officeMachine = Effect.gen(function* () {
   for (const [id, role] of [
     ["VmWritesClips", "roles/storage.objectCreator"],
     ["VmReadsClips", "roles/storage.objectViewer"],
+    ["VmDeletesClips", "roles/storage.objectUser"],
   ] as const) {
     yield* GCP.IAM.Member(id, {
       kind: "storage.bucket",
@@ -100,7 +101,6 @@ export default Stack(
         SESSION_SECRET: yield* Config.Redacted("SESSION_SECRET"),
         SENTRY_DSN: yield* Config.Redacted("SENTRY_CONSOLE_DSN"),
         SENTRY_ENVIRONMENT: "production",
-        SENTRY_RELEASE: yield* Config.String("GITHUB_SHA").pipe(Config.withDefault("local")),
       },
     });
 

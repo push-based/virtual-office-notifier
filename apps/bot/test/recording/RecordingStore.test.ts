@@ -158,7 +158,9 @@ describe("RecordingStore", () => {
         }),
       );
 
-      const [member] = yield* sql`SELECT user_id, display_name FROM office.members`;
+      const [member] =
+        yield* sql`SELECT user_id, display_name FROM office.members WHERE user_id <> 'former_member'`;
+
       assert.deepStrictEqual(member, { userId: "u1", displayName: "Ada" });
 
       const events =
@@ -271,7 +273,9 @@ describe("RecordingStore", () => {
         { event: "resumed", reason: "requested", userId: "u1" },
       ]);
 
-      const members = yield* sql`SELECT user_id FROM office.members ORDER BY user_id`;
+      const members =
+        yield* sql`SELECT user_id FROM office.members WHERE user_id <> 'former_member' ORDER BY user_id`;
+
       assert.deepStrictEqual(members, [{ userId: "u1" }, { userId: "u3" }]);
     }).pipe(Effect.provide(TestLayer)),
   );

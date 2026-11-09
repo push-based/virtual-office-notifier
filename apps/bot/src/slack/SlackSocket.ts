@@ -89,7 +89,7 @@ export class SlackSocket extends Context.Service<
       const handle = Effect.fnUntraced(function* (
         frame: string,
         writer: Socket.Writer,
-        queue: Queue.Queue<Envelope, Cause.Done>,
+        envelopes: Queue.Queue<Envelope, Cause.Done>,
       ): Effect.fn.Return<boolean, SlackSocketDropped> {
         const decoded = decodeEnvelope(frame);
 
@@ -111,13 +111,14 @@ export class SlackSocket extends Context.Service<
           return false;
         }
 
-        if (Option.isSome(envelope.event)) yield* Queue.offer(queue, envelope);
+        if (Option.isSome(envelope.event) || Option.isSome(envelope.interaction))
+          yield* Queue.offer(envelopes, envelope);
 
         return false;
       });
 
       const session = Effect.fn("SlackSocket.session")(
-        function* (queue: Queue.Queue<Envelope, Cause.Done>, failures: Ref.Ref<number>) {
+        function* (envelopes: Queue.Queue<Envelope, Cause.Done>, failures: Ref.Ref<number>) {
           const url = yield* slack.openConnection;
           const socket = yield* Socket.makeWebSocket(url);
           const pull = yield* Socket.readerString(socket).pipe(Effect.mapError(dropped));
@@ -131,7 +132,7 @@ export class SlackSocket extends Context.Service<
             yield* Ref.set(failures, 0);
 
             for (const frame of frames) {
-              if (yield* handle(frame, writer, queue)) return;
+              if (yield* handle(frame, writer, envelopes)) return;
             }
           }
         },
@@ -139,7 +140,7 @@ export class SlackSocket extends Context.Service<
         Effect.provideService(Socket.WebSocketConstructor, makeWebSocket),
       );
 
-      const envelopes = Stream.callback<Envelope>((queue) =>
+      const connection = Stream.callback<Envelope>((queue) =>
         Ref.make(0).pipe(
           Effect.flatMap((failures) =>
             session(queue, failures).pipe(
@@ -149,6 +150,8 @@ export class SlackSocket extends Context.Service<
           ),
         ),
       );
+
+      const envelopes = yield* Stream.share(connection, { capacity: "unbounded" });
 
       return SlackSocket.of({ envelopes });
     }),

@@ -13,23 +13,49 @@ import {
   Queue,
   Redacted,
   Ref,
+  Result,
   Schema,
   Stream,
+  String as Text,
 } from "effect";
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   Events,
   GatewayIntentBits,
   GatewayOpcodes,
   type Guild,
   type GuildMember,
+  type Interaction,
+  type Message,
+  MessageFlags,
+  ModalBuilder,
   PermissionFlagsBits,
   Routes,
   Status,
+  TextInputBuilder,
+  TextInputStyle,
+  type VoiceBasedChannel,
   type VoiceChannelEffect,
   type VoiceState,
 } from "discord.js";
+import { type Admin, adminByDiscordId } from "recording-requests/Admins";
+import { type ErasureCase, RefusalGround } from "recording-requests/Consent";
+import type { ErasureNotice } from "recording-requests/ConsentRequests";
 import type { PersonInOffice } from "recording-requests/RecordingRequest";
+
+import { Notice } from "../consent/index.ts";
+import type { AdminLine, ErasureAction, ErasureVerdict } from "./AdminLine.ts";
+import {
+  type Choice,
+  type ConsentAnswer,
+  ConsentGate,
+  type ConsentLine,
+  type Gate,
+  type PromptDelivery,
+} from "./ConsentGate.ts";
 
 import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
 import { DiscordConfig } from "../Config.ts";
@@ -73,8 +99,8 @@ const REPLAYED_UPDATES = 1000;
 
 const followOffice =
   (officeChannelId: string, occupants: Occupants) =>
-  <R>(updates: Stream.Stream<VoiceStateUpdate, never, R>) =>
-    stamped(updates).pipe(
+  <R>(updates: Stream.Stream<TimedVoiceStateUpdate, never, R>) =>
+    updates.pipe(
       Stream.mapAccum(
         () => sessionOf(occupants),
         (session, update): readonly [OfficeSession, ReadonlyArray<Followed>] => {
@@ -157,6 +183,7 @@ const toVoiceStateUpdate = (oldState: VoiceState, newState: VoiceState): VoiceSt
 // Someone already in the office at startup, as if they had just joined.
 const alreadyPresent = (member: GuildMember): VoiceStateUpdate => ({
   ...memberOf(member.voice),
+  alreadyThere: true,
   oldChannelId: null,
   newChannelId: member.voice.channelId,
   oldDetails: NO_VOICE_DETAILS,
@@ -314,6 +341,345 @@ const occupantOf = (member: GuildMember): PersonInOffice => ({
   avatarUrl: member.displayAvatarURL({ extension: "png", size: 128 }),
 });
 
+const CONSENT_PREFIX = "consent";
+
+const ConsentButton = Schema.Tuple([
+  Schema.Literal(CONSENT_PREFIX),
+  Schema.String,
+  Schema.String,
+  Schema.Literals(["agree", "decline"]),
+]);
+
+const decodeConsentButton = Schema.decodeUnknownOption(ConsentButton);
+
+const consentButtonId = (promptId: string, userId: string, choice: Choice) =>
+  Array.join([CONSENT_PREFIX, promptId, userId, choice], ":");
+
+const consentButtons = (promptId: string, userId: string) =>
+  new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(consentButtonId(promptId, userId, "agree"))
+      .setLabel(Notice.AGREE_LABEL)
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(consentButtonId(promptId, userId, "decline"))
+      .setLabel(Notice.DECLINE_LABEL)
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+const mentioning = (userId: string, text: string) => `<@${userId}>\n\n${text}`;
+
+const NO_PINGS = { parse: [] };
+
+const logFailure = (message: string) => (error: Error) =>
+  Effect.logWarning(message).pipe(Effect.annotateLogs({ reason: error.message }));
+
+type RunFork = (effect: Effect.Effect<void>) => void;
+
+const settled =
+  (via: PromptDelivery["via"], userId: string) =>
+  (message: Message): PromptDelivery => ({
+    via,
+    settle: (text) =>
+      Effect.tryPromise(() =>
+        message.edit({
+          content: via === "voice_chat" ? mentioning(userId, text) : text,
+          components: [],
+          allowedMentions: NO_PINGS,
+        }),
+      ).pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't update a consent question"))),
+  });
+
+const consentAnswers = (client: Client, runFork: RunFork) =>
+  Stream.callback<ConsentAnswer>(
+    Effect.fnUntraced(function* (queue) {
+      const onInteraction = (interaction: Interaction) => {
+        if (!interaction.isButton()) return;
+
+        const button = decodeConsentButton(Text.split(interaction.customId, ":"));
+
+        if (Option.isNone(button)) return;
+
+        const [, promptId, userId, choice] = button.value;
+
+        if (interaction.user.id !== userId) {
+          runFork(
+            Effect.tryPromise(() =>
+              interaction.reply({ content: Notice.NOT_YOURS, flags: MessageFlags.Ephemeral }),
+            ).pipe(Effect.catch(logFailure("Couldn't answer a button meant for someone else"))),
+          );
+
+          return;
+        }
+
+        Queue.offerUnsafe(queue, {
+          promptId,
+          userId,
+          choice,
+          acknowledge: Effect.tryPromise(() => interaction.deferUpdate()).pipe(
+            Effect.asVoid,
+            Effect.catch(logFailure("Couldn't acknowledge a consent button")),
+          ),
+          reply: (text) =>
+            Effect.tryPromise(() =>
+              interaction.update({
+                content: interaction.inGuild() ? mentioning(userId, text) : text,
+                components: [],
+                allowedMentions: NO_PINGS,
+              }),
+            ).pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't answer a consent button"))),
+        });
+      };
+
+      yield* Effect.acquireRelease(
+        Effect.sync(() => client.on(Events.InteractionCreate, onInteraction)),
+        () => Effect.sync(() => client.off(Events.InteractionCreate, onInteraction)),
+      );
+    }),
+  );
+
+const consentLineIn = (
+  client: Client,
+  channel: VoiceBasedChannel,
+  runFork: RunFork,
+): ConsentLine => {
+  const ask = (userId: string, promptId: string, text: string) => {
+    const components = [consentButtons(promptId, userId)];
+
+    const directMessage = Effect.tryPromise(() =>
+      client.users.send(userId, { content: text, components }),
+    ).pipe(Effect.map(settled("direct_message", userId)));
+
+    const inVoiceChat = Effect.tryPromise(() =>
+      channel.send({
+        content: mentioning(userId, text),
+        components,
+        allowedMentions: { users: [userId] },
+      }),
+    ).pipe(Effect.map(settled("voice_chat", userId)));
+
+    return directMessage.pipe(
+      Effect.catch((error) =>
+        logFailure("Couldn't send the consent question as a DM, asking in the voice chat")(
+          error,
+        ).pipe(Effect.andThen(inVoiceChat)),
+      ),
+      Effect.asSome,
+      Effect.catch((error) =>
+        logFailure("Couldn't ask someone for consent")(error).pipe(
+          Effect.as(Option.none<PromptDelivery>()),
+        ),
+      ),
+    );
+  };
+
+  const tell = (userId: string, text: string) =>
+    Effect.tryPromise(() => client.users.send(userId, { content: text })).pipe(
+      Effect.asVoid,
+      Effect.catch(logFailure("Couldn't send someone a DM about their consent")),
+    );
+
+  const showOut = (userId: string, reason: string) =>
+    Effect.tryPromise(() => channel.guild.members.fetch(userId)).pipe(
+      Effect.flatMap((member) =>
+        member.voice.channelId === channel.id
+          ? Effect.tryPromise(() => member.voice.disconnect(reason)).pipe(Effect.as(true))
+          : Effect.succeed(false),
+      ),
+      Effect.catch((error) =>
+        logFailure(
+          "Couldn't show someone out of the office. Give the bot the Move Members permission.",
+        )(error).pipe(Effect.as(false)),
+      ),
+    );
+
+  return { ask, tell, showOut, answers: consentAnswers(client, runFork) };
+};
+
+const ERASURE_PREFIX = "erasure";
+
+const REFUSAL_PREFIX = "erasure-refuse";
+
+const ErasureButton = Schema.Tuple([
+  Schema.Literal(ERASURE_PREFIX),
+  Schema.String,
+  Schema.Literals(["now", "seen", "refuse_legal_obligation", "refuse_legal_claim"]),
+]);
+
+const decodeErasureButton = Schema.decodeUnknownOption(ErasureButton);
+
+const RefusalModal = Schema.Tuple([Schema.Literal(REFUSAL_PREFIX), Schema.String, RefusalGround]);
+
+const decodeRefusalModal = Schema.decodeUnknownOption(RefusalModal);
+
+const requestIdOf = (text: string): Option.Option<number> =>
+  Number.isInteger(Number(text)) ? Option.some(Number(text)) : Option.none();
+
+const erasureButtons = (requestId: number) =>
+  new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${ERASURE_PREFIX}:${requestId}:now`)
+      .setLabel(Notice.DELETE_NOW_LABEL)
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(`${ERASURE_PREFIX}:${requestId}:seen`)
+      .setLabel(Notice.LET_IT_RUN_LABEL)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`${ERASURE_PREFIX}:${requestId}:refuse_legal_obligation`)
+      .setLabel(Notice.REFUSE_LABELS.legal_obligation)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`${ERASURE_PREFIX}:${requestId}:refuse_legal_claim`)
+      .setLabel(Notice.REFUSE_LABELS.legal_claim)
+      .setStyle(ButtonStyle.Secondary),
+  );
+
+const refusalModal = (requestId: number, ground: RefusalGround) =>
+  new ModalBuilder()
+    .setCustomId(`${REFUSAL_PREFIX}:${requestId}:${ground}`)
+    .setTitle(Notice.REFUSAL_MODAL_TITLE)
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("reason")
+          .setLabel(Notice.REFUSAL_INPUT_LABEL)
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(1000),
+      ),
+    );
+
+const erasureActions = (client: Client, runFork: RunFork) =>
+  Stream.callback<ErasureAction>(
+    Effect.fnUntraced(function* (queue) {
+      const ephemeral = (interaction: Interaction, text: string) =>
+        interaction.isRepliable()
+          ? Effect.tryPromise(() =>
+              interaction.reply({ content: text, flags: MessageFlags.Ephemeral }),
+            ).pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't answer an admin's button")))
+          : Effect.void;
+
+      const offer = (
+        interaction: Interaction,
+        requestId: number,
+        admin: Admin,
+        verdict: ErasureVerdict,
+      ) =>
+        Queue.offerUnsafe(queue, {
+          requestId,
+          admin,
+          verdict,
+          reply: (text) => ephemeral(interaction, text),
+        });
+
+      const onInteraction = (interaction: Interaction) => {
+        if (interaction.isButton()) {
+          const button = decodeErasureButton(Text.split(interaction.customId, ":"));
+
+          if (Option.isNone(button)) return;
+
+          const [, rawId, choice] = button.value;
+          const requestId = requestIdOf(rawId);
+          const admin = adminByDiscordId(interaction.user.id);
+
+          if (Option.isNone(requestId)) return;
+
+          if (Option.isNone(admin)) {
+            runFork(ephemeral(interaction, Notice.NOT_AN_ADMIN));
+
+            return;
+          }
+
+          if (choice === "now" || choice === "seen") {
+            offer(interaction, requestId.value, admin.value, { kind: choice });
+
+            return;
+          }
+
+          const ground: RefusalGround =
+            choice === "refuse_legal_claim" ? "legal_claim" : "legal_obligation";
+
+          runFork(
+            Effect.tryPromise(() =>
+              interaction.showModal(refusalModal(requestId.value, ground)),
+            ).pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't open the refusal form"))),
+          );
+
+          return;
+        }
+
+        if (!interaction.isModalSubmit()) return;
+
+        const modal = decodeRefusalModal(Text.split(interaction.customId, ":"));
+
+        if (Option.isNone(modal)) return;
+
+        const [, rawId, ground] = modal.value;
+        const requestId = requestIdOf(rawId);
+        const admin = adminByDiscordId(interaction.user.id);
+        const reason = Text.trim(interaction.fields.getTextInputValue("reason"));
+
+        if (Option.isNone(requestId) || reason === "") return;
+
+        if (Option.isNone(admin)) {
+          runFork(ephemeral(interaction, Notice.NOT_AN_ADMIN));
+
+          return;
+        }
+
+        offer(interaction, requestId.value, admin.value, { kind: "refuse", ground, reason });
+      };
+
+      yield* Effect.acquireRelease(
+        Effect.sync(() => client.on(Events.InteractionCreate, onInteraction)),
+        () => Effect.sync(() => client.off(Events.InteractionCreate, onInteraction)),
+      );
+    }),
+  );
+
+const adminLineIn = (client: Client, runFork: RunFork): AdminLine => ({
+  medium: "discord",
+  notify: (admin: Admin, erasure: ErasureCase) =>
+    Effect.tryPromise(() =>
+      client.users.send(admin.discordUserId, {
+        embeds: [{ description: Notice.adminNotice(erasure, "discord") }],
+        components: [erasureButtons(erasure.id)],
+      }),
+    ).pipe(
+      Effect.map((message) => Option.some({ channel: message.channelId, messageId: message.id })),
+      Effect.catch((error) =>
+        logFailure("Couldn't tell an admin on Discord about a deletion request")(error).pipe(
+          Effect.as(Option.none()),
+        ),
+      ),
+    ),
+  update: (notice: ErasureNotice, text: string) =>
+    Effect.tryPromise(() => client.channels.fetch(notice.channel)).pipe(
+      Effect.flatMap((channel) =>
+        channel !== null && channel.isSendable()
+          ? Effect.tryPromise(() =>
+              channel.messages.edit(notice.messageId, {
+                embeds: [{ description: text }],
+                components: [],
+                allowedMentions: NO_PINGS,
+              }),
+            )
+          : Effect.void,
+      ),
+      Effect.asVoid,
+      Effect.catch(logFailure("Couldn't update an admin's Discord message")),
+    ),
+  actions: erasureActions(client, runFork),
+});
+
+const SILENT_ADMIN_LINE: AdminLine = {
+  medium: "discord",
+  notify: () => Effect.succeedNone,
+  update: () => Effect.void,
+  actions: Stream.never,
+};
+
 const login = (client: Client, token: Redacted.Redacted<string>) =>
   Effect.callback<Client<true>, DiscordLoginError>((resume) => {
     client.once(Events.ClientReady, (ready) => resume(Effect.succeed(ready)));
@@ -330,6 +696,9 @@ export interface TestGateway {
   readonly effects?: ReadonlyArray<VoiceEffect>;
   readonly moves?: Queue.Enqueue<BotPresence>;
   readonly selfId?: string;
+  readonly gate?: Gate;
+  readonly line?: ConsentLine;
+  readonly admin?: AdminLine;
 }
 
 export class DiscordGateway extends Context.Service<
@@ -342,6 +711,10 @@ export class DiscordGateway extends Context.Service<
     readonly botPresence: Stream.Stream<BotPresence>;
     readonly seat: Option.Option<SeatAdapter>;
     readonly occupants: Effect.Effect<ReadonlyArray<PersonInOffice>>;
+    isAdmitted(userId: string): Effect.Effect<boolean>;
+    admittedSince(userId: string): Effect.Effect<Option.Option<DateTime.Utc>>;
+    readonly consentLine: Option.Option<ConsentLine>;
+    readonly adminLine: AdminLine;
     readonly selfUserId: string;
     readonly voice: Option.Option<OfficeVoice>;
     // None when the office channel wasn't found at startup.
@@ -352,6 +725,7 @@ export class DiscordGateway extends Context.Service<
     DiscordGateway,
     Effect.gen(function* () {
       const { botToken, officeChannelId } = yield* DiscordConfig;
+      const gate = yield* ConsentGate;
 
       const runFork = yield* FiberSet.make().pipe(
         Effect.flatMap((callbacks) => FiberSet.runtime(callbacks)()),
@@ -400,10 +774,16 @@ export class DiscordGateway extends Context.Service<
       const heard = yield* listenToVoiceStates(client);
 
       // From the voice states Discord sends on connect.
-      const present = Option.match(office, {
+      const inOffice = Option.match(office, {
         onNone: () => [],
         onSome: (channel) => [...channel.members.filter((member) => !member.user.bot).values()],
       });
+
+      const consented = yield* gate.consentedAmong(Array.map(inOffice, (member) => member.id));
+
+      const [present, waiting] = Array.partition(inOffice, (member) =>
+        consented.has(member.id) ? Result.succeed(member) : Result.fail(member),
+      );
 
       // Seeded from who's present, so restarting while people are in the office
       // doesn't announce it opening again.
@@ -429,11 +809,21 @@ export class DiscordGateway extends Context.Service<
                     "The bot can't connect to the office voice channel, so soundboard sounds and emoji aren't recorded. Give it the Connect permission.",
                   ),
             ),
+            Effect.andThen(
+              channel.permissionsFor(ready.user)?.has(PermissionFlagsBits.MoveMembers) === true
+                ? Effect.void
+                : Effect.logWarning(
+                    "The bot can't show people out of the office who don't agree to being recorded. Give it the Move Members permission.",
+                  ),
+            ),
           ),
       });
 
-      const followed = yield* Stream.fromQueue(heard).pipe(
+      const followed = yield* Stream.fromIterable(Array.map(waiting, alreadyPresent)).pipe(
+        Stream.concat(Stream.fromQueue(heard)),
         fromOthers(ready.user.id),
+        stamped,
+        gate.admit(officeChannelId, occupants),
         followOffice(officeChannelId, occupants),
       );
 
@@ -458,15 +848,14 @@ export class DiscordGateway extends Context.Service<
           }).pipe(Effect.asSome),
       });
 
-      const whoIsIn = Effect.sync((): ReadonlyArray<PersonInOffice> =>
+      const whoIsIn = Effect.sync((): ReadonlyArray<GuildMember> =>
         Option.match(office, {
           onNone: () => [],
-          onSome: (channel) =>
-            Array.map(
-              [...channel.members.filter((member) => !member.user.bot).values()],
-              occupantOf,
-            ),
+          onSome: (channel) => [...channel.members.filter((member) => !member.user.bot).values()],
         }),
+      ).pipe(
+        Effect.flatMap((members) => Effect.filter(members, (member) => gate.isAdmitted(member.id))),
+        Effect.map(Array.map(occupantOf)),
       );
 
       return DiscordGateway.of({
@@ -477,6 +866,7 @@ export class DiscordGateway extends Context.Service<
         voiceEffects: voiceEffects(client, defaultSounds).pipe(
           fromOthers(ready.user.id),
           officeEffects(officeChannelId),
+          Stream.filterEffect((effect) => gate.isAdmitted(effect.userId)),
         ),
         botPresence: Option.match(office, {
           onNone: () => Stream.empty,
@@ -491,6 +881,10 @@ export class DiscordGateway extends Context.Service<
           })),
         ),
         occupants: whoIsIn,
+        isAdmitted: gate.isAdmitted,
+        admittedSince: gate.admittedSince,
+        consentLine: Option.map(office, (channel) => consentLineIn(client, channel, runFork)),
+        adminLine: adminLineIn(client, runFork),
         selfUserId: ready.user.id,
         voice,
         office: Option.map(office, (channel) => ({
@@ -512,15 +906,33 @@ export class DiscordGateway extends Context.Service<
     effects = [],
     moves,
     selfId = "self",
+    gate = ConsentGate.open,
+    line,
+    admin = SILENT_ADMIN_LINE,
   }: TestGateway) =>
     Layer.effect(
       DiscordGateway,
       Effect.gen(function* () {
         const { officeChannelId } = yield* DiscordConfig;
 
-        const followed = yield* Stream.fromQueue(updates).pipe(
+        const consented = yield* gate.consentedAmong(Array.map(present, (update) => update.userId));
+
+        const [admitted, waiting] = Array.partition(present, (update) =>
+          consented.has(update.userId) ? Result.succeed(update) : Result.fail(update),
+        );
+
+        const waitingIds = new Set(Array.map(waiting, (update) => update.userId));
+
+        const seated: Occupants = new Set(
+          Array.filter([...occupants], (userId) => !waitingIds.has(userId)),
+        );
+
+        const followed = yield* Stream.fromIterable(waiting).pipe(
+          Stream.concat(Stream.fromQueue(updates)),
           fromOthers(selfId),
-          followOffice(officeChannelId, occupants),
+          stamped,
+          gate.admit(officeChannelId, seated),
+          followOffice(officeChannelId, seated),
         );
 
         const inOffice = yield* Ref.make<ReadonlyMap<string, PersonInOffice>>(
@@ -545,12 +957,13 @@ export class DiscordGateway extends Context.Service<
 
         return DiscordGateway.of({
           officeEvents: followed.officeEvents,
-          voiceObservations: followed.updates.pipe(voiceObservations(officeChannelId, present)),
+          voiceObservations: followed.updates.pipe(voiceObservations(officeChannelId, admitted)),
           voiceEffects: Stream.fromIterable(effects).pipe(
             fromOthers(selfId),
             officeEffects(officeChannelId),
+            Stream.filterEffect((effect) => gate.isAdmitted(effect.userId)),
           ),
-          botPresence: botPresence(occupants, followed.officeEvents),
+          botPresence: botPresence(seated, followed.officeEvents),
           seat: Option.some({
             join: () =>
               moves === undefined
@@ -561,7 +974,16 @@ export class DiscordGateway extends Context.Service<
             rename: () => Effect.void,
             reconnected: Stream.empty,
           }),
-          occupants: Ref.get(inOffice).pipe(Effect.map((members) => [...members.values()])),
+          occupants: Ref.get(inOffice).pipe(
+            Effect.map((members) => [...members.values()]),
+            Effect.flatMap((members) =>
+              Effect.filter(members, (member) => gate.isAdmitted(member.userId)),
+            ),
+          ),
+          isAdmitted: gate.isAdmitted,
+          admittedSince: gate.admittedSince,
+          consentLine: Option.fromUndefinedOr(line),
+          adminLine: admin,
           selfUserId: selfId,
           voice: Option.none(),
           office: Option.some({ guildId, channelId: officeChannelId }),

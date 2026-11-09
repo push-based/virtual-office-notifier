@@ -2,11 +2,13 @@ export { BotPosts } from "./BotPosts.ts";
 
 export {
   type Engagement,
+  InvalidPayload,
   isRetryable,
   type PostedMessage,
   SlackClient,
   slackDidNotAct,
   type SlackError,
+  type FetchedMessage,
   type ThreadMessage,
 } from "./SlackClient.ts";
 
@@ -14,6 +16,7 @@ export {
   type ActivityContext,
   eligibleActivity,
   type Envelope,
+  type InteractionPayload,
   SlackActivity,
 } from "./SlackEvent.ts";
 
@@ -28,6 +31,7 @@ export {
 } from "./SlackHistory.ts";
 
 export {
+  type ActionButton,
   type ActionsBlock,
   AI_DISCLAIMER,
   context,

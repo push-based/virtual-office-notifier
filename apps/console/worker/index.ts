@@ -7,6 +7,8 @@ import { SignInSettings } from "activity-sign-in/SignInSettings";
 import { ConfigProvider, Function, Layer, Redacted } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
+import { ConsentHandlers, ErasureAdminHandlers } from "recording-requests/ConsentHandlers";
+import { ConsentRequests } from "recording-requests/ConsentRequests";
 import { OfficeStatsReader } from "recording-requests/OfficeStats";
 import { RecordingApi } from "recording-requests/RecordingApi";
 import {
@@ -41,6 +43,8 @@ declare global {
   }
 }
 
+declare const __SENTRY_RELEASE__: string;
+
 type Env = Cloudflare.Env;
 
 const connectionTo = (env: Env) =>
@@ -60,6 +64,8 @@ const api = (env: Env) =>
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerPerCall(connectionTo(env)))),
       HistoryHandlers.pipe(Layer.provide(RecordingHistory.layerPerCall(connectionTo(env)))),
       EditHandlers.pipe(Layer.provide(RecordingEdits.layerPerCall(connectionTo(env)))),
+      ConsentHandlers.pipe(Layer.provide(ConsentRequests.layerPerCall(connectionTo(env)))),
+      ErasureAdminHandlers.pipe(Layer.provide(ConsentRequests.layerPerCall(connectionTo(env)))),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),
@@ -68,7 +74,7 @@ const api = (env: Env) =>
   );
 
 const routes = (env: Env) =>
-  Layer.mergeAll(api(env), TelemetryRoutes(telemetryFrom(env))).pipe(
+  Layer.mergeAll(api(env), TelemetryRoutes(telemetryFrom(env, __SENTRY_RELEASE__))).pipe(
     Layer.provide([RouteSpanNames.layer, FetchHttpClient.layer, HttpServer.layerServices]),
     Layer.provideMerge(ObservabilityLayer),
   );
@@ -77,6 +83,6 @@ const appFor = Function.memoize((bindings: Env) =>
   HttpRouter.toWebHandler(routes(bindings), { disableLogger: true }),
 );
 
-export default Sentry.withSentry<Env>(sentryOptions, {
+export default Sentry.withSentry<Env>((bindings) => sentryOptions(bindings, __SENTRY_RELEASE__), {
   fetch: (request) => appFor(env).handler(request),
 });

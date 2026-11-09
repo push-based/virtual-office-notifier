@@ -10,6 +10,13 @@ import {
   HttpApiSecurity,
 } from "effect/http-api";
 
+import {
+  ConsentStatus,
+  ErasureCase,
+  ErasureRefusal,
+  SubmittedErasure,
+  SubmittedWithdrawal,
+} from "./Consent.ts";
 import { OfficeStats, StatsQuery } from "./OfficeStats.ts";
 import { RecordingDetail, RecordingId, RecordingPage } from "./Recording.ts";
 import { RecordingChange, SubmittedEdit } from "./RecordingEdit.ts";
@@ -43,6 +50,22 @@ export class EditNotFound extends Schema.TaggedError<
   EditNotFound,
   { readonly brand: unique symbol }
 >()("EditNotFound", {}, { httpApiStatus: 404 }) {}
+
+export class WithdrawalNotFound extends Schema.TaggedError<
+  WithdrawalNotFound,
+  { readonly brand: unique symbol }
+>()("WithdrawalNotFound", {}, { httpApiStatus: 404 }) {}
+
+export class ErasureNotFound extends Schema.TaggedError<
+  ErasureNotFound,
+  { readonly brand: unique symbol }
+>()("ErasureNotFound", {}, { httpApiStatus: 404 }) {}
+
+export class NotAnAdmin extends Schema.TaggedError<NotAnAdmin, { readonly brand: unique symbol }>()(
+  "NotAnAdmin",
+  {},
+  { httpApiStatus: 404 },
+) {}
 
 export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()(
   "recording-requests/SignedIn",
@@ -117,9 +140,70 @@ export class EditGroup extends HttpApiGroup.make("edits")
   .middleware(SignedIn)
   .prefix("/api") {}
 
+export class ConsentGroup extends HttpApiGroup.make("consent")
+  .add(
+    HttpApiEndpoint.get("status", "/consent", {
+      success: ConsentStatus,
+      error: HttpApiError.ServiceUnavailable,
+    }),
+    HttpApiEndpoint.post("withdraw", "/consent/withdrawals", {
+      success: SubmittedWithdrawal.pipe(HttpApiSchema.status(202)),
+      error: HttpApiError.ServiceUnavailable,
+    }),
+    HttpApiEndpoint.get("find", "/consent/withdrawals/:id", {
+      params: { id: Schema.Int },
+      success: SubmittedWithdrawal,
+      error: [WithdrawalNotFound, HttpApiError.ServiceUnavailable],
+    }),
+    HttpApiEndpoint.post("erase", "/consent/erasures", {
+      success: SubmittedErasure.pipe(HttpApiSchema.status(202)),
+      error: HttpApiError.ServiceUnavailable,
+    }),
+    HttpApiEndpoint.get("findErasure", "/consent/erasures/:id", {
+      params: { id: Schema.Int },
+      success: SubmittedErasure,
+      error: [ErasureNotFound, HttpApiError.ServiceUnavailable],
+    }),
+    HttpApiEndpoint.post("cancelErasure", "/consent/erasures/:id/cancel", {
+      params: { id: Schema.Int },
+      success: SubmittedErasure,
+      error: [ErasureNotFound, HttpApiError.ServiceUnavailable],
+    }),
+  )
+  .middleware(SignedIn)
+  .prefix("/api") {}
+
+export class ErasureAdminGroup extends HttpApiGroup.make("erasureAdmin")
+  .add(
+    HttpApiEndpoint.get("cases", "/admin/erasures", {
+      success: Schema.Array(ErasureCase),
+      error: [NotAnAdmin, HttpApiError.ServiceUnavailable],
+    }),
+    HttpApiEndpoint.post("expedite", "/admin/erasures/:id/now", {
+      params: { id: Schema.Int },
+      success: SubmittedErasure,
+      error: [NotAnAdmin, ErasureNotFound, HttpApiError.ServiceUnavailable],
+    }),
+    HttpApiEndpoint.post("seen", "/admin/erasures/:id/seen", {
+      params: { id: Schema.Int },
+      success: SubmittedErasure,
+      error: [NotAnAdmin, ErasureNotFound, HttpApiError.ServiceUnavailable],
+    }),
+    HttpApiEndpoint.post("refuse", "/admin/erasures/:id/refuse", {
+      params: { id: Schema.Int },
+      payload: ErasureRefusal,
+      success: SubmittedErasure,
+      error: [NotAnAdmin, ErasureNotFound, HttpApiError.ServiceUnavailable],
+    }),
+  )
+  .middleware(SignedIn)
+  .prefix("/api") {}
+
 export class RecordingApi extends HttpApi.make("console")
   .add(SignInGroup.prefix("/api"))
   .add(RecordingGroup)
   .add(StatsGroup)
   .add(HistoryGroup)
-  .add(EditGroup) {}
+  .add(EditGroup)
+  .add(ConsentGroup)
+  .add(ErasureAdminGroup) {}

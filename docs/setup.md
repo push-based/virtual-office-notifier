@@ -32,7 +32,7 @@ Once it logs `Watching the virtual office`, join the office and the post should 
 
 1. Create an application at <https://discord.com/developers/applications> and add a bot. Revealing the token requires the account password.
 2. Under **Bot**, turn off **Public Bot**. No privileged intents are needed; the bot only uses `Guilds`, `GuildVoiceStates` and `GuildExpressions` (to keep the server's soundboard sound names up to date).
-3. Under **OAuth2 → URL Generator**, pick the `bot` scope with the **View Channels** and **Connect** permissions, open the URL and add the bot to the server. Without **Connect** it can't join the office, so soundboard sounds and emoji aren't recorded, and it logs a warning at startup saying so.
+3. Under **OAuth2 → URL Generator**, pick the `bot` scope with the **View Channels**, **Connect**, **Send Messages** and **Move Members** permissions, open the URL and add the bot to the server. Without **Connect** it can't join the office, so soundboard sounds and emoji aren't recorded. Without **Move Members** it can't show people out who don't [agree to being recorded](privacy.md#consent), and without **Send Messages** it can't ask someone whose DMs are closed. It logs a warning at startup when **Connect** or **Move Members** is missing.
 
 The bot token goes in `DISCORD_BOT_TOKEN`, and the office's channel ID in `DISCORD_OFFICE_CHANNEL_ID` (Developer Mode → right-click the channel → Copy Channel ID).
 
@@ -42,9 +42,9 @@ The bot token goes in `DISCORD_BOT_TOKEN`, and the office's channel ID in `DISCO
 
 1. Create an app at <https://api.slack.com/apps> → **From scratch** → pick the workspace, or open the app that had the old webhook.
 2. **Settings → Socket Mode** → turn it on, and create an app-level token with the `connections:write` scope. That's `SLACK_APP_TOKEN`.
-3. **Features → OAuth & Permissions → Bot Token Scopes**: add `chat:write`, `reactions:write`, `reactions:read`, `app_mentions:read`, `channels:history` and `users:read`. If the channel is private, add `groups:history` too.
+3. **Features → OAuth & Permissions → Bot Token Scopes**: add `chat:write`, `reactions:write`, `reactions:read`, `app_mentions:read`, `channels:history`, `users:read` and `im:write`. If the channel is private, add `groups:history` too. `im:write` lets the bot open a DM with an admin about a [deletion request](privacy.md#consent).
 4. **Features → Event Subscriptions** → turn it on and subscribe to the bot events `app_mention`, `message.channels`, `reaction_added` and `reaction_removed`, plus `message.groups` for a private channel. With Socket Mode on, there's no request URL to fill in.
-5. Leave **Interactivity** off. The join buttons only open a link.
+5. **Features → Interactivity & Shortcuts** → turn it on. With Socket Mode there's no request URL. The join buttons only open a link, but the buttons on a [deletion request](privacy.md#consent) in an admin's DM, and the refusal form, come back over the socket.
 6. **Install to Workspace**, and copy the **Bot User OAuth Token** into `SLACK_BOT_TOKEN`.
 7. Invite the bot to the channel (`/invite @your-bot`), and copy the channel ID (channel details → **About**, at the bottom) into `SLACK_CHANNEL_ID`.
 
@@ -73,7 +73,7 @@ All of the bot's configuration comes from environment variables, read in [`apps/
 | `TRANSCRIPTION_LANGUAGE`    | No           | The language people speak in the office, as Whisper names it. Defaults to `en`.                                                                                                                    |
 | `SENTRY_DSN`                | No           | [Sentry](#sentry) project DSN. Without it, nothing is sent to Sentry.                                                                                                                              |
 | `SENTRY_ENVIRONMENT`        | No           | Environment to tag Sentry data with. Defaults to `development`; the deploy sets `production`.                                                                                                      |
-| `SENTRY_RELEASE`            | No           | Release to tag Sentry data with. The deploy sets it to the commit SHA.                                                                                                                             |
+| `SENTRY_RELEASE`            | No           | Release to tag Sentry data with. The deploy sets it to the SHA of the commit that last changed the bot.                                                                                            |
 
 The process exits at startup with an error naming the variable if a required one is missing. A blank optional key, account ID or database URL counts as unset.
 
@@ -132,7 +132,7 @@ Add the `files:write` bot scope to the app from [Slack app](#slack-app) and rein
 
 ### Cloud Storage
 
-The clips bucket, `virtual-office-notifier-recordings`, is in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): private, in `us-central1`, with no lifecycle rule that deletes objects, and with **Storage Object Creator** and **Storage Object Viewer** for the VM's service account. Alchemy never deletes it or its objects, even if it's taken out of the program. The VM's `storage-rw` scope is part of the [VM](operations.md#the-vm) in the same program. Set the bucket's name as the `RECORDINGS_BUCKET` secret:
+The clips bucket, `virtual-office-notifier-recordings`, is in the Alchemy program, [`infra/alchemy.run.ts`](../infra/alchemy.run.ts): private, in `us-central1`, with no lifecycle rule that deletes objects, and with **Storage Object Creator**, **Storage Object Viewer** and **Storage Object User** for the VM's service account. The last one lets the bot delete someone's clips when they [ask for their data to be deleted](privacy.md#consent). Alchemy never deletes it or its objects, even if it's taken out of the program. The VM's `storage-rw` scope is part of the [VM](operations.md#the-vm) in the same program. Set the bucket's name as the `RECORDINGS_BUCKET` secret:
 
 ```bash
 gh secret set RECORDINGS_BUCKET --body virtual-office-notifier-recordings
@@ -153,9 +153,15 @@ GRANT USAGE ON SEQUENCE office.recording_requests_id_seq TO activity;
 GRANT SELECT, INSERT ON office.recording_edits TO activity;
 GRANT USAGE ON SEQUENCE office.recording_edits_id_seq TO activity;
 GRANT SELECT ON office.recording_action_items TO activity;
+GRANT SELECT ON office.consent_events TO activity;
+GRANT SELECT, INSERT, UPDATE ON office.consent_requests TO activity;
+GRANT USAGE ON SEQUENCE office.consent_requests_id_seq TO activity;
+GRANT SELECT ON office.voice_snapshots, office.voice_effects TO activity;
+GRANT SELECT ON office.slack_messages, office.slack_reactions, office.slack_posts TO activity;
+GRANT SELECT ON office.recording_summaries TO activity;
 ```
 
-The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the grant on `office.voice_activity` and `office.office_activity`, the [Stats](recording.md#office-stats) tab answers `503` and the rest of the Console works as before.
+The grants from `office.consent_events` down are also made by the bot's migrations, if the `activity` role already exists when they run, so an install that predates them needs no SQL for them. The last three let the Console show the admins exactly what a deletion request will delete. The views aren't `security_invoker`, so the role reads them without any grant on the tables underneath. Without the grant on `office.voice_activity` and `office.office_activity`, the [Stats](recording.md#office-stats) tab answers `503` and the rest of the Console works as before.
 
 ### Hyperdrive
 

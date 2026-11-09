@@ -54,11 +54,9 @@ afterAll(() => app.dispose());
 
 const DSN = "https://public@o1.ingest.sentry.io/42";
 
-const env: SentryEnv = {
-  SENTRY_DSN: DSN,
-  SENTRY_ENVIRONMENT: "production",
-  SENTRY_RELEASE: "abc123",
-};
+const env: SentryEnv = { SENTRY_DSN: DSN, SENTRY_ENVIRONMENT: "production" };
+
+const RELEASE = "abc123";
 
 const errors: Array<Sentry.ErrorEvent> = [];
 
@@ -85,7 +83,7 @@ interface Invocation {
 
 const worker = Sentry.withSentry(
   (env: SentryEnv) => ({
-    ...sentryOptions(env),
+    ...sentryOptions(env, RELEASE),
     transport: (options) =>
       Sentry.createTransport(options, ({ body }) => {
         envelopes.push(Predicate.isString(body) ? body : new TextDecoder().decode(body));
@@ -145,7 +143,7 @@ describe("the Worker's telemetry", () => {
         assert.strictEqual(errors[0]?.exception?.values?.[0]?.value, "The office caught fire");
         assert.strictEqual(errors[0]?.level, "error");
         assert.strictEqual(errors[0]?.environment, "production");
-        assert.strictEqual(errors[0]?.release, "abc123");
+        assert.strictEqual(errors[0]?.release, RELEASE);
         assert.strictEqual(errors[0]?.request?.url, "http://console.test/api/burn");
         assert.isUndefined(errors[0]?.request?.headers);
         assert.isUndefined(errors[0]?.request?.data);
@@ -200,14 +198,14 @@ describe("the Worker's telemetry", () => {
 
 describe("the Worker's Sentry settings", () => {
   it("are off without a DSN, even an empty one", () => {
-    assert.deepStrictEqual(sentryOptions({}), { dsn: "" });
-    assert.deepStrictEqual(sentryOptions({ SENTRY_DSN: "" }), { dsn: "" });
-    assert.isTrue(Option.isNone(telemetryFrom({ SENTRY_DSN: "" })));
+    assert.deepStrictEqual(sentryOptions({}, RELEASE), { dsn: "" });
+    assert.deepStrictEqual(sentryOptions({ SENTRY_DSN: "" }, RELEASE), { dsn: "" });
+    assert.isTrue(Option.isNone(telemetryFrom({ SENTRY_DSN: "" }, RELEASE)));
   });
 
-  it("tag everything as development unless told otherwise", () => {
+  it("tag everything as development, with no release, unless told otherwise", () => {
     assert.deepStrictEqual(
-      telemetryFrom({ SENTRY_DSN: DSN, SENTRY_RELEASE: "" }),
+      telemetryFrom({ SENTRY_DSN: DSN }, ""),
       Option.some({ dsn: DSN, environment: "development", release: null }),
     );
   });

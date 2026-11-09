@@ -17,7 +17,6 @@ import type { Severity } from "effect/LogLevel";
 export interface SentryEnv {
   readonly SENTRY_DSN?: string;
   readonly SENTRY_ENVIRONMENT?: string;
-  readonly SENTRY_RELEASE?: string;
 }
 
 export interface Telemetry {
@@ -31,11 +30,11 @@ export const TUNNEL_PATH = "/api/sentry";
 const nonEmpty = (value: string | undefined) =>
   Option.fromNullishOr(value).pipe(Option.filter(String.isNonEmpty));
 
-export const telemetryFrom = (env: SentryEnv): Option.Option<Telemetry> =>
+export const telemetryFrom = (env: SentryEnv, release: string): Option.Option<Telemetry> =>
   Option.map(nonEmpty(env.SENTRY_DSN), (dsn) => ({
     dsn,
     environment: Option.getOrElse(nonEmpty(env.SENTRY_ENVIRONMENT), () => "development"),
-    release: Option.getOrNull(nonEmpty(env.SENTRY_RELEASE)),
+    release: Option.getOrNull(nonEmpty(release)),
   }));
 
 const NOTHING_PERSONAL: Sentry.CloudflareOptions["dataCollection"] = {
@@ -45,8 +44,8 @@ const NOTHING_PERSONAL: Sentry.CloudflareOptions["dataCollection"] = {
   httpBodies: [],
 };
 
-export const sentryOptions = (env: SentryEnv): Sentry.CloudflareOptions =>
-  Option.match(telemetryFrom(env), {
+export const sentryOptions = (env: SentryEnv, release: string): Sentry.CloudflareOptions =>
+  Option.match(telemetryFrom(env, release), {
     onNone: () => ({ dsn: "" }),
     onSome: ({ dsn, environment, release }) => ({
       dsn,

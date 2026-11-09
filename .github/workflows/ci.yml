@@ -95,7 +95,6 @@ jobs:
       id-token: write
     env:
       CLOUDFLARE_DEPLOY_TOKEN: ${{ secrets.CLOUDFLARE_DEPLOY_TOKEN }}
-      # Part of the Activity build's cache fingerprint, so it's set for every step and the deploy replays the build below.
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       # Checked before anything ships, so the bot and the Activity never go out of step.
@@ -112,7 +111,11 @@ jobs:
           node-version-file: .nvmrc
           cache: true
 
-      - run: vp run console#build
+      # The check job built every package for this commit; the bot's build replays from its cache.
+      - uses: actions/cache/restore@v6
+        with:
+          path: node_modules/.vite/task-cache
+          key: vite-task-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: google-github-actions/auth@v3
         id: gcp
@@ -137,6 +140,7 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
       # After the bot, so the Console never ships ahead of the bot that reads its requests.
+      # Alchemy hashes the Console's inputs and does nothing when they haven't changed.
       - run: vp run infra#deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_DEPLOY_TOKEN }}
