@@ -16,7 +16,7 @@ import {
   Stream,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
-import { ADMINS, adminByDiscordId } from "recording-requests/Admins";
+import type { Admin } from "recording-requests/Admins";
 import type {
   ConsentEventKind,
   ConsentStanding,
@@ -28,10 +28,12 @@ import {
   ConsentRequests,
   type ErasureHandler,
   type ErasureNotice,
+  type NoticeMedium,
   type Settled,
   type Withdrawal,
 } from "recording-requests/ConsentRequests";
 import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
+import type { RecordingUnavailable } from "recording-requests/RecordingRequests";
 
 import { ConsentBook, LOOKUP_WAIT, Notice } from "../consent/index.ts";
 import { Eraser, type PrepareError } from "../erasure/index.ts";
@@ -63,6 +65,7 @@ const {
   NOTED_NOW,
   NOTED_REFUSED,
   NOTED_SEEN,
+  NOT_AN_ADMIN,
   QUESTION_ERASED,
   QUESTION_WITHDRAWN,
   REFUSED,
@@ -92,14 +95,13 @@ const erasureRetry = Schedule.exponential(ERASURE_RETRY_FIRST).pipe(
 
 type Lapse = "left" | "withdrawn" | "erased";
 
+interface AdminPress {
+  readonly medium: NoticeMedium;
+  readonly action: ErasureAction;
+}
+
 const deliveryOf = (via: Option.Option<{ readonly via: Delivery }>): Delivery =>
   Option.match(via, { onNone: () => "undelivered", onSome: ({ via }) => via });
-
-const adminName = (userId: string | null): Option.Option<string> =>
-  Option.fromNullOr(userId).pipe(
-    Option.flatMap(adminByDiscordId),
-    Option.map((admin) => admin.name),
-  );
 
 const run = Effect.fnUntraced(function* (line: ConsentLine, adminLines: ReadonlyArray<AdminLine>) {
   const gate = yield* ConsentGate;
@@ -342,9 +344,9 @@ const run = Effect.fnUntraced(function* (line: ConsentLine, adminLines: Readonly
   const lineFor = (medium: ErasureNotice["medium"]) =>
     Array.findFirst(adminLines, (candidate) => candidate.medium === medium);
 
-  const notifyAdmins = (erasure: ErasureCase) =>
+  const notifyAdmins = (admins: ReadonlyArray<Admin>, erasure: ErasureCase) =>
     Effect.forEach(
-      ADMINS,
+      admins,
       (admin) =>
         Effect.forEach(
           adminLines,
@@ -390,7 +392,7 @@ const run = Effect.fnUntraced(function* (line: ConsentLine, adminLines: Readonly
                   Notice.adminSettled(
                     erasure,
                     outcome,
-                    adminName(erasure.decidedBy),
+                    Option.fromNullOr(erasure.decidedByName),
                     notice.medium,
                   ),
                 ),
@@ -404,9 +406,10 @@ const run = Effect.fnUntraced(function* (line: ConsentLine, adminLines: Readonly
       ),
     );
 
-  const erasures: ErasureHandler<PrepareError, never> = {
+  const erasures: ErasureHandler<PrepareError | RecordingUnavailable, never> = {
     announce: Effect.fnUntraced(function* (erasure: ErasureCase) {
       const { userId } = erasure;
+      const admins = yield* requests.admins;
 
       yield* book.remember({ userId, at: yield* DateTime.now, kind: "withdrawn" });
       yield* stopAsking(userId, "erased");
@@ -417,7 +420,13 @@ const run = Effect.fnUntraced(function* (line: ConsentLine, adminLines: Readonly
       if (shown) yield* note(userId, "disconnected");
 
       yield* line.tell(userId, SCHEDULED(erasure.dueAt, shown));
-      yield* notifyAdmins(erasure);
+
+      if (admins.length === 0)
+        return yield* Effect.logWarning(
+          "Nobody is an admin, so nobody was told about a deletion request",
+        );
+
+      yield* notifyAdmins(admins, erasure);
       yield* Effect.logInfo("Told the admins about a deletion request");
     }),
     settle: (erasure: ErasureCase, outcome: Settled) =>
@@ -477,10 +486,8 @@ const run = Effect.fnUntraced(function* (line: ConsentLine, adminLines: Readonly
     Effect.orDie,
   );
 
-  const decide = Effect.fnUntraced(function* (action: ErasureAction) {
-    const adminId = action.admin.discordUserId;
-
-    const decided = yield* Match.value(action.verdict).pipe(
+  const record = (action: ErasureAction, adminId: string) =>
+    Match.value(action.verdict).pipe(
       Match.when({ kind: "now" }, () =>
         requests.expedite(action.requestId, adminId).pipe(Effect.map(Option.as(NOTED_NOW))),
       ),
@@ -493,21 +500,36 @@ const run = Effect.fnUntraced(function* (line: ConsentLine, adminLines: Readonly
           .pipe(Effect.map(Option.as(NOTED_REFUSED))),
       ),
       Match.exhaustive,
-      Effect.catchTag("RecordingUnavailable", (error) =>
-        databaseDown("Couldn't record an admin's decision about a deletion")(error).pipe(
-          Effect.as(Option.some(DATABASE_DOWN)),
+      Effect.map(Option.getOrElse(() => ALREADY_DECIDED)),
+      Effect.tap(() =>
+        Effect.logInfo("An admin decided about a deletion request").pipe(
+          Effect.annotateLogs({ request: action.requestId, verdict: action.verdict.kind }),
         ),
       ),
     );
 
-    yield* action.reply(Option.getOrElse(decided, () => ALREADY_DECIDED));
-    yield* Effect.logInfo("An admin decided about a deletion request").pipe(
-      Effect.annotateLogs({ request: action.requestId, verdict: action.verdict.kind }),
+  const decide = Effect.fnUntraced(function* ({ medium, action }: AdminPress) {
+    const answer = yield* requests.adminOf(medium, action.userId).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.succeed(NOT_AN_ADMIN),
+          onSome: (admin) => record(action, admin.discordUserId),
+        }),
+      ),
+      Effect.catchTag("RecordingUnavailable", (error) =>
+        databaseDown("Couldn't record an admin's decision about a deletion")(error).pipe(
+          Effect.as(DATABASE_DOWN),
+        ),
+      ),
     );
+
+    yield* action.reply(answer);
   });
 
   const adminActions = Stream.mergeAll(
-    Array.map(adminLines, (candidate) => candidate.actions),
+    Array.map(adminLines, (candidate) =>
+      Stream.map(candidate.actions, (action): AdminPress => ({ medium: candidate.medium, action })),
+    ),
     { concurrency: "unbounded" },
   );
 

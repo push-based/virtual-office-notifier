@@ -122,8 +122,10 @@ export const ErasureCase = Schema.Struct({
   dueAt: Schema.DateTimeUtcFromString,
   decision: Schema.NullOr(ErasureDecision),
   decidedBy: Schema.NullOr(Schema.String),
+  decidedByName: Schema.NullOr(Schema.String),
   refusal: Schema.NullOr(ErasureRefusal),
   seenBy: Schema.Array(Schema.String),
+  seenByNames: Schema.Array(Schema.NullOr(Schema.String)),
   inventory: ErasureInventory,
 });
 

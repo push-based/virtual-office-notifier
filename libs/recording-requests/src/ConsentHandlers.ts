@@ -1,7 +1,6 @@
 import { Effect, Option } from "effect";
 import { HttpApiBuilder, HttpApiError } from "effect/http-api";
 
-import { isAdmin } from "./Admins.ts";
 import { ConsentRequests } from "./ConsentRequests.ts";
 import {
   CurrentRequester,
@@ -83,10 +82,11 @@ export const ConsentHandlers = HttpApiBuilder.group(
   }),
 );
 
-const asAdmin = Effect.gen(function* () {
+const asAdmin = Effect.fnUntraced(function* (consent: ConsentRequests["Service"]) {
   const requester = yield* CurrentRequester;
+  const admin = yield* consent.adminOf("discord", requester.id);
 
-  if (!isAdmin(requester.id)) return yield* NotAnAdmin.make();
+  if (Option.isNone(admin)) return yield* NotAnAdmin.make();
 
   return requester;
 });
@@ -100,7 +100,7 @@ export const ErasureAdminHandlers = HttpApiBuilder.group(
     return handlers.handleAll({
       cases: Effect.fnUntraced(
         function* () {
-          yield* asAdmin;
+          yield* asAdmin(consent);
 
           return yield* consent.cases;
         },
@@ -108,7 +108,7 @@ export const ErasureAdminHandlers = HttpApiBuilder.group(
       ),
       expedite: Effect.fnUntraced(
         function* ({ params }) {
-          const admin = yield* asAdmin;
+          const admin = yield* asAdmin(consent);
 
           return yield* orErasureNotFound(yield* consent.expedite(params.id, admin.id));
         },
@@ -116,7 +116,7 @@ export const ErasureAdminHandlers = HttpApiBuilder.group(
       ),
       seen: Effect.fnUntraced(
         function* ({ params }) {
-          const admin = yield* asAdmin;
+          const admin = yield* asAdmin(consent);
 
           return yield* orErasureNotFound(yield* consent.seen(params.id, admin.id));
         },
@@ -124,7 +124,7 @@ export const ErasureAdminHandlers = HttpApiBuilder.group(
       ),
       refuse: Effect.fnUntraced(
         function* ({ params, payload }) {
-          const admin = yield* asAdmin;
+          const admin = yield* asAdmin(consent);
 
           return yield* orErasureNotFound(yield* consent.refuse(params.id, admin.id, payload));
         },

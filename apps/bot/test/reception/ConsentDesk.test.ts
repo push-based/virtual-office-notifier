@@ -15,7 +15,7 @@ import {
 } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { TestClock } from "effect/testing";
-import { type Admin, ADMINS } from "recording-requests/Admins";
+import type { Admin } from "recording-requests/Admins";
 import type { ErasureCase, ErasureDecision, ErasureRefusal } from "recording-requests/Consent";
 import {
   ConsentRequests,
@@ -45,9 +45,19 @@ const OFFICE = "office";
 
 const env = { DISCORD_BOT_TOKEN: "discord-token", DISCORD_OFFICE_CHANNEL_ID: OFFICE };
 
-const CHRIS = ADMINS[0]!;
+const CHRIS: Admin = {
+  name: "Christopher Holder",
+  discordUserId: "chris-discord",
+  slackUserId: "chris-slack",
+};
 
-const JULIAN = ADMINS[1]!;
+const JULIAN: Admin = {
+  name: "Julian Jandl",
+  discordUserId: "julian-discord",
+  slackUserId: "julian-slack",
+};
+
+const ADMINS: ReadonlyArray<Admin> = [CHRIS, JULIAN];
 
 const REQUESTED_AT = DateTime.makeUnsafe("2026-11-08T12:00:00Z");
 
@@ -77,8 +87,10 @@ const caseFor = (userId: string, overrides: Partial<ErasureCase> = {}): ErasureC
   dueAt: DUE_AT,
   decision: null,
   decidedBy: null,
+  decidedByName: null,
   refusal: null,
   seenBy: [],
+  seenByNames: [],
   inventory: {
     voiceActivity: 3,
     soundsAndEmoji: 0,
@@ -188,10 +200,10 @@ const makeAdminLine = Effect.fnUntraced(function* (medium: NoticeMedium) {
     actions: Stream.fromQueue(pressed),
   };
 
-  const press = (admin: Admin, requestId: number, verdict: ErasureVerdict) =>
+  const press = (userId: string, requestId: number, verdict: ErasureVerdict) =>
     Queue.offer(pressed, {
       requestId,
-      admin,
+      userId,
       verdict,
       reply: (text) => Ref.update(replies, (all) => [...all, text]),
     });
@@ -217,7 +229,7 @@ interface Requests {
   request(userId: string, overrides?: Partial<ErasureCase>, due?: boolean): Effect.Effect<void>;
 }
 
-const makeRequests = Effect.gen(function* () {
+const makeRequests = Effect.fnUntraced(function* (admins: ReadonlyArray<Admin>) {
   const queue = yield* Ref.make<ReadonlyArray<string>>([]);
   const cases = yield* Ref.make<ReadonlyArray<PendingCase>>([]);
   const erasing = yield* Ref.make<ReadonlyArray<string>>([]);
@@ -244,6 +256,12 @@ const makeRequests = Effect.gen(function* () {
         ...found.value.erasure,
         decision,
         decidedBy: by,
+        decidedByName: Option.getOrNull(
+          Option.map(
+            Array.findFirst(admins, (admin) => admin.discordUserId === by),
+            (admin) => admin.name,
+          ),
+        ),
         refusal,
       };
 
@@ -349,6 +367,14 @@ const makeRequests = Effect.gen(function* () {
           ),
         ),
       cases: Ref.get(cases).pipe(Effect.map(Array.map((pending) => pending.erasure))),
+      admins: Effect.succeed(admins),
+      adminOf: (medium, userId) =>
+        Effect.succeed(
+          Array.findFirst(
+            admins,
+            (admin) => (medium === "discord" ? admin.discordUserId : admin.slackUserId) === userId,
+          ),
+        ),
       expedite: (id, adminId) => decide(id, "now", adminId),
       refuse: (id, adminId, refusal) => decide(id, "refused", adminId, refusal),
       seen: (id) =>
@@ -420,9 +446,9 @@ interface Desk {
   readonly updates: Queue.Queue<VoiceStateUpdate, Cause.Done>;
 }
 
-const makeDesk = Effect.gen(function* () {
+const makeDesk = Effect.fnUntraced(function* (admins: ReadonlyArray<Admin> = ADMINS) {
   const fake = yield* makeLine;
-  const requests = yield* makeRequests;
+  const requests = yield* makeRequests(admins);
   const discord = yield* makeAdminLine("discord");
   const slack = yield* makeAdminLine("slack");
   const updates = yield* Queue.unbounded<VoiceStateUpdate, Cause.Done>();
@@ -491,7 +517,7 @@ const tick = TestClock.adjust(CHECK_INTERVAL);
 describe("ConsentDesk", () => {
   it.effect("asks someone who joins, and lets them in once they agree", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
       yield* Queue.offer(desk.updates, join());
 
       yield* withDesk(desk, (gateway) =>
@@ -519,7 +545,7 @@ describe("ConsentDesk", () => {
 
   it.effect("shows someone out who declines, and never announces them", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
       yield* Queue.offer(desk.updates, join());
 
       yield* withDesk(desk, (gateway) =>
@@ -549,7 +575,7 @@ describe("ConsentDesk", () => {
     "shows someone out after a minute without an answer, and asks differently next time",
     () =>
       Effect.gen(function* () {
-        const desk = yield* makeDesk;
+        const desk = yield* makeDesk();
         yield* Queue.offer(desk.updates, join());
 
         yield* withDesk(desk, () =>
@@ -577,7 +603,7 @@ describe("ConsentDesk", () => {
 
   it.effect("lets the question lapse when someone leaves before answering", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
       yield* Queue.offer(desk.updates, join());
 
       yield* withDesk(desk, () =>
@@ -598,7 +624,7 @@ describe("ConsentDesk", () => {
 
   it.effect("doesn't ask someone who already agreed", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
       yield* Queue.offer(desk.updates, join());
 
       yield* withDesk(
@@ -617,7 +643,7 @@ describe("ConsentDesk", () => {
 
   it.effect("withdraws consent from the Console and shows them out", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
 
       yield* withDesk(desk, (gateway) =>
         Effect.gen(function* () {
@@ -636,7 +662,7 @@ describe("ConsentDesk", () => {
 
   it.effect("drops an open question when someone withdraws from the Console", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
       yield* Queue.offer(desk.updates, join());
 
       yield* withDesk(desk, () =>
@@ -659,7 +685,7 @@ describe("ConsentDesk", () => {
     "schedules a deletion: withdraws consent, shows them out, tells them the date, and tells both admins everywhere",
     () =>
       Effect.gen(function* () {
-        const desk = yield* makeDesk;
+        const desk = yield* makeDesk();
 
         yield* withDesk(desk, (gateway) =>
           Effect.gen(function* () {
@@ -698,7 +724,7 @@ describe("ConsentDesk", () => {
     "erases when the request is due, says goodbye, forgets them and closes the admins' messages",
     () =>
       Effect.gen(function* () {
-        const desk = yield* makeDesk;
+        const desk = yield* makeDesk();
 
         yield* withDesk(desk, (gateway) =>
           Effect.gen(function* () {
@@ -741,7 +767,7 @@ describe("ConsentDesk", () => {
 
   it.effect("runs the deletion within a minute when an admin says Delete now", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
 
       yield* withDesk(desk, (gateway) =>
         Effect.gen(function* () {
@@ -749,7 +775,7 @@ describe("ConsentDesk", () => {
           yield* desk.requests.request("u1");
           yield* tick;
           yield* pollUntil(Ref.get(desk.fake.told), (all) => all.length === 1);
-          yield* desk.discord.press(CHRIS, 1, { kind: "now" });
+          yield* desk.discord.press(CHRIS.discordUserId, 1, { kind: "now" });
           yield* pollUntil(Ref.get(desk.discord.replies), (all) => all.length === 1);
 
           assert.deepStrictEqual(yield* Ref.get(desk.discord.replies), [Notice.NOTED_NOW]);
@@ -764,7 +790,7 @@ describe("ConsentDesk", () => {
             "remove u1.ogg",
           ]);
 
-          yield* desk.discord.press(CHRIS, 1, { kind: "seen" });
+          yield* desk.discord.press(CHRIS.discordUserId, 1, { kind: "seen" });
           yield* pollUntil(Ref.get(desk.discord.replies), (all) => all.length === 2);
 
           assert.deepStrictEqual(yield* Ref.get(desk.discord.replies), [
@@ -778,7 +804,7 @@ describe("ConsentDesk", () => {
 
   it.effect("passes an admin's refusal on to the person, with the reason", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
 
       yield* withDesk(desk, (gateway) =>
         Effect.gen(function* () {
@@ -786,7 +812,7 @@ describe("ConsentDesk", () => {
           yield* desk.requests.request("u1");
           yield* tick;
           yield* pollUntil(Ref.get(desk.fake.told), (all) => all.length === 1);
-          yield* desk.slack.press(JULIAN, 1, {
+          yield* desk.slack.press(JULIAN.slackUserId!, 1, {
             kind: "refuse",
             ground: "legal_claim",
             reason: "It's evidence in the supplier dispute.",
@@ -813,9 +839,54 @@ describe("ConsentDesk", () => {
     }),
   );
 
+  it.effect("turns away a decision from someone who isn't in the admins table", () =>
+    Effect.gen(function* () {
+      const desk = yield* makeDesk();
+
+      yield* withDesk(desk, (gateway) =>
+        Effect.gen(function* () {
+          yield* agreeFirst(desk, gateway);
+          yield* desk.requests.request("u1");
+          yield* tick;
+          yield* pollUntil(Ref.get(desk.fake.told), (all) => all.length === 1);
+          yield* desk.discord.press(CHRIS.slackUserId!, 1, { kind: "now" });
+          yield* desk.slack.press("someone-else", 1, { kind: "now" });
+          yield* pollUntil(Ref.get(desk.discord.replies), (all) => all.length === 1);
+          yield* pollUntil(Ref.get(desk.slack.replies), (all) => all.length === 1);
+
+          assert.deepStrictEqual(yield* Ref.get(desk.discord.replies), [Notice.NOT_AN_ADMIN]);
+          assert.deepStrictEqual(yield* Ref.get(desk.slack.replies), [Notice.NOT_AN_ADMIN]);
+
+          const [pending] = yield* Ref.get(desk.requests.cases);
+
+          assert.strictEqual(pending!.erasure.decision, null);
+        }),
+      );
+    }),
+  );
+
+  it.effect("tells only whoever is in the admins table about a deletion", () =>
+    Effect.gen(function* () {
+      const desk = yield* makeDesk([JULIAN]);
+
+      yield* withDesk(desk, (gateway) =>
+        Effect.gen(function* () {
+          yield* agreeFirst(desk, gateway);
+          yield* desk.requests.request("u1");
+          yield* tick;
+          yield* pollUntil(Ref.get(desk.fake.told), (all) => all.length === 1);
+
+          assert.deepStrictEqual(yield* Ref.get(desk.discord.notified), [
+            { admin: JULIAN.name, erasureId: 1 },
+          ]);
+        }),
+      );
+    }),
+  );
+
   it.effect("says so when the question is about a pending deletion, and cancels it on a yes", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
 
       yield* withDesk(desk, (gateway) =>
         Effect.gen(function* () {
@@ -852,7 +923,7 @@ describe("ConsentDesk", () => {
     "never erases someone the bot knows has agreed again, even when the request is due",
     () =>
       Effect.gen(function* () {
-        const desk = yield* makeDesk;
+        const desk = yield* makeDesk();
 
         yield* withDesk(desk, (gateway) =>
           Effect.gen(function* () {
@@ -888,7 +959,7 @@ describe("ConsentDesk", () => {
 
   it.effect("drops an open question when someone asks for their data to be deleted", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
       yield* Queue.offer(desk.updates, join());
 
       yield* withDesk(desk, () =>
@@ -907,7 +978,7 @@ describe("ConsentDesk", () => {
 
   it.effect("acknowledges a second press without changing the answer", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
       yield* Queue.offer(desk.updates, join());
 
       yield* withDesk(desk, (gateway) =>
@@ -930,7 +1001,7 @@ describe("ConsentDesk", () => {
 
   it.effect("lets someone who was already in at startup in quietly once they agree", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
 
       yield* withDesk(
         desk,
@@ -961,7 +1032,7 @@ describe("ConsentDesk", () => {
 
   it.effect("answers a press on a question that has lapsed", () =>
     Effect.gen(function* () {
-      const desk = yield* makeDesk;
+      const desk = yield* makeDesk();
       yield* Queue.offer(desk.updates, join());
 
       yield* withDesk(desk, (gateway) =>

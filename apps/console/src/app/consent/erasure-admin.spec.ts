@@ -16,8 +16,10 @@ const erasure: ErasureCase = {
   dueAt: "2026-12-08T12:00:00.000Z",
   decision: null,
   decidedBy: null,
+  decidedByName: null,
   refusal: null,
   seenBy: [],
+  seenByNames: [],
   inventory: {
     voiceActivity: 41,
     soundsAndEmoji: 3,
@@ -111,7 +113,14 @@ describe("ErasureAdmin", () => {
   it("asks before deleting now, then does", async () => {
     const { api, element, fixture } = setup([
       [erasure],
-      [{ ...erasure, decision: "now", decidedBy: "553340374836314142" }],
+      [
+        {
+          ...erasure,
+          decision: "now",
+          decidedBy: "553340374836314142",
+          decidedByName: "Christopher Holder",
+        },
+      ],
     ]);
 
     await settle(fixture);
@@ -137,7 +146,13 @@ describe("ErasureAdmin", () => {
   it("notes that an admin has seen it", async () => {
     const { api, element, fixture } = setup([
       [erasure],
-      [{ ...erasure, seenBy: ["757606441010855957"] }],
+      [
+        {
+          ...erasure,
+          seenBy: ["757606441010855957", "no-longer-an-admin"],
+          seenByNames: ["Julian Jandl", null],
+        },
+      ],
     ]);
 
     await settle(fixture);
@@ -146,7 +161,7 @@ describe("ErasureAdmin", () => {
     await settle(fixture);
 
     expect(api.seen).toHaveBeenCalledWith(12);
-    expect(element.textContent).toContain("Seen by Julian Jandl.");
+    expect(element.textContent).toContain("Seen by Julian Jandl and an admin.");
   });
 
   it("refuses only with a ground and a reason", async () => {

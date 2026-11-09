@@ -41,7 +41,7 @@ import {
   type VoiceChannelEffect,
   type VoiceState,
 } from "discord.js";
-import { type Admin, adminByDiscordId } from "recording-requests/Admins";
+import type { Admin } from "recording-requests/Admins";
 import { type ErasureCase, RefusalGround } from "recording-requests/Consent";
 import type { ErasureNotice } from "recording-requests/ConsentRequests";
 import type { PersonInOffice } from "recording-requests/RecordingRequest";
@@ -560,15 +560,10 @@ const erasureActions = (client: Client, runFork: RunFork) =>
             ).pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't answer an admin's button")))
           : Effect.void;
 
-      const offer = (
-        interaction: Interaction,
-        requestId: number,
-        admin: Admin,
-        verdict: ErasureVerdict,
-      ) =>
+      const offer = (interaction: Interaction, requestId: number, verdict: ErasureVerdict) =>
         Queue.offerUnsafe(queue, {
           requestId,
-          admin,
+          userId: interaction.user.id,
           verdict,
           reply: (text) => ephemeral(interaction, text),
         });
@@ -581,18 +576,11 @@ const erasureActions = (client: Client, runFork: RunFork) =>
 
           const [, rawId, choice] = button.value;
           const requestId = requestIdOf(rawId);
-          const admin = adminByDiscordId(interaction.user.id);
 
           if (Option.isNone(requestId)) return;
 
-          if (Option.isNone(admin)) {
-            runFork(ephemeral(interaction, Notice.NOT_AN_ADMIN));
-
-            return;
-          }
-
           if (choice === "now" || choice === "seen") {
-            offer(interaction, requestId.value, admin.value, { kind: choice });
+            offer(interaction, requestId.value, { kind: choice });
 
             return;
           }
@@ -617,18 +605,11 @@ const erasureActions = (client: Client, runFork: RunFork) =>
 
         const [, rawId, ground] = modal.value;
         const requestId = requestIdOf(rawId);
-        const admin = adminByDiscordId(interaction.user.id);
         const reason = Text.trim(interaction.fields.getTextInputValue("reason"));
 
         if (Option.isNone(requestId) || reason === "") return;
 
-        if (Option.isNone(admin)) {
-          runFork(ephemeral(interaction, Notice.NOT_AN_ADMIN));
-
-          return;
-        }
-
-        offer(interaction, requestId.value, admin.value, { kind: "refuse", ground, reason });
+        offer(interaction, requestId.value, { kind: "refuse", ground, reason });
       };
 
       yield* Effect.acquireRelease(

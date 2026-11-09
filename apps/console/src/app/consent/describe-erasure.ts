@@ -1,4 +1,3 @@
-import { ADMINS } from "recording-requests/Admins";
 import {
   type ErasureInventory,
   FORMER_MEMBER,
@@ -24,5 +23,4 @@ export const describeInventory = (inventory: ErasureInventory): ReadonlyArray<st
 
 export const groundLabel = (ground: RefusalGround): string => REFUSAL_GROUNDS[ground];
 
-export const adminName = (discordUserId: string): string =>
-  ADMINS.find((admin) => admin.discordUserId === discordUserId)?.name ?? "an admin";
+export const adminName = (name: string | null): string => name ?? "an admin";

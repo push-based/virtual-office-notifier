@@ -3,7 +3,6 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Duration, Effect, Option, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { ADMINS } from "../src/Admins.ts";
 import { NOT_AGREED, standingOf } from "../src/Consent.ts";
 import {
   ConsentRequests,
@@ -14,7 +13,7 @@ import { columnNaming } from "../src/SqlNaming.ts";
 import { CONSENT_NOTICE_VERSION, ERASURE_REVIEW_DAYS } from "../src/Wire.ts";
 import { migrated } from "./schema.ts";
 
-const CHRIS = ADMINS[0]!.discordUserId;
+const CHRIS = "553340374836314142";
 
 const decided = (
   userId: string,
@@ -150,6 +149,68 @@ describe("ConsentRequests", () => {
         assert.strictEqual(status.standing, "agreed");
         assert.strictEqual(DateTime.formatIso(status.since!), "2026-11-06T09:00:00.000Z");
         assert.isTrue(status.admin);
+      }),
+    ),
+  );
+
+  it.effect(
+    "starts with Christopher, Julian and Michael as admins, found by Discord or Slack ID",
+    () =>
+      withRequests((requests) =>
+        Effect.gen(function* () {
+          assert.deepStrictEqual(yield* requests.admins, [
+            {
+              name: "Christopher Holder",
+              discordUserId: "553340374836314142",
+              slackUserId: "U03PVMGCJNP",
+            },
+            {
+              name: "Julian Jandl",
+              discordUserId: "757606441010855957",
+              slackUserId: "U01UR2HS2TH",
+            },
+            {
+              name: "Michael Hladky",
+              discordUserId: "459694169397526538",
+              slackUserId: "U01V2MQBPUM",
+            },
+          ]);
+          assert.strictEqual(
+            Option.getOrThrow(yield* requests.adminOf("slack", "U01V2MQBPUM")).name,
+            "Michael Hladky",
+          );
+          assert.strictEqual(
+            Option.getOrThrow(yield* requests.adminOf("discord", "757606441010855957")).name,
+            "Julian Jandl",
+          );
+          assert.isTrue(Option.isNone(yield* requests.adminOf("discord", "U01V2MQBPUM")));
+        }),
+      ),
+  );
+
+  it.effect("goes by the admins table, so adding or removing a row changes who's an admin", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+
+        assert.isFalse((yield* requests.status("grace")).admin);
+
+        yield* sql`INSERT INTO office.admins (discord_user_id, name) VALUES ('grace', 'Grace')`;
+
+        assert.isTrue((yield* requests.status("grace")).admin);
+        assert.deepStrictEqual(
+          yield* requests.adminOf("discord", "grace"),
+          Option.some({
+            name: "Grace",
+            discordUserId: "grace",
+            slackUserId: null,
+          }),
+        );
+
+        yield* sql`DELETE FROM office.admins WHERE discord_user_id = ${CHRIS}`;
+
+        assert.isFalse((yield* requests.status(CHRIS)).admin);
+        assert.isTrue(Option.isNone(yield* requests.adminOf("slack", "U03PVMGCJNP")));
       }),
     ),
   );
@@ -379,6 +440,21 @@ describe("ConsentRequests erasures", () => {
     ),
   );
 
+  it.effect("names the admin who decided, from the admins table", () =>
+    withRequests((requests) =>
+      Effect.gen(function* () {
+        const { id } = yield* requests.erase("ada");
+
+        yield* requests.expedite(id, CHRIS);
+
+        const [erasure] = yield* requests.cases;
+
+        assert.strictEqual(erasure!.decidedBy, CHRIS);
+        assert.strictEqual(erasure!.decidedByName, "Christopher Holder");
+      }),
+    ),
+  );
+
   it.effect("refuses on an admin's ground, keeps the row, and tells the person why", () =>
     withRequests((requests) =>
       Effect.gen(function* () {
@@ -506,6 +582,7 @@ describe("ConsentRequests erasures", () => {
 
         yield* requests.seen(id, CHRIS);
         yield* requests.seen(id, CHRIS);
+        yield* requests.seen(id, "no-longer-an-admin");
         yield* requests.recordNotice({
           requestId: id,
           medium: "discord",
@@ -523,7 +600,8 @@ describe("ConsentRequests erasures", () => {
 
         const [erasure] = yield* requests.cases;
 
-        assert.deepStrictEqual(erasure!.seenBy, [CHRIS]);
+        assert.deepStrictEqual(erasure!.seenBy, [CHRIS, "no-longer-an-admin"]);
+        assert.deepStrictEqual(erasure!.seenByNames, ["Christopher Holder", null]);
         assert.deepStrictEqual(yield* requests.noticesOf(id), [
           { requestId: id, medium: "discord", recipient: CHRIS, channel: "dm1", messageId: "m2" },
         ]);
