@@ -1,6 +1,6 @@
 # The database
 
-The bot records voice activity in the office to a Postgres database on [Supabase](https://supabase.com). It's collected now, to decide later what to use it for. The design is in [issue #10](https://github.com/push-based/virtual-office-notifier/issues/10), and [creating the project](setup.md#database) is part of setup.
+The bot records voice activity in the office to a Postgres database on [Supabase](https://supabase.com). It's kept to understand how the office is used and to give banter something to write about, as [why it's kept](privacy.md#why-its-kept) says. The design is in [issue #10](https://github.com/push-based/virtual-office-notifier/issues/10), and [creating the project](setup.md#database) is part of setup.
 
 Everything the bot stores is here: the voice activity, every Slack post and what came of it, and every recording. The database can never stop the announcements, as [below](#when-the-database-is-down).
 

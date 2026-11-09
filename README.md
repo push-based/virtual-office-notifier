@@ -93,9 +93,9 @@ Once it logs `Watching the virtual office`, join the office channel and the post
 
 ## Privacy
 
-This broadcasts people's presence to a wider audience, keeps a detailed record of everyone's activity in the office, and, feature by feature, sends names, messages and speech to AI providers that may keep and train on them. Nothing is deleted unless someone asks for their data to be deleted. Tell the team before turning each feature on. [Privacy](docs/privacy.md) says exactly what goes where and [where it all sits](docs/privacy.md#where-the-data-sits).
+This broadcasts people's presence to a wider audience, keeps a detailed record of everyone's activity in the office, and, feature by feature, sends names, messages and speech to AI providers that may keep and train on them. The tracking is kept for 14 months and recordings for as long as the company exists, as [why it's kept](docs/privacy.md#why-its-kept) says, and anyone can have their own data deleted. Tell the team before turning each feature on. [Privacy](docs/privacy.md) says exactly what goes where and [where it all sits](docs/privacy.md#where-the-data-sits).
 
-We run it as an internal tool for one team, who were asked about each feature and agreed to it, and that agreement is the whole basis for it. Run it anywhere the office can hold someone who hasn't agreed — a client, a guest, a team that isn't yours — and the GDPR asks you for a lawful basis, a notice, deletion, agreements with every provider it sends people to, and most likely a DPIA. None of that is in the code: [Running it for anyone else](docs/privacy.md#running-it-for-anyone-else) is the list.
+The office is optional, and recording is a condition of being in it: nobody has to join, but everyone who does is [asked to agree](docs/privacy.md#consent) to being recorded, and shown out if they don't. We run it as an internal tool for one team, who were asked about each feature and agreed to it. Run it anywhere the office can hold someone who hasn't agreed — a client, a guest, a team that isn't yours — and the GDPR asks you for a lawful basis, a notice, deletion, agreements with every provider it sends people to, and most likely a DPIA. Asking for consent and deleting someone's data are in the code, the rest isn't: [Running it for anyone else](docs/privacy.md#running-it-for-anyone-else) is the list.
 
 ## Contributing
 
