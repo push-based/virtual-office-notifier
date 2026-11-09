@@ -16,7 +16,7 @@ import { RecordingApi } from "../src/RecordingApi.ts";
 import { EditHandlers, HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
 import { RecordingEdits } from "../src/RecordingEdits.ts";
 import { RecordingHistory } from "../src/RecordingHistory.ts";
-import { RecordingRequests } from "../src/RecordingRequests.ts";
+import { recordingUnavailable, RecordingRequests } from "../src/RecordingRequests.ts";
 import { SignedInLayer, SignInHandlers } from "../src/SignInHandlers.ts";
 import { StatsHandlers } from "../src/StatsHandlers.ts";
 import type * as Wire from "../src/Wire.ts";
@@ -84,6 +84,34 @@ const Edits = Layer.succeed(
   }),
 );
 
+type AdminStanding = "admin" | "not_an_admin" | "database_down";
+
+const adminStanding = Ref.makeUnsafe<AdminStanding>("not_an_admin");
+
+const AdminConsent = Layer.effect(
+  ConsentRequests,
+  Effect.gen(function* () {
+    const disabled = yield* ConsentRequests;
+
+    return ConsentRequests.of({
+      ...disabled,
+      cases: Effect.succeed([]),
+      adminOf: (medium, userId) =>
+        Ref.get(adminStanding).pipe(
+          Effect.flatMap((standing) =>
+            standing === "database_down"
+              ? Effect.fail(recordingUnavailable("Timed out"))
+              : Effect.succeed(
+                  standing === "admin" && medium === "discord" && userId === "u1"
+                    ? Option.some({ name: "Ada", discordUserId: "u1", slackUserId: null })
+                    : Option.none(),
+                ),
+          ),
+        ),
+    });
+  }),
+).pipe(Layer.provide(ConsentRequests.layerDisabled));
+
 const Discord = Layer.succeed(
   DiscordOAuth,
   DiscordOAuth.of({
@@ -110,7 +138,7 @@ const app = HttpRouter.toWebHandler(
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerDisabled)),
       EditHandlers.pipe(Layer.provide(Edits)),
       ConsentHandlers.pipe(Layer.provide(ConsentRequests.layerDisabled)),
-      ErasureAdminHandlers.pipe(Layer.provide(ConsentRequests.layerDisabled)),
+      ErasureAdminHandlers.pipe(Layer.provide(AdminConsent)),
     ]),
     Layer.provideMerge(SignedInLayer),
     Layer.provide(Sessions.layer),
@@ -359,6 +387,31 @@ describe("the recording edits API", () => {
         401,
       );
       assert.strictEqual((yield* send("/api/edits/7")).status, 401);
+    }),
+  );
+});
+
+describe("the erasure admin API", () => {
+  it.effect("asks the admins table whether the signed-in person is an admin", () =>
+    Effect.gen(function* () {
+      const call = yield* signedIn;
+
+      yield* Ref.set(adminStanding, "not_an_admin");
+      assert.strictEqual((yield* call("/api/admin/erasures")).status, 404);
+
+      yield* Ref.set(adminStanding, "admin");
+
+      const response = yield* call("/api/admin/erasures");
+
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(yield* bodyOf(response), "[]");
+
+      yield* Ref.set(adminStanding, "database_down");
+      assert.strictEqual((yield* call("/api/admin/erasures")).status, 503);
+      assert.strictEqual(
+        (yield* call("/api/admin/erasures/1/now", { method: "POST" })).status,
+        503,
+      );
     }),
   );
 });

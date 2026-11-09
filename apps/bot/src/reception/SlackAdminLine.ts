@@ -135,9 +135,6 @@ export class SlackAdminLine extends Context.Service<SlackAdminLine, AdminLine>()
           .postMessage({ channel, text, blocks: sectionsOf(text) })
           .pipe(Effect.asVoid, Effect.catch(logFailure("Couldn't answer an admin in Slack")));
 
-      const notify = (admin: Admin, erasure: ErasureCase) =>
-        admin.slackUserId === null ? Effect.succeedNone : postNotice(admin.slackUserId, erasure);
-
       const postNotice = (slackUserId: string, erasure: ErasureCase) =>
         slack.openDirectMessage(slackUserId).pipe(
           Effect.flatMap((channel) => {
@@ -156,6 +153,9 @@ export class SlackAdminLine extends Context.Service<SlackAdminLine, AdminLine>()
             ),
           ),
         );
+
+      const notify = (admin: Admin, erasure: ErasureCase) =>
+        admin.slackUserId === null ? Effect.succeedNone : postNotice(admin.slackUserId, erasure);
 
       const update = (notice: ErasureNotice, text: string) =>
         slack
