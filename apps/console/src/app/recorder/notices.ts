@@ -1,4 +1,5 @@
-import type { HandledRequest, Notice } from "./models";
+import type { Notice } from "../notice.ts";
+import type { HandledRequest } from "../wire.ts";
 
 export const outcomeNotice = (result: HandledRequest | null): Notice => {
   if (result === null)

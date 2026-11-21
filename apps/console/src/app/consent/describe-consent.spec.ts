@@ -1,7 +1,7 @@
-import type { ConsentStatus } from "recording-requests/wire";
+import type { ConsentStatus } from "../wire.ts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { describeConsent } from "./describe-consent";
+import { describeConsent } from "./describe-consent.ts";
 
 const agreed: ConsentStatus = {
   standing: "agreed",

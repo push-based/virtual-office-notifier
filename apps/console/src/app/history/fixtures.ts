@@ -1,4 +1,4 @@
-import type { ListedRecording, OfficeMember, RecordingDetail } from "./models";
+import type { ListedRecording, OfficeMember, RecordingDetail } from "../wire.ts";
 
 export const anna: OfficeMember = { userId: "u1", name: "Anna", avatarUrl: null };
 

@@ -1,32 +1,22 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
-import { ngp } from "@push-based/vite-plugin-ngp";
-import { defineConfig, lazyPlugins, type Plugin } from "vite-plus";
+import { foldkit } from "@foldkit/vite-plugin";
+import { defineConfig, lazyPlugins } from "vite-plus";
 
 import { typecheck } from "../../tools/vite-task/typecheck.ts";
-
-const onlyInTheBrowser = (plugin: Plugin): Plugin => ({
-  ...plugin,
-  applyToEnvironment: (environment) => environment.config.consumer === "client",
-});
 
 export default defineConfig(({ mode }) => ({
   define: {
     __SENTRY_RELEASE__: JSON.stringify(process.env["GITHUB_SHA"] ?? ""),
   },
   plugins: lazyPlugins(() => [
-    ngp({ typeChecker: "tsrs" }).map(onlyInTheBrowser),
+    foldkit(),
     mode === "test" ? [] : cloudflare({ viteEnvironment: { name: "worker" } }),
   ]),
   test: {
     projects: [
       {
         extends: true,
-        test: {
-          name: "page",
-          environment: "jsdom",
-          include: ["src/**/*.spec.ts"],
-          setupFiles: ["src/test-setup.ts"],
-        },
+        test: { name: "page", environment: "jsdom", include: ["src/**/*.spec.ts"] },
       },
       {
         extends: true,
@@ -36,7 +26,9 @@ export default defineConfig(({ mode }) => ({
   },
   run: {
     tasks: {
-      typecheck: typecheck("pnpm -w exec tsc --noEmit -p apps/console/worker"),
+      typecheck: typecheck(
+        "pnpm -w exec tsc --noEmit -p apps/console && pnpm -w exec tsc --noEmit -p apps/console/worker",
+      ),
       build: {
         command: "vp build",
         cache: {

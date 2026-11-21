@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { describePhase } from "./describe-phase";
+import { describePhase } from "./describe-phase.ts";
 
 const now = Date.parse("2026-10-27T12:12:34Z");
 

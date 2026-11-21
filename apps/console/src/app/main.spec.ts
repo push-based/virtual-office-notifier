@@ -1,0 +1,107 @@
+import { Scene, Story } from "foldkit";
+import { describe, expect, it } from "vite-plus/test";
+
+import * as Consent from "./consent/consent.ts";
+import {
+  init,
+  initModel,
+  isSignedIn,
+  Message,
+  type Model,
+  SignInToDiscord,
+  StartTelemetry,
+  update,
+  view,
+} from "./main.ts";
+import * as Recorder from "./recorder/recorder.ts";
+import * as Stats from "./stats/stats.ts";
+
+const signedIn = (): Model => update(initModel(), Message.SucceededSignIn()).model;
+
+const scene = { update, view };
+
+describe("the Console", () => {
+  it("starts the telemetry and signs in through Discord", () => {
+    expect(init().commands?.map(({ name }) => name)).toEqual([
+      StartTelemetry.name,
+      SignInToDiscord.name,
+    ]);
+  });
+
+  it("starts polling the office once signed in", () => {
+    Story.story(
+      update,
+      Story.given(initModel()),
+      Story.message(Message.SucceededSignIn()),
+      Story.model((model) => {
+        expect(isSignedIn(model)).toBe(true);
+        expect(model.recorder.connection).toEqual(Recorder.Connection.Loading());
+      }),
+    );
+  });
+
+  it("shows why it couldn't start when sign-in fails", () => {
+    Scene.scene(
+      scene,
+      Scene.given(update(initModel(), Message.FailedSignIn({ reason: "No Discord" })).model),
+      Scene.expect(Scene.role("heading", { name: "Couldn't start" })).toExist(),
+      Scene.expect(Scene.text("No Discord")).toExist(),
+    );
+  });
+
+  it("switches views with the tabs, keeping Now and History rendered", () => {
+    Scene.scene(
+      scene,
+      Scene.given(initModel()),
+      Scene.expect(Scene.role("tab", { name: "Now" })).toHaveAttr("aria-selected", "true"),
+      Scene.click(Scene.role("tab", { name: "History" })),
+      Scene.expect(Scene.role("tab", { name: "History" })).toHaveAttr("aria-selected", "true"),
+      Scene.expect(Scene.selector("#view-panel-now")).toHaveAttr("hidden", "true"),
+      Scene.expect(Scene.selector("#view-panel-stats")).toBeAbsent(),
+    );
+  });
+
+  it("counts the stats each time the Stats tab opens, once signed in", () => {
+    Story.story(
+      update,
+      Story.given(initModel()),
+      Story.message(Message.ClickedView({ view: "stats" })),
+      Story.Command.expectNone(),
+      Story.message(Message.SucceededSignIn()),
+      Story.Command.expectExact(Stats.FetchStats({ range: "week" })),
+      Story.Command.resolve(
+        Stats.FetchStats,
+        Stats.Message.FailedFetchStats({ range: "week", reason: "x" }),
+      ),
+    );
+  });
+
+  it("checks your consent each time the Privacy tab opens", () => {
+    Story.story(
+      update,
+      Story.given(signedIn()),
+      Story.message(Message.ClickedView({ view: "privacy" })),
+      Story.Command.expectExact(Consent.FetchConsent()),
+      Story.Command.resolve(
+        Consent.FetchConsent,
+        Consent.Message.FailedFetchConsent({ reason: "x" }),
+      ),
+      Story.message(Message.ClickedView({ view: "now" })),
+      Story.message(Message.ClickedView({ view: "privacy" })),
+      Story.Command.expectExact(Consent.FetchConsent()),
+      Story.Command.resolve(
+        Consent.FetchConsent,
+        Consent.Message.FailedFetchConsent({ reason: "x" }),
+      ),
+    );
+  });
+
+  it("keeps the clock", () => {
+    Story.story(
+      update,
+      Story.given(initModel()),
+      Story.message(Message.TickedClock({ now: 42 })),
+      Story.model((model) => expect(model.now).toBe(42)),
+    );
+  });
+});

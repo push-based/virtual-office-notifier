@@ -1,6 +1,5 @@
-import type { HttpErrorResponse } from "@angular/common/http";
-import { InjectionToken } from "@angular/core";
-import * as Sentry from "@sentry/angular";
+import * as Sentry from "@sentry/browser";
+import { Context, Effect } from "effect";
 
 export const BODY_LIMIT = 200;
 
@@ -8,55 +7,58 @@ const SAFE_HEADERS = ["retry-after", "cf-ray", "server", "via", "content-type"] 
 
 export type FailureDetails = Readonly<Record<string, string>>;
 
-const bodyOf = (error: HttpErrorResponse): string | null => {
-  const body: unknown = error.error;
+export interface FailedResponse {
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string | undefined>>;
+  readonly body: string;
+}
 
-  if (body === null || body === undefined || body instanceof ProgressEvent) return null;
-
-  return body instanceof Object ? JSON.stringify(body) : String(body);
-};
-
-export const describeGatewayFailure = (error: HttpErrorResponse): FailureDetails => {
+export const describeGatewayFailure = (response: FailedResponse): FailureDetails => {
   const headers = SAFE_HEADERS.flatMap((name) => {
-    const value = error.headers.get(name);
+    const value = response.headers[name];
 
-    return value === null ? [] : [[name, value] as const];
+    return value === undefined ? [] : [[name, value] as const];
   });
 
-  const body = bodyOf(error);
-
   return Object.fromEntries([
-    ["status", String(error.status)],
-    ["statusText", error.statusText],
+    ["status", String(response.status)],
     ...headers,
-    ...(body === null ? [] : [["body", body.slice(0, BODY_LIMIT)] as const]),
+    ...(response.body === "" ? [] : [["body", response.body.slice(0, BODY_LIMIT)] as const]),
   ]);
 };
 
-export interface GatewayFailures {
-  retrying(url: string, error: HttpErrorResponse): void;
-  gaveUp(url: string, error: HttpErrorResponse): void;
+export interface GatewayFailure {
+  readonly path: string;
+  readonly status: number;
+  readonly details: FailureDetails;
 }
 
-export const sentryGatewayFailures: GatewayFailures = {
-  retrying: (url, error) => {
-    Sentry.addBreadcrumb({
-      category: "http.retry",
-      level: "warning",
-      message: `${url} answered ${error.status}, asking again`,
-      data: describeGatewayFailure(error),
-    });
-  },
-  gaveUp: (url, error) => {
-    Sentry.captureMessage(`${url} kept answering ${error.status}`, {
-      level: "warning",
-      fingerprint: ["gateway-failure", String(error.status)],
-      contexts: { response: describeGatewayFailure(error) },
-    });
-  },
+export interface GatewayFailuresService {
+  readonly retrying: (failure: GatewayFailure) => Effect.Effect<void>;
+  readonly gaveUp: (failure: GatewayFailure) => Effect.Effect<void>;
+}
+
+export const sentryGatewayFailures: GatewayFailuresService = {
+  retrying: (failure) =>
+    Effect.sync(() =>
+      Sentry.addBreadcrumb({
+        category: "http.retry",
+        level: "warning",
+        message: `${failure.path} answered ${failure.status}, asking again`,
+        data: failure.details,
+      }),
+    ),
+  gaveUp: (failure) =>
+    Effect.sync(() => {
+      Sentry.captureMessage(`${failure.path} kept answering ${failure.status}`, {
+        level: "warning",
+        fingerprint: ["gateway-failure", String(failure.status)],
+        contexts: { response: failure.details },
+      });
+    }),
 };
 
-export const GATEWAY_FAILURES = new InjectionToken<GatewayFailures>("GatewayFailures", {
-  providedIn: "root",
-  factory: () => sentryGatewayFailures,
-});
+export const GatewayFailures = Context.Reference<GatewayFailuresService>(
+  "console/telemetry/GatewayFailures",
+  { defaultValue: () => sentryGatewayFailures },
+);

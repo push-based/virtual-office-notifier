@@ -1,7 +1,7 @@
-import type { OfficeStats } from "recording-requests/wire";
+import type { OfficeStats } from "../wire.ts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { busiestGrid, describeStats, emojiLabel, rangeOf } from "./describe-stats";
+import { busiestGrid, describeStats, emojiLabel, rangeOf } from "./describe-stats.ts";
 
 const stats: OfficeStats = {
   range: "week",

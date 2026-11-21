@@ -1,18 +1,11 @@
-import { Component, input } from "@angular/core";
+import type { Html, HtmlBuilder } from "foldkit/html";
+
+import type { Content } from "./content.ts";
 
 export type CardSize = "md" | "lg";
 
-@Component({
-  selector: "pb-card",
-  template: `<ng-content />`,
-  styles: `
-    :host(.pb-card-lg) {
-      max-width: none;
-      gap: var(--space-4);
-    }
-  `,
-  host: { class: "pb-card", "[class.pb-card-lg]": "size() === 'lg'" },
-})
-export class PbCard {
-  readonly size = input<CardSize>("md");
-}
+export const card = <Message>(
+  h: HtmlBuilder<Message>,
+  size: CardSize,
+  children: ReadonlyArray<Content>,
+): Html => h.section([h.Class(size === "lg" ? "pb-card pb-card-lg" : "pb-card")], children);

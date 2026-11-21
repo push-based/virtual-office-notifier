@@ -1,9 +1,11 @@
+import { formatOfficeTime } from "../history/describe-recording.ts";
 import {
+  type ErasureCase,
   type ErasureInventory,
   FORMER_MEMBER,
   type RefusalGround,
   REFUSAL_GROUNDS,
-} from "recording-requests/wire";
+} from "../wire.ts";
 
 const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
@@ -24,3 +26,20 @@ export const describeInventory = (inventory: ErasureInventory): ReadonlyArray<st
 export const groundLabel = (ground: RefusalGround): string => REFUSAL_GROUNDS[ground];
 
 export const adminName = (name: string | null): string => name ?? "an admin";
+
+export const describeStanding = (erasure: ErasureCase): string => {
+  switch (erasure.decision) {
+    case "now":
+      return `${adminName(erasure.decidedByName)} asked for it to run now; the bot is on it.`;
+    case "refused":
+      return `${adminName(erasure.decidedByName)} refused it because of ${groundLabel(erasure.refusal?.ground ?? "legal_obligation")}; the bot is telling them.`;
+    case "cancelled":
+      return "They cancelled it, or agreed to being recorded again; the bot is closing it.";
+    case null:
+      return erasure.seenBy.length === 0
+        ? "Nobody has looked at it yet."
+        : `Seen by ${erasure.seenByNames.map(adminName).join(" and ")}.`;
+  }
+};
+
+export const officeTime = (iso: string): string => `${formatOfficeTime(iso)}, UTC+2`;

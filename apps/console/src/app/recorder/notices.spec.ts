@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { outcomeNotice, unreachableNotice } from "./notices";
+import { outcomeNotice, unreachableNotice } from "./notices.ts";
 
 describe("outcomeNotice", () => {
   it("confirms a started recording", () => {

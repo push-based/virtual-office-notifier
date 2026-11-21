@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatDuration, formatElapsed, formatTimeLeft, formatTimeSince } from "./duration";
+import { formatDuration, formatElapsed, formatTimeLeft, formatTimeSince } from "./duration.ts";
 
 describe("formatElapsed", () => {
   const since = "2026-10-27T12:00:00Z";

@@ -1,29 +1,55 @@
-import { Component, DestroyRef, inject, signal } from "@angular/core";
-import { rxResource, takeUntilDestroyed } from "@angular/core/rxjs-interop";
+import { Effect, Option, Schema } from "effect";
 import {
-  type NoticeKind,
-  PbButton,
-  PbCard,
-  PbDescription,
-  PbEyebrow,
-  PbNotice,
-  PbNoticeRegion,
-  PbSelectField,
+  button,
+  card,
+  description,
+  eyebrow,
+  notice,
+  noticeRegion,
   type SelectOption,
+  selectField,
 } from "design-system";
-import { type ErasureCase, type RefusalGround, REFUSAL_GROUNDS } from "recording-requests/wire";
+import { AsyncData, Command, Submodel, type Update } from "foldkit";
+import type { Html, HtmlBuilder } from "foldkit/html";
+import { defineMessageUnion } from "foldkit/message";
+import { modifyFields } from "foldkit/struct";
 
-import { formatOfficeTime } from "../history/describe-recording";
-import { RecorderSession } from "../recorder/session";
-import { ConsentApi } from "./consent-api";
-import { adminName, describeInventory, groundLabel } from "./describe-erasure";
+import * as Api from "../api/api.ts";
+import { Notice } from "../notice.ts";
+import type { Resources } from "../resources.ts";
+import {
+  type ErasureCase,
+  ErasureCases,
+  REFUSAL_GROUNDS,
+  RefusalGround,
+  SubmittedErasure,
+} from "../wire.ts";
+import { describeInventory, describeStanding, officeTime } from "./describe-erasure.ts";
 
-interface AdminNotice {
-  readonly kind: NoticeKind;
-  readonly text: string;
-}
+export const NOTED_NOW: Notice = {
+  kind: "info",
+  text: "Noted. The bot deletes it within a minute, then tells them.",
+};
 
-type Confirming = { readonly id: number; readonly action: "now" | "refuse" };
+export const NOTED_SEEN: Notice = {
+  kind: "info",
+  text: "Noted as seen. It still runs on the due date unless someone acts.",
+};
+
+export const NOTED_REFUSED: Notice = {
+  kind: "info",
+  text: "Refused. They'll be told why, and that they can complain.",
+};
+
+export const ALREADY_DECIDED: Notice = {
+  kind: "error",
+  text: "That request was already decided, or the deletion has already run.",
+};
+
+export const UNREACHABLE: Notice = {
+  kind: "error",
+  text: "Couldn't reach the bot's records. Nothing changed, so try again in a moment.",
+};
 
 const GROUNDS: ReadonlyArray<SelectOption> = [
   { value: "legal_obligation", label: REFUSAL_GROUNDS.legal_obligation },
@@ -33,346 +59,347 @@ const GROUNDS: ReadonlyArray<SelectOption> = [
 const groundOf = (value: string): RefusalGround =>
   value === "legal_claim" ? "legal_claim" : "legal_obligation";
 
-const NOTED_NOW: AdminNotice = {
-  kind: "info",
-  text: "Noted. The bot deletes it within a minute, then tells them.",
-};
+export const CasesData = AsyncData.Schema(ErasureCases, Schema.String);
 
-const NOTED_SEEN: AdminNotice = {
-  kind: "info",
-  text: "Noted as seen. It still runs on the due date unless someone acts.",
-};
+export const Confirming = Schema.Struct({
+  id: Schema.Number,
+  action: Schema.Literals(["now", "refuse"]),
+});
 
-const NOTED_REFUSED: AdminNotice = {
-  kind: "info",
-  text: "Refused. They'll be told why, and that they can complain.",
-};
+export const Decision = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("now") }),
+  Schema.Struct({ kind: Schema.Literal("seen") }),
+  Schema.Struct({ kind: Schema.Literal("refuse"), ground: RefusalGround, reason: Schema.String }),
+]);
 
-const ALREADY_DECIDED: AdminNotice = {
-  kind: "error",
-  text: "That request was already decided, or the deletion has already run.",
-};
+export type Decision = typeof Decision.Type;
 
-const FAILED: AdminNotice = {
-  kind: "error",
-  text: "Couldn't reach the bot's records. Nothing changed, so try again in a moment.",
-};
+export const Model = Schema.Struct({
+  cases: CasesData.schema,
+  confirming: Schema.Option(Confirming),
+  busy: Schema.Option(Schema.Number),
+  notice: Schema.Option(Notice),
+  ground: RefusalGround,
+  reason: Schema.String,
+});
 
-@Component({
-  selector: "app-erasure-admin",
-  imports: [PbButton, PbCard, PbDescription, PbEyebrow, PbNotice, PbNoticeRegion, PbSelectField],
-  template: `
-    <pb-card size="lg">
-      <p pbEyebrow>Deletion requests</p>
-      @if (cases.error(); as error) {
-        <pb-notice kind="error">Couldn't load the deletion requests: {{ error.message }}</pb-notice>
-      } @else if (cases.value(); as list) {
-        @if (list.length === 0) {
-          <p pbDescription>Nobody has asked for their data to be deleted.</p>
-        }
-        @for (erasure of list; track erasure.id) {
-          <article class="case" [attr.aria-labelledby]="'case-' + erasure.id">
-            <h3 [id]="'case-' + erasure.id" class="text-body label">
-              {{ erasure.displayName ?? "A member" }}
-              <span class="text-body-sm muted"
-                >Discord ID {{ erasure.userId }} · request #{{ erasure.id }}</span
-              >
-            </h3>
-            <p pbDescription>
-              Asked on {{ when(erasure.requestedAt) }}. Unless someone acts, it's deleted on
-              {{ when(erasure.dueAt) }}. {{ standing(erasure) }}
-            </p>
-            <p pbDescription>
-              Under Article 17 of the GDPR this is their right. Refusing needs one of two grounds: a
-              legal obligation to keep the data, or an ongoing legal claim that needs it. The reason
-              goes to them word for word, with their right to complain to a data protection
-              authority.
-            </p>
-            <h4 class="text-body-sm label">What will be deleted</h4>
-            <ul class="text-body-sm">
-              @for (line of inventory(erasure); track $index) {
-                <li>{{ line }}</li>
-              }
-            </ul>
-            @if (erasure.decision === null) {
-              @if (confirming()?.id === erasure.id && confirming()?.action === "now") {
-                <div class="confirm danger" role="group">
-                  <p class="text-body-sm">
-                    This runs the deletion within a minute, and it can't be undone.
-                  </p>
-                  <div class="controls">
-                    <button
-                      pbButton
-                      type="button"
-                      [disabled]="busy() !== null"
-                      (click)="expedite(erasure.id)"
-                    >
-                      {{ busy() === erasure.id ? "Working…" : "Delete now" }}
-                    </button>
-                    <button
-                      pbButton
-                      type="button"
-                      variant="ghost"
-                      [disabled]="busy() !== null"
-                      (click)="confirming.set(null)"
-                    >
-                      Back
-                    </button>
-                  </div>
-                </div>
-              } @else if (confirming()?.id === erasure.id && confirming()?.action === "refuse") {
-                <form class="confirm danger" (submit)="refuse($event, erasure.id)">
-                  <pb-select-field label="Ground" [options]="grounds" [(value)]="ground" />
-                  <label class="field">
-                    <span class="text-body-sm label">
-                      Why it has to be kept. This goes to them, word for word.
-                    </span>
-                    <textarea
-                      class="text-body control"
-                      rows="4"
-                      required
-                      maxlength="1000"
-                      [value]="reason()"
-                      (input)="reason.set(reasonInput.value)"
-                      #reasonInput
-                    ></textarea>
-                  </label>
-                  <div class="controls">
-                    <button
-                      pbButton
-                      type="submit"
-                      [disabled]="busy() !== null || reason().trim() === ''"
-                    >
-                      {{ busy() === erasure.id ? "Working…" : "Refuse the deletion" }}
-                    </button>
-                    <button
-                      pbButton
-                      type="button"
-                      variant="ghost"
-                      [disabled]="busy() !== null"
-                      (click)="confirming.set(null)"
-                    >
-                      Keep it open
-                    </button>
-                  </div>
-                </form>
-              } @else {
-                <div class="controls">
-                  <button
-                    pbButton
-                    type="button"
-                    [disabled]="busy() !== null"
-                    (click)="confirming.set({ id: erasure.id, action: 'now' })"
-                  >
-                    Delete now
-                  </button>
-                  <button
-                    pbButton
-                    type="button"
-                    variant="ghost"
-                    [disabled]="busy() !== null"
-                    (click)="seen(erasure.id)"
-                  >
-                    Let it run
-                  </button>
-                  <button
-                    pbButton
-                    type="button"
-                    variant="ghost"
-                    [disabled]="busy() !== null"
-                    (click)="confirming.set({ id: erasure.id, action: 'refuse' })"
-                  >
-                    Refuse…
-                  </button>
-                </div>
-              }
-            }
-          </article>
-        }
-      } @else {
-        <p pbDescription>Loading…</p>
-      }
-      <pb-notice-region>
-        @if (notice(); as notice) {
-          <pb-notice [kind]="notice.kind">{{ notice.text }}</pb-notice>
-        }
-      </pb-notice-region>
-    </pb-card>
-  `,
-  styles: `
-    :host {
-      display: block;
-    }
+export type Model = typeof Model.Type;
 
-    .case {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-2);
-      padding-top: var(--space-4);
-      border-top: 1px solid var(--color-border);
-    }
+export const init = (): Model => ({
+  cases: CasesData.Idle(),
+  confirming: Option.none(),
+  busy: Option.none(),
+  notice: Option.none(),
+  ground: "legal_obligation",
+  reason: "",
+});
 
-    .case p {
-      margin: 0;
-    }
+export const Message = defineMessageUnion({
+  SucceededFetchCases: { cases: ErasureCases },
+  FailedFetchCases: { reason: Schema.String },
+  ClickedConfirm: { confirming: Confirming },
+  ClickedBack: {},
+  ClickedDeleteNow: { id: Schema.Number },
+  ClickedLetItRun: { id: Schema.Number },
+  UpdatedGround: { value: Schema.String },
+  UpdatedReason: { value: Schema.String },
+  SubmittedRefusal: { id: Schema.Number },
+  SucceededDecideErasure: { decision: Decision },
+  FailedDecideErasure: { isAlreadyDecided: Schema.Boolean },
+});
 
-    .label {
-      margin: 0;
-      font-weight: 600;
-      color: var(--color-text-heading);
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-      align-items: baseline;
-    }
+export type Message = typeof Message.Type;
 
-    .muted {
-      font-weight: 400;
-      color: var(--color-text-muted);
-    }
+export const FetchCases = Command.define("FetchCases", {
+  messages: [Message.SucceededFetchCases, Message.FailedFetchCases],
+  execute: Api.get("/api/admin/erasures", ErasureCases).pipe(
+    Effect.map((cases) => Message.SucceededFetchCases({ cases })),
+    Effect.catchTag("ApiFailure", ({ reason }) =>
+      Effect.succeed(Message.FailedFetchCases({ reason })),
+    ),
+  ),
+});
 
-    ul {
-      margin: 0;
-      padding-left: var(--space-5);
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-1);
-      color: var(--color-text);
-    }
-
-    .confirm {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-3);
-      padding: var(--space-4);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-md);
-      background: var(--color-surface);
-    }
-
-    .confirm.danger {
-      border-color: var(--color-error-300);
-    }
-
-    .field {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-1-5);
-    }
-
-    .control {
-      width: 100%;
-      margin: 0;
-      padding: var(--space-2) var(--space-3);
-      font-family: var(--font-sans);
-      color: var(--color-text);
-      background: var(--color-surface);
-      border: 1px solid var(--color-neutral-300);
-      border-radius: var(--radius-lg);
-      box-shadow: var(--shadow-sm);
-      resize: vertical;
-    }
-
-    .control:focus-visible {
-      outline: none;
-      border-color: var(--color-primary-300);
-      box-shadow: var(--shadow-focus);
-    }
-
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-3);
-    }
-  `,
-})
-export class ErasureAdmin {
-  private readonly api = inject(ConsentApi);
-
-  private readonly session = inject(RecorderSession);
-
-  private readonly destroyRef = inject(DestroyRef);
-
-  protected readonly grounds = GROUNDS;
-
-  protected readonly confirming = signal<Confirming | null>(null);
-
-  protected readonly busy = signal<number | null>(null);
-
-  protected readonly notice = signal<AdminNotice | null>(null);
-
-  protected readonly ground = signal<string>("legal_obligation");
-
-  protected readonly reason = signal("");
-
-  protected readonly cases = rxResource({
-    params: () => (this.session.token() === null ? undefined : this.session.token()),
-    stream: () => this.api.cases(),
-  });
-
-  protected when(iso: string): string {
-    return `${formatOfficeTime(iso)}, UTC+2`;
-  }
-
-  protected inventory(erasure: ErasureCase): ReadonlyArray<string> {
-    return describeInventory(erasure.inventory);
-  }
-
-  protected standing(erasure: ErasureCase): string {
-    switch (erasure.decision) {
-      case "now":
-        return `${adminName(erasure.decidedByName)} asked for it to run now; the bot is on it.`;
-      case "refused":
-        return `${adminName(erasure.decidedByName)} refused it because of ${groundLabel(erasure.refusal?.ground ?? "legal_obligation")}; the bot is telling them.`;
-      case "cancelled":
-        return "They cancelled it, or agreed to being recorded again; the bot is closing it.";
-      case null:
-        return erasure.seenBy.length === 0
-          ? "Nobody has looked at it yet."
-          : `Seen by ${erasure.seenByNames.map(adminName).join(" and ")}.`;
-    }
-  }
-
-  protected expedite(id: number): void {
-    this.act(id, () => this.api.expedite(id), NOTED_NOW);
-  }
-
-  protected seen(id: number): void {
-    this.act(id, () => this.api.seen(id), NOTED_SEEN);
-  }
-
-  protected refuse(event: Event, id: number): void {
-    event.preventDefault();
-
-    const reason = this.reason().trim();
-
-    if (reason === "") return;
-
-    this.act(
-      id,
-      () => this.api.refuse(id, { ground: groundOf(this.ground()), reason }),
-      NOTED_REFUSED,
-    );
-  }
-
-  private act(id: number, call: () => ReturnType<ConsentApi["seen"]>, done: AdminNotice): void {
-    this.busy.set(id);
-    this.notice.set(null);
-
-    call()
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => this.settle(done),
-        error: (error: Error) =>
-          this.settle(error.message.endsWith("answered 404") ? ALREADY_DECIDED : FAILED),
+const decided = (id: number, decision: Decision) => {
+  switch (decision.kind) {
+    case "now":
+      return Api.post(`/api/admin/erasures/${id}/now`, SubmittedErasure);
+    case "seen":
+      return Api.post(`/api/admin/erasures/${id}/seen`, SubmittedErasure);
+    case "refuse":
+      return Api.post(`/api/admin/erasures/${id}/refuse`, SubmittedErasure, {
+        ground: decision.ground,
+        reason: decision.reason,
       });
   }
+};
 
-  private settle(notice: AdminNotice): void {
-    this.busy.set(null);
-    this.confirming.set(null);
-    this.reason.set("");
-    this.notice.set(notice);
-    this.cases.reload();
+export const DecideErasure = Command.define("DecideErasure", {
+  args: { id: Schema.Number, decision: Decision },
+  messages: [Message.SucceededDecideErasure, Message.FailedDecideErasure],
+  execute: ({ id, decision }) =>
+    decided(id, decision).pipe(
+      Effect.as(Message.SucceededDecideErasure({ decision })),
+      Effect.catchTag("ApiFailure", ({ status }) =>
+        Effect.succeed(Message.FailedDecideErasure({ isAlreadyDecided: status === 404 })),
+      ),
+    ),
+});
+
+type UpdateReturn = Update.Return<Model, Message, Resources>;
+
+export const open = (model: Model): UpdateReturn => ({
+  model: modifyFields(model, { cases: () => CasesData.Loading() }),
+  commands: [FetchCases()],
+});
+
+const decide = (model: Model, id: number, decision: Decision): UpdateReturn =>
+  Option.isSome(model.busy)
+    ? { model }
+    : {
+        model: modifyFields(model, { busy: () => Option.some(id), notice: () => Option.none() }),
+        commands: [DecideErasure({ id, decision })],
+      };
+
+const settle = (model: Model, shown: Notice): UpdateReturn => ({
+  model: modifyFields(model, {
+    busy: () => Option.none(),
+    confirming: () => Option.none(),
+    reason: () => "",
+    notice: () => Option.some(shown),
+    cases: (cases) =>
+      Option.match(AsyncData.getData(cases), {
+        onNone: () => CasesData.Loading(),
+        onSome: (data) => CasesData.Refreshing({ data }),
+      }),
+  }),
+  commands: [FetchCases()],
+});
+
+const noticeFor = (decision: Decision): Notice => {
+  switch (decision.kind) {
+    case "now":
+      return NOTED_NOW;
+    case "seen":
+      return NOTED_SEEN;
+    case "refuse":
+      return NOTED_REFUSED;
   }
-}
+};
+
+export const update = (model: Model, message: Message) =>
+  Message.match<UpdateReturn>(message, {
+    SucceededFetchCases: ({ cases }) => ({
+      model: modifyFields(model, { cases: () => CasesData.Success({ data: cases }) }),
+    }),
+
+    FailedFetchCases: ({ reason }) => ({
+      model: modifyFields(model, { cases: () => CasesData.Failure({ error: reason }) }),
+    }),
+
+    ClickedConfirm: ({ confirming }) => ({
+      model: modifyFields(model, { confirming: () => Option.some(confirming) }),
+    }),
+
+    ClickedBack: () => ({ model: modifyFields(model, { confirming: () => Option.none() }) }),
+
+    ClickedDeleteNow: ({ id }) => decide(model, id, { kind: "now" }),
+
+    ClickedLetItRun: ({ id }) => decide(model, id, { kind: "seen" }),
+
+    UpdatedGround: ({ value }) => ({
+      model: modifyFields(model, { ground: () => groundOf(value) }),
+    }),
+
+    UpdatedReason: ({ value }) => ({ model: modifyFields(model, { reason: () => value }) }),
+
+    SubmittedRefusal: ({ id }) => {
+      const reason = model.reason.trim();
+
+      return reason === ""
+        ? { model }
+        : decide(model, id, { kind: "refuse", ground: model.ground, reason });
+    },
+
+    SucceededDecideErasure: ({ decision }) => settle(model, noticeFor(decision)),
+
+    FailedDecideErasure: ({ isAlreadyDecided }) =>
+      settle(model, isAlreadyDecided ? ALREADY_DECIDED : UNREACHABLE),
+  });
+
+const isConfirming = (model: Model, id: number, action: "now" | "refuse"): boolean =>
+  Option.exists(
+    model.confirming,
+    (confirming) => confirming.id === id && confirming.action === action,
+  );
+
+const workingLabel = (model: Model, id: number, idle: string): string =>
+  Option.exists(model.busy, (busy) => busy === id) ? "Working…" : idle;
+
+const confirmNowView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Class("confirm confirm-danger"), h.Role("group")],
+    [
+      h.p(
+        [h.Class("text-body-sm")],
+        ["This runs the deletion within a minute, and it can't be undone."],
+      ),
+      h.div(
+        [h.Class("controls")],
+        [
+          button(h, {
+            label: [workingLabel(model, id, "Delete now")],
+            onClick: Message.ClickedDeleteNow({ id }),
+            isDisabled: Option.isSome(model.busy),
+          }),
+          button(h, {
+            label: ["Back"],
+            variant: "ghost",
+            onClick: Message.ClickedBack(),
+            isDisabled: Option.isSome(model.busy),
+          }),
+        ],
+      ),
+    ],
+  );
+
+const refuseView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
+  h.form(
+    [h.Class("confirm confirm-danger"), h.OnSubmit(Message.SubmittedRefusal({ id }))],
+    [
+      selectField(h, {
+        id: `ground-${id}`,
+        label: "Ground",
+        options: GROUNDS,
+        value: model.ground,
+        onChange: (value) => Message.UpdatedGround({ value }),
+      }),
+      h.div(
+        [h.Class("pb-field")],
+        [
+          h.label(
+            [h.Class("text-body-sm label"), h.For(`reason-${id}`)],
+            ["Why it has to be kept. This goes to them, word for word."],
+          ),
+          h.textarea([
+            h.Id(`reason-${id}`),
+            h.Class("text-body pb-field-control"),
+            h.Rows(4),
+            h.Required(true),
+            h.Maxlength(1000),
+            h.Value(model.reason),
+            h.OnInput((value) => Message.UpdatedReason({ value })),
+          ]),
+        ],
+      ),
+      h.div(
+        [h.Class("controls")],
+        [
+          button(h, {
+            label: [workingLabel(model, id, "Refuse the deletion")],
+            isSubmit: true,
+            isDisabled: Option.isSome(model.busy) || model.reason.trim() === "",
+          }),
+          button(h, {
+            label: ["Keep it open"],
+            variant: "ghost",
+            onClick: Message.ClickedBack(),
+            isDisabled: Option.isSome(model.busy),
+          }),
+        ],
+      ),
+    ],
+  );
+
+const actionsView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Class("controls")],
+    [
+      button(h, {
+        label: ["Delete now"],
+        onClick: Message.ClickedConfirm({ confirming: { id, action: "now" } }),
+        isDisabled: Option.isSome(model.busy),
+      }),
+      button(h, {
+        label: ["Let it run"],
+        variant: "ghost",
+        onClick: Message.ClickedLetItRun({ id }),
+        isDisabled: Option.isSome(model.busy),
+      }),
+      button(h, {
+        label: ["Refuse…"],
+        variant: "ghost",
+        onClick: Message.ClickedConfirm({ confirming: { id, action: "refuse" } }),
+        isDisabled: Option.isSome(model.busy),
+      }),
+    ],
+  );
+
+const decisionView = (model: Model, erasure: ErasureCase, h: HtmlBuilder<Message>): Html => {
+  if (erasure.decision !== null) return h.empty;
+
+  if (isConfirming(model, erasure.id, "now")) return confirmNowView(model, erasure.id, h);
+
+  if (isConfirming(model, erasure.id, "refuse")) return refuseView(model, erasure.id, h);
+
+  return actionsView(model, erasure.id, h);
+};
+
+const caseView = (model: Model, erasure: ErasureCase, h: HtmlBuilder<Message>): Html =>
+  h.keyed("article")(
+    String(erasure.id),
+    [h.Class("case"), h.AriaLabelledBy(`case-${erasure.id}`)],
+    [
+      h.h3(
+        [h.Id(`case-${erasure.id}`), h.Class("text-body label")],
+        [
+          erasure.displayName ?? "A member",
+          h.span(
+            [h.Class("text-body-sm muted")],
+            [`Discord ID ${erasure.userId} · request #${erasure.id}`],
+          ),
+        ],
+      ),
+      description(h, [
+        `Asked on ${officeTime(erasure.requestedAt)}. Unless someone acts, it's deleted on ${officeTime(erasure.dueAt)}. ${describeStanding(erasure)}`,
+      ]),
+      description(h, [
+        "Under Article 17 of the GDPR this is their right. Refusing needs one of two grounds: a legal obligation to keep the data, or an ongoing legal claim that needs it. The reason goes to them word for word, with their right to complain to a data protection authority.",
+      ]),
+      h.h4([h.Class("text-body-sm label")], ["What will be deleted"]),
+      h.ul(
+        [h.Class("text-body-sm bullets")],
+        describeInventory(erasure.inventory).map((line) => h.li([], [line])),
+      ),
+      decisionView(model, erasure, h),
+    ],
+  );
+
+const casesView = (model: Model, cases: ReadonlyArray<ErasureCase>, h: HtmlBuilder<Message>) => [
+  ...(cases.length === 0
+    ? [description(h, ["Nobody has asked for their data to be deleted."])]
+    : []),
+  ...cases.map((erasure) => caseView(model, erasure, h)),
+];
+
+const loading = (h: HtmlBuilder<Message>) => [description(h, ["Loading…"])];
+
+export const view = Submodel.defineView<Model, Message>((model, h) =>
+  card(h, "lg", [
+    eyebrow(h, { text: "Deletion requests" }),
+    ...AsyncData.match(model.cases, {
+      onIdle: () => loading(h),
+      onLoading: () => loading(h),
+      onFailure: (reason) => [
+        notice(h, { kind: "error", text: `Couldn't load the deletion requests: ${reason}` }),
+      ],
+      onRefreshing: (cases) => casesView(model, cases, h),
+      onStale: ({ data }) => casesView(model, data, h),
+      onSuccess: (cases) => casesView(model, cases, h),
+    }),
+    noticeRegion(
+      h,
+      Option.match(model.notice, { onNone: () => [], onSome: (shown) => [notice(h, shown)] }),
+    ),
+  ]),
+);

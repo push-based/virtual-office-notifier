@@ -1,6 +1,6 @@
-import type { ConsentStatus, Refusal } from "recording-requests/wire";
+import type { ConsentStatus, Refusal } from "../wire.ts";
 
-import { formatOfficeTime } from "../history/describe-recording";
+import { formatOfficeTime } from "../history/describe-recording.ts";
 
 export interface ConsentView {
   readonly heading: string;

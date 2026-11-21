@@ -1,63 +1,51 @@
-import { Component, booleanAttribute, input, model } from "@angular/core";
-import { PbSelectField, PbTextField } from "design-system";
+import { selectField, textField } from "design-system";
+import type { Html, HtmlBuilder } from "foldkit/html";
 
-import {
-  AGENDA_MAX_LENGTH,
-  DEFAULT_SUMMARY_STYLE,
-  type SummaryStyle,
-  TITLE_MAX_LENGTH,
-} from "./models";
-import { STYLE_OPTIONS, summaryStyleOf } from "./plan";
+import { AGENDA_MAX_LENGTH, TITLE_MAX_LENGTH } from "../wire.ts";
+import { type Draft, STYLE_OPTIONS } from "./plan.ts";
 
-@Component({
-  selector: "app-plan-fields",
-  imports: [PbSelectField, PbTextField],
-  template: `
-    <pb-text-field
-      label="Title"
-      placeholder="Deploy retro"
-      [maxLength]="titleMaxLength"
-      [disabled]="disabled()"
-      [(value)]="title"
-    />
-    <pb-text-field
-      label="Agenda"
-      placeholder="What it's meant to cover"
-      multiline
-      [maxLength]="agendaMaxLength"
-      [disabled]="disabled()"
-      [(value)]="agenda"
-    />
-    <pb-select-field
-      label="Summary"
-      [options]="styleOptions"
-      [disabled]="disabled()"
-      [value]="summaryStyle()"
-      (valueChange)="summaryStyle.set(styleOf($event))"
-    />
-  `,
-  styles: `
-    :host {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-3);
-    }
-  `,
-})
-export class PlanFields {
-  readonly title = model("");
-
-  readonly agenda = model("");
-
-  readonly summaryStyle = model<SummaryStyle>(DEFAULT_SUMMARY_STYLE);
-
-  readonly disabled = input(false, { transform: booleanAttribute });
-
-  protected readonly titleMaxLength = TITLE_MAX_LENGTH;
-
-  protected readonly agendaMaxLength = AGENDA_MAX_LENGTH;
-
-  protected readonly styleOptions = STYLE_OPTIONS;
-
-  protected readonly styleOf = summaryStyleOf;
+export interface PlanFieldsConfig<Message> {
+  readonly idPrefix: string;
+  readonly draft: Draft;
+  readonly isDisabled: boolean;
+  readonly onTitle: (value: string) => Message;
+  readonly onAgenda: (value: string) => Message;
+  readonly onSummaryStyle: (value: string) => Message;
 }
+
+export const planFields = <Message>(
+  h: HtmlBuilder<Message>,
+  config: PlanFieldsConfig<Message>,
+): Html =>
+  h.div(
+    [h.Class("plan-fields")],
+    [
+      textField(h, {
+        id: `${config.idPrefix}-title`,
+        label: "Title",
+        placeholder: "Deploy retro",
+        maxLength: TITLE_MAX_LENGTH,
+        value: config.draft.title,
+        isDisabled: config.isDisabled,
+        onInput: config.onTitle,
+      }),
+      textField(h, {
+        id: `${config.idPrefix}-agenda`,
+        label: "Agenda",
+        placeholder: "What it's meant to cover",
+        isMultiline: true,
+        maxLength: AGENDA_MAX_LENGTH,
+        value: config.draft.agenda,
+        isDisabled: config.isDisabled,
+        onInput: config.onAgenda,
+      }),
+      selectField(h, {
+        id: `${config.idPrefix}-summary-style`,
+        label: "Summary",
+        options: STYLE_OPTIONS,
+        value: config.draft.summaryStyle,
+        isDisabled: config.isDisabled,
+        onChange: config.onSummaryStyle,
+      }),
+    ],
+  );

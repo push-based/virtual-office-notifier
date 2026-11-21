@@ -1,82 +1,82 @@
-import { Component, signal } from "@angular/core";
-import { TestBed } from "@angular/core/testing";
-import { describe, expect, it } from "vite-plus/test";
+import { Option } from "effect";
+import type { HtmlBuilder } from "foldkit/html";
+import { click, expect, given, keydown, role, scene } from "foldkit/scene";
+import { describe, expect as expectValue, it } from "vite-plus/test";
 
-import { PbTabs, type Tab } from "./tabs";
+import { type Tab, tabAfterKey, tabs } from "./tabs.ts";
 
-@Component({
-  imports: [PbTabs],
-  template: `<pb-tabs name="view" label="Views" [tabs]="tabs" [(selected)]="selected" />`,
-})
-class Host {
-  readonly tabs: ReadonlyArray<Tab> = [
-    { id: "now", label: "Now" },
-    { id: "stats", label: "Stats" },
-    { id: "history", label: "History" },
-  ];
+type View = "now" | "stats" | "history";
 
-  readonly selected = signal("now");
-}
+const VIEWS: ReadonlyArray<Tab<View>> = [
+  { id: "now", label: "Now" },
+  { id: "stats", label: "Stats" },
+  { id: "history", label: "History" },
+];
 
-const render = async () => {
-  const fixture = TestBed.createComponent(Host);
-  await fixture.whenStable();
-  const element: HTMLElement = fixture.nativeElement;
-  const buttons = [...element.querySelectorAll<HTMLButtonElement>("button")];
+const update = (_model: View, selected: View) => ({ model: selected });
 
-  return { fixture, host: fixture.componentInstance, element, buttons };
-};
-
-const press = (button: HTMLButtonElement, key: string) =>
-  button.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
-
-describe("PbTabs", () => {
-  it("is a labelled tab list with only the selected tab selected and focusable", async () => {
-    const { element, buttons } = await render();
-
-    expect(element.querySelector("pb-tabs")?.getAttribute("role")).toBe("tablist");
-    expect(element.querySelector("pb-tabs")?.getAttribute("aria-label")).toBe("Views");
-    expect(buttons.map((button) => button.getAttribute("aria-selected"))).toEqual([
-      "true",
-      "false",
-      "false",
-    ]);
-    expect(buttons.map((button) => button.tabIndex)).toEqual([0, -1, -1]);
-    expect(buttons[1]?.id).toBe("view-tab-stats");
-    expect(buttons[1]?.getAttribute("aria-controls")).toBe("view-panel-stats");
+const view = (selected: View, h: HtmlBuilder<View>) =>
+  tabs(h, {
+    name: "view",
+    label: "Views",
+    tabs: VIEWS,
+    selected,
+    appearance: "underline",
+    onSelect: (id) => id,
   });
 
-  it("selects a tab when it's clicked", async () => {
-    const { fixture, host, buttons } = await render();
+const tab = (name: string) => role("tab", { name });
 
-    buttons[1]?.click();
-    await fixture.whenStable();
-
-    expect(host.selected()).toBe("stats");
-    expect(buttons[1]?.getAttribute("aria-selected")).toBe("true");
+describe("tabs", () => {
+  it("is a labelled tab list with only the selected tab selected and focusable", () => {
+    scene(
+      { update, view },
+      given<View>("now"),
+      expect(role("tablist", { name: "Views" })).toExist(),
+      expect(tab("Now")).toHaveAttr("aria-selected", "true"),
+      expect(tab("Stats")).toHaveAttr("aria-selected", "false"),
+      expect(tab("Stats")).toHaveId("view-tab-stats"),
+      expect(tab("Stats")).toHaveAttr("aria-controls", "view-panel-stats"),
+    );
   });
 
-  it("moves between tabs with the arrow keys, wrapping around, and Home and End", async () => {
-    const { fixture, host, buttons } = await render();
-    const [first, second, third] = buttons;
+  it("selects a tab when it's clicked", () => {
+    scene(
+      { update, view },
+      given<View>("now"),
+      click(tab("Stats")),
+      expect(tab("Stats")).toHaveAttr("aria-selected", "true"),
+      expect(tab("Now")).toHaveAttr("aria-selected", "false"),
+    );
+  });
 
-    if (first === undefined || second === undefined || third === undefined) throw new Error();
+  it("selects the next tab with the arrow keys", () => {
+    scene(
+      { update, view },
+      given<View>("now"),
+      keydown(tab("Now"), "ArrowLeft"),
+      expect(tab("History")).toHaveAttr("aria-selected", "true"),
+      keydown(tab("History"), "ArrowRight"),
+      expect(tab("Now")).toHaveAttr("aria-selected", "true"),
+    );
+  });
+});
 
-    press(first, "ArrowLeft");
-    await fixture.whenStable();
-    expect(host.selected()).toBe("history");
-    expect(document.activeElement).toBe(third);
+describe("tabAfterKey", () => {
+  const after = (from: View, key: string) =>
+    Option.map(tabAfterKey(VIEWS, from, key), (target) => target.id);
 
-    press(third, "ArrowRight");
-    expect(host.selected()).toBe("now");
+  it("moves with the arrow keys, wrapping around", () => {
+    expectValue(after("now", "ArrowLeft")).toEqual(Option.some("history"));
+    expectValue(after("history", "ArrowRight")).toEqual(Option.some("now"));
+  });
 
-    press(first, "End");
-    expect(host.selected()).toBe("history");
+  it("jumps to the ends with Home and End", () => {
+    expectValue(after("now", "End")).toEqual(Option.some("history"));
+    expectValue(after("history", "Home")).toEqual(Option.some("now"));
+  });
 
-    press(third, "Home");
-    expect(host.selected()).toBe("now");
-
-    press(first, "Enter");
-    expect(host.selected()).toBe("now");
+  it("ignores any other key", () => {
+    expectValue(after("now", "Enter")).toEqual(Option.none());
   });
 });

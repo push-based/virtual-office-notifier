@@ -1,6 +1,18 @@
 import { formatElapsed, formatTimeLeft, formatTimeSince } from "design-system";
 
-import type { OfficePhase } from "./models";
+import type { RecordingPause, RunningRecording } from "../wire.ts";
+
+export type OfficePhase =
+  | { readonly kind: "failed"; readonly reason: string }
+  | { readonly kind: "connecting" }
+  | { readonly kind: "away" }
+  | { readonly kind: "idle" }
+  | { readonly kind: "recording"; readonly recording: RunningRecording }
+  | {
+      readonly kind: "paused";
+      readonly recording: RunningRecording;
+      readonly pause: RecordingPause;
+    };
 
 export interface PhaseDescription {
   readonly heading: string;

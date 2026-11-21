@@ -1,70 +1,68 @@
-import {
-  Component,
-  DestroyRef,
-  booleanAttribute,
-  ElementRef,
-  Renderer2,
-  inject,
-  input,
-} from "@angular/core";
+import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
+
+import type { Content } from "./content.ts";
 
 export type ButtonVariant = "primary" | "ghost" | "tertiary";
 
 export type ButtonSize = "md" | "lg";
 
-@Component({
-  selector: "button[pbButton], a[pbButton]",
-  template: `<ng-content />`,
-  styles: `
-    :host(.pb-btn-primary) {
-      --btn-bg: var(--color-primary-600);
-      --btn-bg-hover: var(--color-primary-700);
-    }
-
-    :host(.pb-btn-full) {
-      width: 100%;
-      justify-content: center;
-    }
-
-    :host([aria-disabled="true"]) {
-      --btn-bg-hover: var(--btn-bg);
-      cursor: not-allowed;
-      opacity: 0.5;
-    }
-  `,
-  host: {
-    class: "pb-btn",
-    "[class.pb-btn-lg]": "size() === 'lg'",
-    "[class.pb-btn-full]": "fullWidth()",
-    "[class.pb-btn-primary]": "variant() === 'primary'",
-    "[class.pb-btn-ghost]": "variant() === 'ghost'",
-    "[class.pb-btn-tertiary]": "variant() === 'tertiary'",
-    "[attr.aria-disabled]": "disabled() || null",
-  },
-})
-export class PbButton {
-  readonly variant = input<ButtonVariant>("primary");
-
-  readonly size = input<ButtonSize>("md");
-
-  readonly fullWidth = input(false, { transform: booleanAttribute });
-
-  readonly disabled = input(false, { transform: booleanAttribute });
-
-  constructor() {
-    const stopListening = inject(Renderer2).listen(
-      inject(ElementRef).nativeElement,
-      "click",
-      (event: Event) => this.swallowWhileDisabled(event),
-      { capture: true },
-    );
-
-    inject(DestroyRef).onDestroy(stopListening);
-  }
-
-  private swallowWhileDisabled(event: Event): void {
-    if (!this.disabled()) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }
+export interface ButtonConfig<Message> {
+  readonly label: ReadonlyArray<Content>;
+  readonly onClick?: Message;
+  readonly variant?: ButtonVariant;
+  readonly size?: ButtonSize;
+  readonly isFullWidth?: boolean;
+  readonly isDisabled?: boolean;
+  readonly isBusy?: boolean;
+  readonly isSubmit?: boolean;
+  readonly className?: string;
 }
+
+const classOf = <Message>(config: ButtonConfig<Message>): string =>
+  [
+    "pb-btn",
+    `pb-btn-${config.variant ?? "primary"}`,
+    ...(config.size === "lg" ? ["pb-btn-lg"] : []),
+    ...(config.isFullWidth === true ? ["pb-btn-full"] : []),
+    ...(config.className === undefined ? [] : [config.className]),
+  ].join(" ");
+
+export const button = <Message>(h: HtmlBuilder<Message>, config: ButtonConfig<Message>): Html => {
+  const isDisabled = config.isDisabled === true;
+
+  const attributes: ReadonlyArray<Attribute<Message>> = [
+    h.Type(config.isSubmit === true ? "submit" : "button"),
+    h.Class(classOf(config)),
+    ...(isDisabled ? [h.AriaDisabled(true)] : []),
+    ...(isDisabled || config.onClick === undefined ? [] : [h.OnClick(config.onClick)]),
+    ...(config.isBusy === undefined ? [] : [h.AriaBusy(config.isBusy)]),
+  ];
+
+  return h.button(attributes, config.label);
+};
+
+export interface RecordButtonConfig<Message> {
+  readonly isRecording: boolean;
+  readonly isBusy: boolean;
+  readonly isDisabled: boolean;
+  readonly onPress: Message;
+}
+
+export const recordButton = <Message>(
+  h: HtmlBuilder<Message>,
+  config: RecordButtonConfig<Message>,
+): Html =>
+  button(h, {
+    label: [
+      h.span([h.Class("pb-record-button-icon"), h.AriaHidden(true)]),
+      config.isRecording ? "Stop recording" : "Start recording",
+    ],
+    onClick: config.onPress,
+    size: "lg",
+    isFullWidth: true,
+    isDisabled: config.isDisabled,
+    isBusy: config.isBusy,
+    className: config.isRecording
+      ? "pb-record-button pb-record-button-recording"
+      : "pb-record-button",
+  });

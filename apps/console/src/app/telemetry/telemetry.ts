@@ -1,18 +1,15 @@
-import { HttpClient } from "@angular/common/http";
-import {
-  type EnvironmentProviders,
-  ErrorHandler,
-  inject,
-  makeEnvironmentProviders,
-  provideAppInitializer,
-} from "@angular/core";
-import * as Sentry from "@sentry/angular";
+import * as Sentry from "@sentry/browser";
+import { Effect, Schema } from "effect";
 
-export interface Telemetry {
-  readonly dsn: string;
-  readonly environment: string;
-  readonly release: string | null;
-}
+import * as Api from "../api/api.ts";
+
+export const Telemetry = Schema.Struct({
+  dsn: Schema.String,
+  environment: Schema.String,
+  release: Schema.NullOr(Schema.String),
+});
+
+export type Telemetry = typeof Telemetry.Type;
 
 export const TUNNEL = "/api/sentry";
 
@@ -34,17 +31,13 @@ export const sentryOptionsFor = ({
   ],
 });
 
-export const provideTelemetry = (): EnvironmentProviders =>
-  makeEnvironmentProviders([
-    { provide: ErrorHandler, useValue: Sentry.createErrorHandler() },
-    provideAppInitializer(() => {
-      inject(HttpClient)
-        .get<Telemetry | null>("/api/telemetry")
-        .subscribe({
-          next: (telemetry) => {
-            if (telemetry !== null) Sentry.init(sentryOptionsFor(telemetry));
-          },
-          error: () => undefined,
-        });
-    }),
-  ]);
+export const startTelemetry = Api.get("/api/telemetry", Schema.NullOr(Telemetry)).pipe(
+  Effect.flatMap((telemetry) =>
+    telemetry === null ? Effect.void : Effect.sync(() => Sentry.init(sentryOptionsFor(telemetry))),
+  ),
+  Effect.ignore,
+);
+
+export const reportCrash = (error: Error): void => {
+  Sentry.captureException(error);
+};

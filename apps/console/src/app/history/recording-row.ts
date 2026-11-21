@@ -1,9 +1,8 @@
-import { NgTemplateOutlet } from "@angular/common";
-import { Component, computed, input, output } from "@angular/core";
-import { PbBadge, PbDescription, PbPeople, type Person } from "design-system";
+import { badge, description, people, type Person } from "design-system";
+import type { Html, HtmlBuilder } from "foldkit/html";
 
-import { canOpen, formatOfficeTime, formatRunTime, stateBadge } from "./describe-recording";
-import type { ListedRecording, OfficeMember } from "./models";
+import type { ListedRecording, OfficeMember } from "../wire.ts";
+import { canOpen, formatOfficeTime, formatRunTime, stateBadge } from "./describe-recording.ts";
 
 export const personOf = (member: OfficeMember): Person => ({
   id: member.userId,
@@ -11,103 +10,45 @@ export const personOf = (member: OfficeMember): Person => ({
   avatarUrl: member.avatarUrl,
 });
 
-@Component({
-  selector: "app-recording-row",
-  imports: [NgTemplateOutlet, PbBadge, PbDescription, PbPeople],
-  template: `
-    <ng-template #facts>
-      <span class="top">
-        <span class="text-body when">{{ recording().title ?? startedAt() }}</span>
-        <pb-badge [tone]="badge().tone">{{ badge().label }}</pb-badge>
-      </span>
-      <span pbDescription>{{ factLine() }}</span>
-      @if (speakers().length > 0) {
-        <pb-people [people]="speakers()" />
-      }
-    </ng-template>
-    @if (openable()) {
-      <button type="button" class="row" (click)="opened.emit()">
-        <ng-container [ngTemplateOutlet]="facts" />
-      </button>
-    } @else {
-      <div class="row">
-        <ng-container [ngTemplateOutlet]="facts" />
-      </div>
-    }
-  `,
-  styles: `
-    :host {
-      display: block;
-    }
-
-    .row {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-2);
-      width: 100%;
-      padding: var(--space-4);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-lg);
-      background: var(--color-surface);
-      font: inherit;
-      color: inherit;
-      text-align: left;
-    }
-
-    button.row {
-      cursor: pointer;
-      transition: border-color 0.2s ease-out;
-    }
-
-    button.row:hover {
-      border-color: var(--color-primary-300);
-    }
-
-    button.row:focus-visible {
-      outline: none;
-      box-shadow: var(--shadow-focus);
-    }
-
-    .top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-2);
-    }
-
-    .when {
-      font-weight: 600;
-      color: var(--color-text-heading);
-      overflow-wrap: anywhere;
-    }
-  `,
-})
-export class RecordingRow {
-  readonly recording = input.required<ListedRecording>();
-
-  readonly now = input.required<number>();
-
-  readonly opened = output();
-
-  protected readonly openable = computed(() => canOpen(this.recording().state));
-
-  protected readonly badge = computed(() => stateBadge(this.recording().state));
-
-  protected readonly startedAt = computed(() => formatOfficeTime(this.recording().startedAt));
-
-  protected readonly runTime = computed(() =>
-    formatRunTime(this.recording().startedAt, this.recording().stoppedAt, this.now()),
-  );
-
-  protected readonly factLine = computed(() => {
-    const recording = this.recording();
-
-    return [
-      ...(recording.title === null ? [] : [this.startedAt()]),
-      this.runTime(),
-      `Started by ${recording.startedBy.name}`,
-    ].join(" · ");
-  });
-
-  protected readonly speakers = computed(() => this.recording().speakers.map(personOf));
+export interface RecordingRowConfig<Message> {
+  readonly recording: ListedRecording;
+  readonly now: number;
+  readonly onOpen: Message;
 }
+
+export const factLine = (recording: ListedRecording, now: number): string =>
+  [
+    ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
+    formatRunTime(recording.startedAt, recording.stoppedAt, now),
+    `Started by ${recording.startedBy.name}`,
+  ].join(" · ");
+
+export const recordingRow = <Message>(
+  h: HtmlBuilder<Message>,
+  config: RecordingRowConfig<Message>,
+): Html => {
+  const { recording } = config;
+  const state = stateBadge(recording.state);
+  const speakers = recording.speakers.map(personOf);
+
+  const facts = [
+    h.span(
+      [h.Class("recording-row-top")],
+      [
+        h.span(
+          [h.Class("text-body recording-row-when")],
+          [recording.title ?? formatOfficeTime(recording.startedAt)],
+        ),
+        badge(h, state.tone, state.label),
+      ],
+    ),
+    description(h, [factLine(recording, config.now)]),
+    speakers.length === 0
+      ? h.empty
+      : people(h, { id: `speakers-${recording.id}`, people: speakers }),
+  ];
+
+  return canOpen(recording.state)
+    ? h.button([h.Type("button"), h.Class("recording-row"), h.OnClick(config.onOpen)], facts)
+    : h.div([h.Class("recording-row")], facts);
+};

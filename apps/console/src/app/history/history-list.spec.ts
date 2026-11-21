@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { listedRecording } from "./fixtures";
-import { EMPTY_HISTORY, withNewest, withOlder } from "./history-list";
+import { listedRecording } from "./fixtures.ts";
+import { EMPTY_HISTORY, withNewest, withOlder } from "./history-list.ts";
 
 const recordingAt = (minute: number, state: "running" | "finished" = "finished") =>
   listedRecording({

@@ -9,8 +9,8 @@ import {
   isLive,
   stateBadge,
   transcriptTurns,
-} from "./describe-recording";
-import { anna, ben, recordingDetail } from "./fixtures";
+} from "./describe-recording.ts";
+import { anna, ben, recordingDetail } from "./fixtures.ts";
 
 describe("formatOfficeTime", () => {
   it("shows when a recording started in office time, UTC+2", () => {

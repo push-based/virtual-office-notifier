@@ -6,7 +6,7 @@ import {
   type RecordingState,
   SUMMARY_STYLE_LABELS,
   type TranscribedClip,
-} from "./models";
+} from "../wire.ts";
 
 const OFFICE_OFFSET_MS = 2 * 60 * 60 * 1000;
 

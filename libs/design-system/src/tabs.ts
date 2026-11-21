@@ -1,11 +1,21 @@
-import { Component, ElementRef, inject, input, model } from "@angular/core";
+import { Option } from "effect";
+import type { Html, HtmlBuilder } from "foldkit/html";
 
-export interface Tab {
-  readonly id: string;
+export interface Tab<Id extends string = string> {
+  readonly id: Id;
   readonly label: string;
 }
 
 export type TabsAppearance = "underline" | "pills";
+
+export interface TabsConfig<Id extends string, Message> {
+  readonly name: string;
+  readonly label: string;
+  readonly tabs: ReadonlyArray<Tab<Id>>;
+  readonly selected: Id;
+  readonly appearance: TabsAppearance;
+  readonly onSelect: (id: Id) => Message;
+}
 
 export const tabId = (name: string, id: string): string => `${name}-tab-${id}`;
 
@@ -18,155 +28,46 @@ const MOVES = new Map<string, (index: number, count: number) => number>([
   ["End", (_, count) => count - 1],
 ]);
 
-@Component({
-  selector: "pb-tabs",
-  template: `
-    @for (tab of tabs(); track tab.id) {
-      <button
-        type="button"
-        role="tab"
-        class="text-body-sm"
-        [id]="idOf(tab)"
-        [attr.aria-controls]="panelOf(tab)"
-        [attr.aria-selected]="tab.id === selected()"
-        [tabIndex]="tab.id === selected() ? 0 : -1"
-        (click)="selected.set(tab.id)"
-        (keydown)="move($event, tab)"
-      >
-        {{ tab.label }}
-      </button>
-    }
-  `,
-  styles: `
-    :host {
-      display: flex;
-      gap: var(--space-1);
-    }
+export const tabAfterKey = <Id extends string>(
+  tabs: ReadonlyArray<Tab<Id>>,
+  from: Id,
+  key: string,
+): Option.Option<Tab<Id>> => {
+  const index = tabs.findIndex((tab) => tab.id === from);
 
-    button {
-      appearance: none;
-      cursor: pointer;
-      border: none;
-      background: transparent;
-      color: var(--color-text-muted);
-      font-weight: 500;
-      padding: var(--space-2) var(--space-3);
-      transition:
-        color 0.2s ease-out,
-        background-color 0.2s ease-out,
-        border-color 0.2s ease-out;
-    }
+  return Option.fromNullishOr(MOVES.get(key)).pipe(
+    Option.flatMap((move) => Option.fromNullishOr(tabs[move(index, tabs.length)])),
+  );
+};
 
-    button:hover {
-      color: var(--color-text-heading);
-    }
-
-    button:focus-visible {
-      outline: none;
-      box-shadow: var(--shadow-focus);
-    }
-
-    :host(.underline) {
-      gap: var(--space-6);
-      border-bottom: 1px solid var(--color-neutral-200);
-    }
-
-    :host(.underline) button {
-      position: relative;
-      padding: var(--space-3) 0;
-      font-size: 0.9375rem;
-    }
-
-    :host(.underline) button::after {
-      content: "";
-      position: absolute;
-      inset: auto 0 -1px;
-      height: 2px;
-      border-radius: var(--radius-full);
-      background: transparent;
-      transition: background-color 0.2s ease-out;
-    }
-
-    :host(.underline) button:hover {
-      color: var(--color-text);
-    }
-
-    :host(.underline) button:hover::after {
-      background: var(--color-neutral-300);
-    }
-
-    :host(.underline) button[aria-selected="true"] {
-      color: var(--color-text-heading);
-    }
-
-    :host(.underline) button[aria-selected="true"]::after {
-      background: var(--color-brand);
-    }
-
-    :host(.underline) button:focus-visible {
-      box-shadow: none;
-      border-radius: var(--radius-md);
-      outline: 2px solid var(--color-primary-300);
-      outline-offset: 2px;
-    }
-
-    :host(.pills) {
-      align-self: flex-start;
-      padding: var(--space-1);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-lg);
-      background: var(--color-surface);
-    }
-
-    :host(.pills) button {
-      border-radius: var(--radius-md);
-      padding: var(--space-1) var(--space-3);
-    }
-
-    :host(.pills) button[aria-selected="true"] {
-      color: var(--color-primary-700);
-      background: var(--color-primary-50);
-    }
-  `,
-  host: {
-    role: "tablist",
-    "[attr.aria-label]": "label()",
-    "[class.underline]": "appearance() === 'underline'",
-    "[class.pills]": "appearance() === 'pills'",
-  },
-})
-export class PbTabs {
-  readonly name = input.required<string>();
-
-  readonly label = input.required<string>();
-
-  readonly tabs = input.required<ReadonlyArray<Tab>>();
-
-  readonly appearance = input<TabsAppearance>("underline");
-
-  readonly selected = model.required<string>();
-
-  private readonly element: HTMLElement = inject(ElementRef).nativeElement;
-
-  protected idOf(tab: Tab): string {
-    return tabId(this.name(), tab.id);
-  }
-
-  protected panelOf(tab: Tab): string {
-    return tabPanelId(this.name(), tab.id);
-  }
-
-  protected move(event: KeyboardEvent, from: Tab): void {
-    const tabs = this.tabs();
-    const index = tabs.indexOf(from);
-
-    const moveTo = MOVES.get(event.key);
-    const target = moveTo === undefined ? undefined : tabs[moveTo(index, tabs.length)];
-
-    if (target === undefined) return;
-
-    event.preventDefault();
-    this.selected.set(target.id);
-    this.element.querySelector<HTMLElement>(`#${CSS.escape(this.idOf(target))}`)?.focus();
-  }
-}
+export const tabs = <Id extends string, Message>(
+  h: HtmlBuilder<Message>,
+  config: TabsConfig<Id, Message>,
+): Html =>
+  h.div(
+    [h.Class(`pb-tabs pb-tabs-${config.appearance}`), h.Role("tablist"), h.AriaLabel(config.label)],
+    config.tabs.map((tab) =>
+      h.keyed("button")(
+        tab.id,
+        [
+          h.Type("button"),
+          h.Role("tab"),
+          h.Class("text-body-sm"),
+          h.Id(tabId(config.name, tab.id)),
+          h.AriaControls(tabPanelId(config.name, tab.id)),
+          h.AriaSelected(tab.id === config.selected),
+          h.Tabindex(tab.id === config.selected ? 0 : -1),
+          h.OnClick(config.onSelect(tab.id)),
+          h.OnKeyDownFocus((key) =>
+            tabAfterKey(config.tabs, tab.id, key).pipe(
+              Option.map((target) => ({
+                focusSelector: `#${tabId(config.name, target.id)}`,
+                message: config.onSelect(target.id),
+              })),
+            ),
+          ),
+        ],
+        [tab.label],
+      ),
+    ),
+  );

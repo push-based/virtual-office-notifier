@@ -1,11 +1,10 @@
-import { provideHttpClient } from "@angular/common/http";
-import { HttpTestingController, provideHttpClientTesting } from "@angular/common/http/testing";
-import { ErrorHandler } from "@angular/core";
-import { TestBed } from "@angular/core/testing";
-import * as Sentry from "@sentry/angular";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import * as Sentry from "@sentry/browser";
+import { afterEach, describe, expect, it } from "@effect/vitest";
+import { Duration, Effect, Layer } from "effect";
 
-import { provideTelemetry, sentryOptionsFor, type Telemetry } from "./telemetry";
+import { RetryTiming, SessionToken } from "../api/api.ts";
+import { type FakeAnswer, fakeServer } from "../fakes.ts";
+import { reportCrash, sentryOptionsFor, startTelemetry, type Telemetry } from "./telemetry.ts";
 
 const telemetry: Telemetry = {
   dsn: "https://public@o1.ingest.sentry.io/42",
@@ -13,54 +12,53 @@ const telemetry: Telemetry = {
   release: "abc123",
 };
 
-const setup = () => {
-  TestBed.configureTestingModule({
-    providers: [provideHttpClient(), provideHttpClientTesting(), provideTelemetry()],
-  });
-
-  return TestBed.inject(HttpTestingController);
-};
+const serving = (answer: FakeAnswer) =>
+  Layer.mergeAll(
+    fakeServer(() => answer).layer,
+    SessionToken.layer,
+    Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero }),
+  );
 
 afterEach(async () => {
   await Sentry.close();
-  vi.restoreAllMocks();
 });
 
-describe("provideTelemetry", () => {
-  it("sends nothing when the Worker has no DSN", () => {
-    setup().expectOne("/api/telemetry").flush(null);
+describe("the telemetry", () => {
+  it.effect("sends nothing when the Worker has no DSN", () =>
+    Effect.gen(function* () {
+      yield* startTelemetry;
 
-    expect(Sentry.getClient()).toBeUndefined();
-  });
+      expect(Sentry.getClient()).toBeUndefined();
+    }).pipe(Effect.provide(serving({ body: null }))),
+  );
 
-  it("sends nothing when the Worker can't say where to", () => {
-    setup()
-      .expectOne("/api/telemetry")
-      .flush(null, { status: 503, statusText: "Service Unavailable" });
+  it.effect("sends nothing when the Worker can't say where to", () =>
+    Effect.gen(function* () {
+      yield* startTelemetry;
 
-    expect(Sentry.getClient()).toBeUndefined();
-  });
+      expect(Sentry.getClient()).toBeUndefined();
+    }).pipe(Effect.provide(serving({ status: 503 }))),
+  );
 
-  it("starts Sentry with what the Worker serves, without console breadcrumbs", () => {
-    setup().expectOne("/api/telemetry").flush(telemetry);
+  it.effect("starts Sentry with what the Worker serves, without console breadcrumbs", () =>
+    Effect.gen(function* () {
+      yield* startTelemetry;
 
-    expect(Sentry.getClient()?.getOptions()).toMatchObject({
-      dsn: telemetry.dsn,
-      environment: "production",
-      release: "abc123",
-      tunnel: "/api/sentry",
-      dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [] },
-    });
-    expect(Sentry.getClient()?.getIntegrationByName("BrowserTracing")).toBeDefined();
-    expect(Sentry.getClient()?.getIntegrationByName("Console")).toBeUndefined();
-  });
+      expect(Sentry.getClient()?.getOptions()).toMatchObject({
+        dsn: telemetry.dsn,
+        environment: "production",
+        release: "abc123",
+        tunnel: "/api/sentry",
+        dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [] },
+      });
+      expect(Sentry.getClient()?.getIntegrationByName("BrowserTracing")).toBeDefined();
+      expect(Sentry.getClient()?.getIntegrationByName("Console")).toBeUndefined();
+    }).pipe(Effect.provide(serving({ body: telemetry }))),
+  );
 
-  it("reports the errors Angular handles through the Worker", async () => {
+  it("reports a crash through the Worker", async () => {
     const sentTo: Array<string> = [];
     const errors: Array<string | undefined> = [];
-
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    setup();
 
     Sentry.init({
       ...sentryOptionsFor(telemetry),
@@ -77,10 +75,14 @@ describe("provideTelemetry", () => {
       },
     });
 
-    TestBed.inject(ErrorHandler).handleError(new Error("The page caught fire"));
+    reportCrash(new Error("The page caught fire"));
     await Sentry.flush(2000);
 
     expect(errors).toEqual(["The page caught fire"]);
     expect(new Set(sentTo)).toEqual(new Set(["/api/sentry"]));
+  });
+
+  it("leaves the release out when the Worker has none", () => {
+    expect(sentryOptionsFor({ ...telemetry, release: null }).release).toBeUndefined();
   });
 });

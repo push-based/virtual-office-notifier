@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { describePresence, samePresence } from "./describe-presence";
-import type { RecordingStatus, RunningRecording } from "./models";
+import { describePresence, samePresence } from "./describe-presence.ts";
+import type { RecordingStatus, RunningRecording } from "../wire.ts";
 
 const idle: RecordingStatus = {
   botInOffice: true,

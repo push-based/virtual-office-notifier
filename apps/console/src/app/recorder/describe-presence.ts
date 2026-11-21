@@ -1,10 +1,14 @@
-import type { RecordingStatus } from "./models";
+import { Schema } from "effect";
 
-export interface Presence {
-  readonly details: string;
-  readonly state: string | null;
-  readonly timestamps: { readonly start: number } | null;
-}
+import type { RecordingStatus } from "../wire.ts";
+
+export const Presence = Schema.Struct({
+  details: Schema.String,
+  state: Schema.NullOr(Schema.String),
+  timestamps: Schema.NullOr(Schema.Struct({ start: Schema.Number })),
+});
+
+export type Presence = typeof Presence.Type;
 
 export const describePresence = (status: RecordingStatus): Presence => {
   const { recording } = status;

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { STYLE_OPTIONS, changesBetween, draftOf, editNotice, planOf, summaryStyleOf } from "./plan";
+import {
+  STYLE_OPTIONS,
+  changesBetween,
+  draftOf,
+  editNotice,
+  planOf,
+  summaryStyleOf,
+} from "./plan.ts";
 
 const untitled = { title: null, agenda: null, summaryStyle: "brief" } as const;
 

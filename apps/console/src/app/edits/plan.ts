@@ -1,24 +1,30 @@
+import { Schema } from "effect";
+
+import type { Notice } from "../notice.ts";
 import {
   DEFAULT_SUMMARY_STYLE,
   type HandledEdit,
-  type Notice,
   type RecordingChange,
   SUMMARY_STYLE_LABELS,
   SUMMARY_STYLES,
-  type SummaryStyle,
-} from "./models";
+  SummaryStyle,
+} from "../wire.ts";
 
-export interface Draft {
-  readonly title: string;
-  readonly agenda: string;
-  readonly summaryStyle: SummaryStyle;
-}
+export const Draft = Schema.Struct({
+  title: Schema.String,
+  agenda: Schema.String,
+  summaryStyle: SummaryStyle,
+});
 
-export interface Plan {
-  readonly title: string | null;
-  readonly agenda: string | null;
-  readonly summaryStyle: SummaryStyle;
-}
+export type Draft = typeof Draft.Type;
+
+export const Plan = Schema.Struct({
+  title: Schema.NullOr(Schema.String),
+  agenda: Schema.NullOr(Schema.String),
+  summaryStyle: SummaryStyle,
+});
+
+export type Plan = typeof Plan.Type;
 
 export const EMPTY_DRAFT: Draft = { title: "", agenda: "", summaryStyle: DEFAULT_SUMMARY_STYLE };
 
