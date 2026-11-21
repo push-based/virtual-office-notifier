@@ -64,7 +64,10 @@ export const open = (model: Model): UpdateReturn => ({
 
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
-    ClickedRange: ({ range }) => open(modifyFields(model, { range: () => rangeOf(range) })),
+    ClickedRange: ({ range }) =>
+      rangeOf(range) === model.range
+        ? { model }
+        : open(modifyFields(model, { range: () => rangeOf(range) })),
 
     ClickedRetry: () => open(model),
 

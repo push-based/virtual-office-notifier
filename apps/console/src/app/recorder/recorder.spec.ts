@@ -82,6 +82,47 @@ describe("the recorder", () => {
     );
   });
 
+  it("asks for the status one request at a time, and ignores an answer older than the last", () => {
+    Story.story(
+      update,
+      Story.given(loaded(recording)),
+      Story.message(Message.TickedStatusPoll()),
+      Story.Command.expectExact(FetchStatus({ request: 1 })),
+      Story.Command.resolve(
+        FetchStatus,
+        Message.SucceededFetchStatus({ request: 1, status: recording }),
+      ),
+      Story.Command.resolve(ShowPresence, Message.CompletedShowPresence()),
+      Story.message(Message.SucceededFetchStatus({ request: 1, status: idle })),
+      Story.model((model) =>
+        expect(model.connection).toEqual(Connection.Loaded({ status: recording })),
+      ),
+    );
+    Story.story(
+      update,
+      Story.given(modifyFields(loaded(recording), { statusRequests: () => 1 })),
+      Story.message(Message.TickedStatusPoll()),
+      Story.Command.expectNone(),
+    );
+  });
+
+  it("closes the editor when the recording it was editing ends", () => {
+    const editing = modifyFields(loaded(recording), {
+      editor: () => ({
+        ...init().editor,
+        draft: Option.some({ title: "Deploy retro", agenda: "", summaryStyle: "brief" }),
+      }),
+    });
+
+    Story.story(
+      update,
+      Story.given(editing),
+      Story.message(Message.SucceededFetchStatus({ request: 1, status: idle })),
+      Story.model((model) => expect(model.editor.draft).toEqual(Option.none())),
+      Story.Command.resolve(ShowPresence, Message.CompletedShowPresence()),
+    );
+  });
+
   it("polls every three seconds, and every second while recording", () => {
     expect(pollInterval(modifyFields(init(), { connection: () => Connection.Loading() }))).toEqual(
       Option.some(3000),
@@ -94,14 +135,16 @@ describe("the recorder", () => {
     Story.story(
       update,
       Story.given(init()),
-      Story.message(Message.SucceededFetchStatus({ status: idle })),
+      Story.message(Message.SucceededFetchStatus({ request: 1, status: idle })),
       Story.Command.expectExact(
         ShowPresence({
           presence: { details: "In the office", state: "Not recording", timestamps: null },
         }),
       ),
       Story.Command.resolve(ShowPresence, Message.CompletedShowPresence()),
-      Story.message(Message.SucceededFetchStatus({ status: { ...idle, occupants: [] } })),
+      Story.message(
+        Message.SucceededFetchStatus({ request: 2, status: { ...idle, occupants: [] } }),
+      ),
       Story.Command.expectNone(),
     );
   });
@@ -110,7 +153,7 @@ describe("the recorder", () => {
     Story.story(
       update,
       Story.given(loaded(idle)),
-      Story.message(Message.FailedFetchStatus({ reason: "/api/status answered 500" })),
+      Story.message(Message.FailedFetchStatus({ request: 1, reason: "/api/status answered 500" })),
       Story.model((model) => {
         expect(model.connection).toEqual(Connection.Loaded({ status: idle }));
         expect(Option.map(model.notice, ({ notice }) => notice)).toEqual(
@@ -154,10 +197,10 @@ describe("the recorder", () => {
         Message.CompletedSubmitRequest({ handled: { id: 7, outcome: "started" } }),
       ),
       Scene.expect(Scene.text("Recording started.")).toExist(),
-      Scene.Command.expectExact(WaitBeforeDismissal({ id: 1 }), FetchStatus()),
+      Scene.Command.expectExact(WaitBeforeDismissal({ id: 1 }), FetchStatus({ request: 1 })),
       Scene.Command.resolveAll(
         [WaitBeforeDismissal, Message.CompletedWaitBeforeDismissal({ id: 1 })],
-        [FetchStatus, Message.SucceededFetchStatus({ status: recording })],
+        [FetchStatus, Message.SucceededFetchStatus({ request: 1, status: recording })],
       ),
       Scene.expect(Scene.text("Recording started.")).toBeAbsent(),
       Scene.Command.resolve(ShowPresence, Message.CompletedShowPresence()),
@@ -179,7 +222,7 @@ describe("the recorder", () => {
       ),
       Story.Command.resolveAll(
         [WaitBeforeDismissal, Message.CompletedWaitBeforeDismissal({ id: 1 })],
-        [FetchStatus, Message.SucceededFetchStatus({ status: recording })],
+        [FetchStatus, Message.SucceededFetchStatus({ request: 1, status: recording })],
       ),
       Story.Command.resolve(ShowPresence, Message.CompletedShowPresence()),
     );
@@ -208,7 +251,7 @@ describe("the recorder", () => {
       }),
       Story.Command.resolveAll(
         [WaitBeforeDismissal, Message.CompletedWaitBeforeDismissal({ id: 1 })],
-        [FetchStatus, Message.SucceededFetchStatus({ status: idle })],
+        [FetchStatus, Message.SucceededFetchStatus({ request: 1, status: idle })],
       ),
       Story.Command.resolve(ShowPresence, Message.CompletedShowPresence()),
     );
@@ -230,7 +273,7 @@ describe("the recorder", () => {
       ),
       Scene.Command.resolveAll(
         [WaitBeforeDismissal, Message.CompletedWaitBeforeDismissal({ id: 1 })],
-        [FetchStatus, Message.SucceededFetchStatus({ status: paused })],
+        [FetchStatus, Message.SucceededFetchStatus({ request: 1, status: paused })],
       ),
       Scene.Command.resolve(ShowPresence, Message.CompletedShowPresence()),
       Scene.expect(Scene.role("heading", { name: "Paused by Ben · 0m" })).toExist(),
@@ -239,7 +282,7 @@ describe("the recorder", () => {
       Scene.Command.resolve(SubmitRequest, Message.FailedSubmitRequest({ reason: "x" })),
       Scene.Command.resolveAll(
         [WaitBeforeDismissal, Message.CompletedWaitBeforeDismissal({ id: 2 })],
-        [FetchStatus, Message.SucceededFetchStatus({ status: paused })],
+        [FetchStatus, Message.SucceededFetchStatus({ request: 2, status: paused })],
       ),
     );
   });
@@ -253,7 +296,7 @@ describe("the recorder", () => {
       Story.Command.resolve(SubmitRequest, Message.FailedSubmitRequest({ reason: "x" })),
       Story.Command.resolveAll(
         [WaitBeforeDismissal, Message.CompletedWaitBeforeDismissal({ id: 1 })],
-        [FetchStatus, Message.SucceededFetchStatus({ status: paused })],
+        [FetchStatus, Message.SucceededFetchStatus({ request: 1, status: paused })],
       ),
       Story.Command.resolve(ShowPresence, Message.CompletedShowPresence()),
     );

@@ -33,12 +33,12 @@ const page = (recordings = [listedRecording()], older: string | null = null) => 
 });
 
 const listed = (recordings = [listedRecording()], older: string | null = null): Model =>
-  update(init(), Message.SucceededFetchNewest({ page: page(recordings, older) })).model;
+  update(init(), Message.SucceededFetchNewest({ request: 1, page: page(recordings, older) })).model;
 
 const opened = (detail = recordingDetail()): Model =>
   update(
     update(listed(), Message.ClickedRecording({ id: detail.id })).model,
-    Message.SucceededFetchRecording({ recording: detail }),
+    Message.SucceededFetchRecording({ id: detail.id, request: 1, recording: detail }),
   ).model;
 
 describe("the recording history", () => {
@@ -47,8 +47,11 @@ describe("the recording history", () => {
       update,
       Story.given(init()),
       Story.message(Message.TickedListPoll()),
-      Story.Command.expectExact(FetchNewest()),
-      Story.Command.resolve(FetchNewest, Message.SucceededFetchNewest({ page: page([]) })),
+      Story.Command.expectExact(FetchNewest({ request: 1 })),
+      Story.Command.resolve(
+        FetchNewest,
+        Message.SucceededFetchNewest({ request: 1, page: page([]) }),
+      ),
       Story.model((model) => expect(model.isLoaded).toBe(true)),
     );
     Scene.scene(
@@ -115,7 +118,9 @@ describe("the recording history", () => {
     Story.story(
       update,
       Story.given(update(listed(), Message.ClickedRecording({ id: "r2" })).model),
-      Story.message(Message.SucceededFetchRecording({ recording: recordingDetail() })),
+      Story.message(
+        Message.SucceededFetchRecording({ id: "r1", request: 1, recording: recordingDetail() }),
+      ),
       Story.model((model) =>
         expect(Option.flatMap(model.opened, ({ recording }) => recording)).toEqual(Option.none()),
       ),
@@ -126,13 +131,61 @@ describe("the recording history", () => {
     Scene.scene(
       scene,
       Scene.given(
-        update(listed(), Message.FailedFetchHistory({ reason: "/api/recordings answered 503" }))
-          .model,
+        update(
+          listed(),
+          Message.FailedFetchNewest({ request: 2, reason: "/api/recordings answered 503" }),
+        ).model,
       ),
       Scene.expect(
         Scene.text("Couldn't load the recording history: /api/recordings answered 503"),
       ).toExist(),
       Scene.expect(Scene.role("button", { name: /Thu 29 Oct/ })).toExist(),
+    );
+  });
+
+  it("keeps a late failure off the view that didn't ask for it", () => {
+    Story.story(
+      update,
+      Story.given(opened()),
+      Story.message(Message.FailedFetchNewest({ request: 2, reason: "late" })),
+      Story.message(Message.FailedFetchRecording({ id: "r2", request: 2, reason: "elsewhere" })),
+      Story.model((model) => expect(model.failure).toEqual(Option.none())),
+    );
+  });
+
+  it("keeps an edit's answer to the recording that sent it", () => {
+    const other = update(
+      update(opened(), Message.ClickedBack()).model,
+      Message.ClickedRecording({ id: "r2" }),
+    ).model;
+
+    Story.story(
+      update,
+      Story.given(other),
+      Story.message(
+        Message.GotRewriteMessage({
+          id: "r1",
+          message: SummaryRewrite.Message.CompletedRewriteSummary({
+            notice: Option.some({ kind: "error", text: "For r1" }),
+          }),
+        }),
+      ),
+      Story.model((model) =>
+        expect(Option.map(model.opened, ({ rewrite }) => rewrite.notice)).toEqual(
+          Option.some(Option.none()),
+        ),
+      ),
+    );
+  });
+
+  it("asks for one list page at a time, and ignores an answer older than the last", () => {
+    Story.story(
+      update,
+      Story.given({ ...listed(), listRequests: 2 }),
+      Story.message(Message.TickedListPoll()),
+      Story.Command.expectNone(),
+      Story.message(Message.SucceededFetchNewest({ request: 1, page: page([]) })),
+      Story.model((model) => expect(model.list.recordings).toHaveLength(1)),
     );
   });
 
@@ -151,6 +204,7 @@ describe("the recording history", () => {
       Story.given(opened()),
       Story.message(
         Message.GotRewriteMessage({
+          id: "r1",
           message: SummaryRewrite.Message.ClickedRewrite({ recordingId: "r1" }),
         }),
       ),
@@ -158,10 +212,14 @@ describe("the recording history", () => {
         SummaryRewrite.RewriteSummary,
         SummaryRewrite.Message.CompletedRewriteSummary({ notice: Option.none() }),
       ),
-      Story.Command.expectExact(FetchRecording({ id: "r1" })),
+      Story.Command.expectExact(FetchRecording({ id: "r1", request: 1 })),
       Story.Command.resolve(
         FetchRecording,
-        Message.SucceededFetchRecording({ recording: recordingDetail({ rewriting: true }) }),
+        Message.SucceededFetchRecording({
+          id: "r1",
+          request: 1,
+          recording: recordingDetail({ rewriting: true }),
+        }),
       ),
     );
   });
@@ -265,7 +323,11 @@ describe("a recording's page", () => {
       Scene.expect(Scene.role("button", { name: "Edit" })).toExist(),
       Scene.Command.resolve(
         FetchRecording,
-        Message.SucceededFetchRecording({ recording: recordingDetail({ title: "Retro" }) }),
+        Message.SucceededFetchRecording({
+          id: "r1",
+          request: 1,
+          recording: recordingDetail({ title: "Retro" }),
+        }),
       ),
     );
   });

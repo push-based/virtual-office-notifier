@@ -60,6 +60,15 @@ describe("the office stats", () => {
     );
   });
 
+  it("leaves the stats alone when the range already shown is picked again", () => {
+    Story.story(
+      update,
+      Story.given({ ...init(), stats: StatsData.Success({ data: stats }) }),
+      Story.message(Message.ClickedRange({ range: "week" })),
+      Story.Command.expectNone(),
+    );
+  });
+
   it("says why when the stats can't be counted, and counts again when asked", () => {
     Scene.scene(
       scene,

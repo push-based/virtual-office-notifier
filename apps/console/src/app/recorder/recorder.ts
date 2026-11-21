@@ -61,6 +61,8 @@ export const Model = Schema.Struct({
   noticeCount: Schema.Number,
   presence: Schema.Option(Presence),
   editor: RecordingEditor.Model,
+  statusRequests: Schema.Number,
+  statusApplied: Schema.Number,
 });
 
 export type Model = typeof Model.Type;
@@ -73,6 +75,8 @@ export const init = (): Model => ({
   noticeCount: 0,
   presence: Option.none(),
   editor: RecordingEditor.init(),
+  statusRequests: 0,
+  statusApplied: 0,
 });
 
 export const statusOf = (model: Model): RecordingStatus | null =>
@@ -107,8 +111,8 @@ export const canPress = (model: Model): boolean =>
 
 export const Message = defineMessageUnion({
   TickedStatusPoll: {},
-  SucceededFetchStatus: { status: RecordingStatus },
-  FailedFetchStatus: { reason: Schema.String },
+  SucceededFetchStatus: { request: Schema.Number, status: RecordingStatus },
+  FailedFetchStatus: { request: Schema.Number, reason: Schema.String },
   CompletedShowPresence: {},
   UpdatedDraftTitle: { value: Schema.String },
   UpdatedDraftAgenda: { value: Schema.String },
@@ -124,13 +128,15 @@ export const Message = defineMessageUnion({
 export type Message = typeof Message.Type;
 
 export const FetchStatus = Command.define("FetchStatus", {
+  args: { request: Schema.Number },
   messages: [Message.SucceededFetchStatus, Message.FailedFetchStatus],
-  execute: Api.get("/api/status", RecordingStatus).pipe(
-    Effect.map((status) => Message.SucceededFetchStatus({ status })),
-    Effect.catchTag("ApiFailure", ({ reason }) =>
-      Effect.succeed(Message.FailedFetchStatus({ reason })),
+  execute: ({ request }) =>
+    Api.get("/api/status", RecordingStatus).pipe(
+      Effect.map((status) => Message.SucceededFetchStatus({ request, status })),
+      Effect.catchTag("ApiFailure", ({ reason }) =>
+        Effect.succeed(Message.FailedFetchStatus({ request, reason })),
+      ),
     ),
-  ),
 });
 
 export const ShowPresence = Command.define("ShowPresence", {
@@ -170,6 +176,15 @@ export const WaitBeforeDismissal = Command.define("WaitBeforeDismissal", {
 
 type UpdateReturn = Update.Return<Model, Message, Resources>;
 
+const requestStatus = (model: Model): UpdateReturn => {
+  const request = model.statusRequests + 1;
+
+  return {
+    model: modifyFields(model, { statusRequests: () => request }),
+    commands: [FetchStatus({ request })],
+  };
+};
+
 const showNotice = (model: Model, shown: Notice): UpdateReturn => {
   const id = model.noticeCount + 1;
 
@@ -193,12 +208,22 @@ const submit = (model: Model, submission: RequestSubmission): UpdateReturn =>
 const settle = (model: Model, shown: Notice): UpdateReturn => {
   const shownNotice = showNotice(modifyFields(model, { isSubmitting: () => false }), shown);
 
-  return { model: shownNotice.model, commands: [...(shownNotice.commands ?? []), FetchStatus()] };
+  const refetch = requestStatus(shownNotice.model);
+
+  return {
+    model: refetch.model,
+    commands: [...(shownNotice.commands ?? []), ...(refetch.commands ?? [])],
+  };
 };
 
 const withStatus = (model: Model, status: RecordingStatus): UpdateReturn => {
   const presence = describePresence(status);
-  const nextModel = modifyFields(model, { connection: () => Connection.Loaded({ status }) });
+  const isSameRecording = runningOf(model)?.id === status.recording?.id;
+
+  const nextModel = modifyFields(model, {
+    connection: () => Connection.Loaded({ status }),
+    editor: (editor) => (isSameRecording ? editor : RecordingEditor.init()),
+  });
 
   if (Option.isSome(model.presence) && samePresence(model.presence.value, presence)) {
     return { model: nextModel };
@@ -216,17 +241,27 @@ const foldEditor = Update.foldChild({
   write: (model, nextEditor) => modifyFields(model, { editor: () => nextEditor }),
   toParentMessage: (message) => Message.GotEditorMessage({ message }),
   foldOutMessage: RecordingEditor.OutMessage.match<Update.Step<Model, Message, Resources>>({
-    SavedEdits: () => (model) => ({ model, commands: [FetchStatus()] }),
+    SavedEdits: () => requestStatus,
   }),
 });
 
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
-    TickedStatusPoll: () => ({ model, commands: [FetchStatus()] }),
+    TickedStatusPoll: () =>
+      model.statusRequests > model.statusApplied ? { model } : requestStatus(model),
 
-    SucceededFetchStatus: ({ status }) => withStatus(model, status),
+    SucceededFetchStatus: ({ request, status }) =>
+      request <= model.statusApplied
+        ? { model }
+        : withStatus(modifyFields(model, { statusApplied: () => request }), status),
 
-    FailedFetchStatus: ({ reason }) => showNotice(model, unreachableNotice(reason)),
+    FailedFetchStatus: ({ request, reason }) =>
+      request <= model.statusApplied
+        ? { model }
+        : showNotice(
+            modifyFields(model, { statusApplied: () => request }),
+            unreachableNotice(reason),
+          ),
 
     CompletedShowPresence: () => ({ model }),
 
@@ -347,6 +382,7 @@ const editorView = (model: Model, running: RunningRecording, h: HtmlBuilder<Mess
     model: model.editor,
     view: RecordingEditor.view,
     viewInputs: {
+      idPrefix: "now-editor",
       recordingId: running.id,
       label: "Edit title and agenda",
       current: { title: running.title, agenda: running.agenda, summaryStyle: running.summaryStyle },

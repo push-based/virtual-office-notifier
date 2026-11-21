@@ -18,7 +18,7 @@ const editorScene = {
       slotId: "editor",
       model,
       view: RecordingEditor.view,
-      viewInputs: { recordingId: "r1", current, label: "Edit" },
+      viewInputs: { idPrefix: "editor", recordingId: "r1", current, label: "Edit" },
       toParentMessage: identity,
     }),
 };

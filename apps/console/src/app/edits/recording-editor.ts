@@ -117,6 +117,7 @@ export const update = (model: Model, message: Message) =>
   });
 
 export interface ViewInputs {
+  readonly idPrefix: string;
   readonly recordingId: string;
   readonly current: Plan;
   readonly label: string;
@@ -129,7 +130,7 @@ const formView = (
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> => [
   planFields(h, {
-    idPrefix: `editor-${inputs.recordingId}`,
+    idPrefix: `${inputs.idPrefix}-${inputs.recordingId}`,
     draft,
     isDisabled: model.isSaving,
     onTitle: (value) => Message.UpdatedTitle({ value }),

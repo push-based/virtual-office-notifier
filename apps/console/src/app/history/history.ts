@@ -27,6 +27,8 @@ export const Opened = Schema.Struct({
   editor: RecordingEditor.Model,
   rewrite: SummaryRewrite.Model,
   actionItems: ActionItems.Model,
+  requests: Schema.Number,
+  applied: Schema.Number,
 });
 
 export type Opened = typeof Opened.Type;
@@ -37,6 +39,8 @@ export const Model = Schema.Struct({
   isLoadingOlder: Schema.Boolean,
   opened: Schema.Option(Opened),
   failure: Schema.Option(Schema.String),
+  listRequests: Schema.Number,
+  listApplied: Schema.Number,
 });
 
 export type Model = typeof Model.Type;
@@ -47,6 +51,8 @@ export const init = (): Model => ({
   isLoadingOlder: false,
   opened: Option.none(),
   failure: Option.none(),
+  listRequests: 0,
+  listApplied: 0,
 });
 
 const openedAt = (id: string): Opened => ({
@@ -55,38 +61,46 @@ const openedAt = (id: string): Opened => ({
   editor: RecordingEditor.init(),
   rewrite: SummaryRewrite.init(),
   actionItems: ActionItems.init(),
+  requests: 0,
+  applied: 0,
 });
 
 export const Message = defineMessageUnion({
   TickedListPoll: {},
-  SucceededFetchNewest: { page: RecordingPage },
+  SucceededFetchNewest: { request: Schema.Number, page: RecordingPage },
+  FailedFetchNewest: { request: Schema.Number, reason: Schema.String },
   ClickedShowOlder: {},
   SucceededFetchOlder: { page: RecordingPage },
   FailedFetchOlder: { reason: Schema.String },
   ClickedRecording: { id: Schema.String },
   ClickedBack: {},
   TickedRecordingPoll: { id: Schema.String },
-  SucceededFetchRecording: { recording: RecordingDetail },
-  FailedFetchHistory: { reason: Schema.String },
+  SucceededFetchRecording: {
+    id: Schema.String,
+    request: Schema.Number,
+    recording: RecordingDetail,
+  },
+  FailedFetchRecording: { id: Schema.String, request: Schema.Number, reason: Schema.String },
   ClickedOpenInSlack: { url: Schema.String },
   CompletedOpenInSlack: {},
   FailedOpenInSlack: { reason: Schema.String },
-  GotEditorMessage: { message: RecordingEditor.Message },
-  GotRewriteMessage: { message: SummaryRewrite.Message },
-  GotActionItemsMessage: { message: ActionItems.Message },
+  GotEditorMessage: { id: Schema.String, message: RecordingEditor.Message },
+  GotRewriteMessage: { id: Schema.String, message: SummaryRewrite.Message },
+  GotActionItemsMessage: { id: Schema.String, message: ActionItems.Message },
 });
 
 export type Message = typeof Message.Type;
 
-const failedFetch = ({ reason }: Api.ApiFailure) =>
-  Effect.succeed(Message.FailedFetchHistory({ reason }));
-
 export const FetchNewest = Command.define("FetchNewest", {
-  messages: [Message.SucceededFetchNewest, Message.FailedFetchHistory],
-  execute: Api.get("/api/recordings", RecordingPage).pipe(
-    Effect.map((page) => Message.SucceededFetchNewest({ page })),
-    Effect.catchTag("ApiFailure", failedFetch),
-  ),
+  args: { request: Schema.Number },
+  messages: [Message.SucceededFetchNewest, Message.FailedFetchNewest],
+  execute: ({ request }) =>
+    Api.get("/api/recordings", RecordingPage).pipe(
+      Effect.map((page) => Message.SucceededFetchNewest({ request, page })),
+      Effect.catchTag("ApiFailure", ({ reason }) =>
+        Effect.succeed(Message.FailedFetchNewest({ request, reason })),
+      ),
+    ),
 });
 
 export const FetchOlder = Command.define("FetchOlder", {
@@ -102,12 +116,14 @@ export const FetchOlder = Command.define("FetchOlder", {
 });
 
 export const FetchRecording = Command.define("FetchRecording", {
-  args: { id: Schema.String },
-  messages: [Message.SucceededFetchRecording, Message.FailedFetchHistory],
-  execute: ({ id }) =>
+  args: { id: Schema.String, request: Schema.Number },
+  messages: [Message.SucceededFetchRecording, Message.FailedFetchRecording],
+  execute: ({ id, request }) =>
     Api.get(`/api/recordings/${encodeURIComponent(id)}`, RecordingDetail).pipe(
-      Effect.map((recording) => Message.SucceededFetchRecording({ recording })),
-      Effect.catchTag("ApiFailure", failedFetch),
+      Effect.map((recording) => Message.SucceededFetchRecording({ id, request, recording })),
+      Effect.catchTag("ApiFailure", ({ reason }) =>
+        Effect.succeed(Message.FailedFetchRecording({ id, request, reason })),
+      ),
     ),
 });
 
@@ -127,57 +143,98 @@ type UpdateReturn = Update.Return<Model, Message, Resources>;
 
 type Step = Update.Step<Model, Message, Resources>;
 
-const refetchOpened: Step = (model) => ({
-  model,
-  commands: Option.match(model.opened, {
-    onNone: () => [],
-    onSome: ({ id }) => [FetchRecording({ id })],
-  }),
-});
+const requestList: Step = (model) => {
+  const request = model.listRequests + 1;
+
+  return {
+    model: modifyFields(model, { listRequests: () => request }),
+    commands: [FetchNewest({ request })],
+  };
+};
 
 const writeOpened = (model: Model, write: (opened: Opened) => Opened): Model =>
   modifyFields(model, { opened: Option.map(write) });
 
-const foldEditor = Update.foldChild({
-  update: RecordingEditor.update,
-  read: (model: Model) => Option.map(model.opened, ({ editor }) => editor),
-  write: (model, nextEditor) => writeOpened(model, (opened) => ({ ...opened, editor: nextEditor })),
-  toParentMessage: (message) => Message.GotEditorMessage({ message }),
-  foldOutMessage: RecordingEditor.OutMessage.match<Step>({ SavedEdits: () => refetchOpened }),
-});
+const openedWith = (model: Model, id: string): Option.Option<Opened> =>
+  Option.filter(model.opened, (opened) => opened.id === id);
 
-const foldRewrite = Update.foldChild({
-  update: SummaryRewrite.update,
-  read: (model: Model) => Option.map(model.opened, ({ rewrite }) => rewrite),
-  write: (model, nextRewrite) =>
-    writeOpened(model, (opened) => ({ ...opened, rewrite: nextRewrite })),
-  toParentMessage: (message) => Message.GotRewriteMessage({ message }),
-  foldOutMessage: SummaryRewrite.OutMessage.match<Step>({ SavedEdits: () => refetchOpened }),
-});
+const requestRecording: Step = (model) =>
+  Option.match(model.opened, {
+    onNone: () => ({ model }),
+    onSome: (opened) => {
+      const request = opened.requests + 1;
 
-const foldActionItems = Update.foldChild({
-  update: ActionItems.update,
-  read: (model: Model) => Option.map(model.opened, ({ actionItems }) => actionItems),
-  write: (model, nextActionItems) =>
-    writeOpened(model, (opened) => ({ ...opened, actionItems: nextActionItems })),
-  toParentMessage: (message) => Message.GotActionItemsMessage({ message }),
-  foldOutMessage: ActionItems.OutMessage.match<Step>({ SavedEdits: () => refetchOpened }),
-});
+      return {
+        model: writeOpened(model, (current) => ({ ...current, requests: request })),
+        commands: [FetchRecording({ id: opened.id, request })],
+      };
+    },
+  });
+
+const foldEditor = (id: string) =>
+  Update.foldChild({
+    update: RecordingEditor.update,
+    read: (model: Model) => Option.map(openedWith(model, id), ({ editor }) => editor),
+    write: (model, nextEditor) =>
+      writeOpened(model, (opened) => ({ ...opened, editor: nextEditor })),
+    toParentMessage: (message) => Message.GotEditorMessage({ id, message }),
+    foldOutMessage: RecordingEditor.OutMessage.match<Step>({ SavedEdits: () => requestRecording }),
+  });
+
+const foldRewrite = (id: string) =>
+  Update.foldChild({
+    update: SummaryRewrite.update,
+    read: (model: Model) => Option.map(openedWith(model, id), ({ rewrite }) => rewrite),
+    write: (model, nextRewrite) =>
+      writeOpened(model, (opened) => ({ ...opened, rewrite: nextRewrite })),
+    toParentMessage: (message) => Message.GotRewriteMessage({ id, message }),
+    foldOutMessage: SummaryRewrite.OutMessage.match<Step>({ SavedEdits: () => requestRecording }),
+  });
+
+const foldActionItems = (id: string) =>
+  Update.foldChild({
+    update: ActionItems.update,
+    read: (model: Model) => Option.map(openedWith(model, id), ({ actionItems }) => actionItems),
+    write: (model, nextActionItems) =>
+      writeOpened(model, (opened) => ({ ...opened, actionItems: nextActionItems })),
+    toParentMessage: (message) => Message.GotActionItemsMessage({ id, message }),
+    foldOutMessage: ActionItems.OutMessage.match<Step>({ SavedEdits: () => requestRecording }),
+  });
+
+const isAnswerToCurrent = (model: Model, id: string, request: number): boolean =>
+  Option.exists(openedWith(model, id), (opened) => request > opened.applied);
+
+const appliedRecording = (model: Model, request: number): Model =>
+  writeOpened(model, (opened) => ({ ...opened, applied: request }));
 
 const failed = (model: Model, reason: string): Model =>
   modifyFields(model, { failure: () => Option.some(reason) });
 
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
-    TickedListPoll: () => ({ model, commands: [FetchNewest()] }),
+    TickedListPoll: () => (model.listRequests > model.listApplied ? { model } : requestList(model)),
 
-    SucceededFetchNewest: ({ page }) => ({
-      model: modifyFields(model, {
-        list: (list) => withNewest(list, page),
-        isLoaded: () => true,
-        failure: () => Option.none(),
-      }),
-    }),
+    SucceededFetchNewest: ({ request, page }) =>
+      request <= model.listApplied
+        ? { model }
+        : {
+            model: modifyFields(model, {
+              list: (list) => withNewest(list, page),
+              isLoaded: () => true,
+              listApplied: () => request,
+              failure: (failure) => (Option.isNone(model.opened) ? Option.none() : failure),
+            }),
+          },
+
+    FailedFetchNewest: ({ request, reason }) => {
+      if (request <= model.listApplied) {
+        return { model };
+      }
+
+      const nextModel = modifyFields(model, { listApplied: () => request });
+
+      return { model: Option.isNone(model.opened) ? failed(nextModel, reason) : nextModel };
+    },
 
     ClickedShowOlder: () => {
       const { older } = model.list;
@@ -215,18 +272,28 @@ export const update = (model: Model, message: Message) =>
       model: modifyFields(model, { opened: () => Option.none(), failure: () => Option.none() }),
     }),
 
-    TickedRecordingPoll: ({ id }) => ({ model, commands: [FetchRecording({ id })] }),
+    TickedRecordingPoll: ({ id }) =>
+      Option.exists(openedWith(model, id), (opened) => opened.requests === opened.applied)
+        ? requestRecording(model)
+        : { model },
 
-    SucceededFetchRecording: ({ recording }) => ({
-      model: modifyFields(
-        writeOpened(model, (opened) =>
-          opened.id === recording.id ? { ...opened, recording: Option.some(recording) } : opened,
-        ),
-        { failure: () => Option.none() },
-      ),
-    }),
+    SucceededFetchRecording: ({ id, request, recording }) =>
+      isAnswerToCurrent(model, id, request)
+        ? {
+            model: modifyFields(
+              writeOpened(appliedRecording(model, request), (opened) => ({
+                ...opened,
+                recording: Option.some(recording),
+              })),
+              { failure: () => Option.none() },
+            ),
+          }
+        : { model },
 
-    FailedFetchHistory: ({ reason }) => ({ model: failed(model, reason) }),
+    FailedFetchRecording: ({ id, request, reason }) =>
+      isAnswerToCurrent(model, id, request)
+        ? { model: failed(appliedRecording(model, request), reason) }
+        : { model },
 
     ClickedOpenInSlack: ({ url }) => ({ model, commands: [OpenInSlack({ url })] }),
 
@@ -234,12 +301,12 @@ export const update = (model: Model, message: Message) =>
 
     FailedOpenInSlack: ({ reason }) => ({ model: failed(model, reason) }),
 
-    GotEditorMessage: ({ message: editorMessage }) => foldEditor(model, editorMessage),
+    GotEditorMessage: ({ id, message: editorMessage }) => foldEditor(id)(model, editorMessage),
 
-    GotRewriteMessage: ({ message: rewriteMessage }) => foldRewrite(model, rewriteMessage),
+    GotRewriteMessage: ({ id, message: rewriteMessage }) => foldRewrite(id)(model, rewriteMessage),
 
-    GotActionItemsMessage: ({ message: actionItemsMessage }) =>
-      foldActionItems(model, actionItemsMessage),
+    GotActionItemsMessage: ({ id, message: actionItemsMessage }) =>
+      foldActionItems(id)(model, actionItemsMessage),
   });
 
 export const polledRecordingId = (model: Model): string | null =>
@@ -313,6 +380,7 @@ const openedView = (model: Model, opened: Opened, now: number, h: HtmlBuilder<Me
             model: opened.editor,
             view: RecordingEditor.view,
             viewInputs: {
+              idPrefix: "history-editor",
               recordingId: recording.id,
               label: "Edit",
               current: {
@@ -321,14 +389,14 @@ const openedView = (model: Model, opened: Opened, now: number, h: HtmlBuilder<Me
                 summaryStyle: recording.summaryStyle,
               },
             },
-            toParentMessage: (message) => Message.GotEditorMessage({ message }),
+            toParentMessage: (message) => Message.GotEditorMessage({ id: recording.id, message }),
           }),
           rewrite: h.submodel({
             slotId: "summary-rewrite",
             model: opened.rewrite,
             view: SummaryRewrite.view,
             viewInputs: { recordingId: recording.id, isRewriting: recording.rewriting },
-            toParentMessage: (message) => Message.GotRewriteMessage({ message }),
+            toParentMessage: (message) => Message.GotRewriteMessage({ id: recording.id, message }),
           }),
           actionItems: h.submodel({
             slotId: "action-items",
@@ -339,7 +407,8 @@ const openedView = (model: Model, opened: Opened, now: number, h: HtmlBuilder<Me
               items: recording.actionItems,
               members: recording.members,
             },
-            toParentMessage: (message) => Message.GotActionItemsMessage({ message }),
+            toParentMessage: (message) =>
+              Message.GotActionItemsMessage({ id: recording.id, message }),
           }),
         }),
       ],
