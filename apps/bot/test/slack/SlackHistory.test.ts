@@ -10,6 +10,7 @@ import { NO_VOICE_DETAILS } from "../../src/office/OfficeEvent.ts";
 import {
   type ConsideredMessage,
   type DecisionRecord,
+  type PostKind,
   SlackHistory,
 } from "../../src/slack/SlackHistory.ts";
 
@@ -165,33 +166,38 @@ describe("SlackHistory", () => {
     }).pipe(Effect.provide(TestLayer)),
   );
 
-  it.effect("lists the banter still in Slack from a stretch of time, oldest first", () =>
-    Effect.gen(function* () {
-      yield* ready;
+  it.effect(
+    "lists the announcements, reminders and banter still in Slack from before a time, oldest first",
+    () =>
+      Effect.gen(function* () {
+        yield* ready;
 
-      const history = yield* SlackHistory;
+        const history = yield* SlackHistory;
 
-      const banter = (ts: string, postedAt: DateTime.Utc) => ({
-        ...reply(ts, "", postedAt),
-        threadTs: null,
-        kind: "Banter" as const,
-      });
+        const post = (ts: string, postedAt: DateTime.Utc, kind: PostKind) => ({
+          ...reply(ts, "", postedAt),
+          threadTs: null,
+          kind,
+        });
 
-      yield* history.recordPost(banter("8.0", hours(8)));
-      yield* history.recordPost(banter("12.0", hours(12)));
-      yield* history.recordPost(banter("10.0", hours(10)));
-      yield* history.recordPost(banter("11.0", hours(11)));
-      yield* history.recordPost(banter("14.0", hours(14)));
-      yield* history.recordPost({ ...banter("10.5", hours(10)), kind: "Reminder" });
-      yield* history.recordPost(reply("10.6", "10.0", hours(10)));
+        yield* history.recordPost(post("12.0", hours(12), "Banter"));
+        yield* history.recordPost(post("8.0", hours(8), "Opened"));
+        yield* history.recordPost(post("10.0", hours(10), "Reminder"));
+        yield* history.recordPost(post("11.0", hours(11), "Banter"));
+        yield* history.recordPost(post("13.0", hours(13), "Emptied"));
+        yield* history.recordPost(post("14.0", hours(14), "Banter"));
+        yield* history.recordPost(post("10.5", hours(10), "Recording"));
+        yield* history.recordPost(reply("10.6", "10.0", hours(10)));
 
-      yield* history.recordDeleted({ channel: "C-OFFICE", ts: "11.0" }, hours(13));
+        yield* history.recordDeleted({ channel: "C-OFFICE", ts: "11.0" }, hours(13));
 
-      assert.deepStrictEqual(yield* history.banterInSlackBetween(hours(10), hours(14)), [
-        { channel: "C-OFFICE", ts: "10.0" },
-        { channel: "C-OFFICE", ts: "12.0" },
-      ]);
-    }).pipe(Effect.provide(TestLayer)),
+        assert.deepStrictEqual(yield* history.tidiedPostsInSlackBefore(hours(14)), [
+          { channel: "C-OFFICE", ts: "8.0" },
+          { channel: "C-OFFICE", ts: "10.0" },
+          { channel: "C-OFFICE", ts: "12.0" },
+          { channel: "C-OFFICE", ts: "13.0" },
+        ]);
+      }).pipe(Effect.provide(TestLayer)),
   );
 
   it.effect("keeps deleted banter's text and the first time it was deleted", () =>

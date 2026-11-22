@@ -50,11 +50,12 @@ import {
   type ConsideredMessage,
   type DecisionRecord,
   type LinkedMember,
-  type PostedBanter,
+  type PostInSlack,
   type ReactionRecord,
   type ResponderSettings,
   SlackHistory,
   type SlackPost,
+  TIDIED_KINDS,
 } from "../src/slack/SlackHistory.ts";
 import { SlackNotifier } from "../src/announcing/SlackNotifier.ts";
 import { OfficeEvent } from "../src/office/OfficeEvent.ts";
@@ -291,10 +292,10 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
   const messages = yield* Ref.make<ReadonlyArray<ConsideredMessage>>([]);
   const decisions = yield* Ref.make<ReadonlyArray<DecisionRecord>>([]);
   const reactions = yield* Ref.make<ReadonlyArray<ReactionRecord>>([]);
-  const deleted = yield* Ref.make<ReadonlyArray<PostedBanter>>([]);
+  const deleted = yield* Ref.make<ReadonlyArray<PostInSlack>>([]);
   const members = options.members ?? new Map<string, LinkedMember>();
 
-  const isDeleted = (all: ReadonlyArray<PostedBanter>, post: PostedBanter) =>
+  const isDeleted = (all: ReadonlyArray<PostInSlack>, post: PostInSlack) =>
     Array.some(all, ({ channel, ts }) => channel === post.channel && ts === post.ts);
 
   const replies = Ref.get(posts).pipe(
@@ -348,7 +349,7 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
                 .length,
           ),
         ),
-      banterInSlackBetween: (from, until) =>
+      tidiedPostsInSlackBefore: (until) =>
         Effect.gen(function* () {
           const all = yield* Ref.get(posts);
           const gone = yield* Ref.get(deleted);
@@ -356,9 +357,8 @@ export const makeFakeSlackHistory = Effect.fnUntraced(function* (options: FakeHi
           const shown = Array.filter(
             all,
             (post) =>
-              post.kind === "Banter" &&
+              Array.contains(TIDIED_KINDS, post.kind) &&
               post.threadTs === null &&
-              DateTime.isGreaterThanOrEqualTo(post.postedAt, from) &&
               DateTime.isLessThan(post.postedAt, until) &&
               !isDeleted(gone, post),
           );
