@@ -33,6 +33,10 @@ jobs:
           restore-keys: |
             vite-task-${{ runner.os }}-${{ runner.arch }}-
 
+      # The Console's smoke test opens its built page in Chromium.
+      - name: Install Chromium
+        run: pnpm --filter console exec playwright install --with-deps chromium
+
       - run: vp run --log grouped ci
 
       # Vite Task only stores tasks that passed, so a failed run still saves the rest for the re-run.

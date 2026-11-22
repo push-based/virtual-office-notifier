@@ -22,12 +22,21 @@ export default defineConfig(({ mode }) => ({
         extends: true,
         test: { name: "worker", environment: "node", include: ["worker/**/*.spec.ts"] },
       },
+      {
+        extends: true,
+        test: {
+          name: "built",
+          environment: "node",
+          include: ["smoke/**/*.spec.ts"],
+          testTimeout: 30_000,
+        },
+      },
     ],
   },
   run: {
     tasks: {
       typecheck: typecheck(
-        "pnpm -w exec tsc --noEmit -p apps/console && pnpm -w exec tsc --noEmit -p apps/console/worker",
+        "pnpm -w exec tsc --noEmit -p apps/console && pnpm -w exec tsc --noEmit -p apps/console/worker && pnpm -w exec tsc --noEmit -p apps/console/smoke",
       ),
       build: {
         command: "vp build",
@@ -36,7 +45,11 @@ export default defineConfig(({ mode }) => ({
           output: [{ auto: true }, "!node_modules/.vite/**", "!.wrangler/state/**"],
         },
       },
-      test: "vp test",
+      test: "vp test --project page --project worker",
+      smoke: {
+        command: "vp test --project built",
+        dependsOn: ["build"],
+      },
     },
   },
 }));

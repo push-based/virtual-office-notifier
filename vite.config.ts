@@ -198,7 +198,13 @@ export default defineConfig({
     tasks: {
       typecheck: typecheck(),
       check: "vp check",
-      ci: ["vp run -r typecheck", "vp run check", "vp run -r test", "vp run -r build"],
+      ci: [
+        "vp run -r typecheck",
+        "vp run check",
+        "vp run -r test",
+        "vp run -r build",
+        "vp run console#smoke",
+      ],
     },
   },
 });
