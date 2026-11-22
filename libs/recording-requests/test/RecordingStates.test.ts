@@ -5,7 +5,7 @@ import { Array, DateTime, Effect } from "effect";
 import { type RecordingState, stateOf } from "office-domain/Recording";
 import { inState } from "../src/RecordingStates.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
-import { migrated } from "./schema.ts";
+import { migrated } from "./database.ts";
 
 const RUNNING = "00000000-0000-4000-8000-000000000001";
 

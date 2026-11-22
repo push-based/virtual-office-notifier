@@ -6,7 +6,7 @@ import { TestClock } from "effect/testing";
 
 import { guardChange, guardQuery, QUERY_TIMEOUT } from "../src/Query.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
-import { migrated } from "./schema.ts";
+import { migrated } from "./database.ts";
 
 class Unavailable extends Schema.TaggedError<Unavailable, { readonly brand: unique symbol }>()(
   "Unavailable",

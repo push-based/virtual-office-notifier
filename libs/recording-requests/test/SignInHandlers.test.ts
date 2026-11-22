@@ -1,74 +1,15 @@
-import { DiscordOAuth } from "activity-sign-in/DiscordOAuth";
-import { Sessions } from "activity-sign-in/Sessions";
-import { DiscordRefused, SignedInSession, SignInConfig } from "office-domain/SignInApi";
-import { SignInSettings } from "activity-sign-in/SignInSettings";
 import { afterAll, assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Option, Redacted, Schema } from "effect";
-import { HttpRouter, HttpServer } from "effect/http";
-import { HttpApiBuilder } from "effect/http-api";
+import { Effect, Schema } from "effect";
+import { SignedInSession, SignInConfig } from "office-domain/SignInApi";
 
-import { ConsentHandlers, ErasureAdminHandlers } from "../src/ConsentHandlers.ts";
-import { ConsentRequests } from "../src/ConsentRequests.ts";
-import { OfficeStatsReader } from "../src/OfficeStats.ts";
-import { RecordingApi } from "office-domain/RecordingApi";
-import { EditHandlers, HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
-import { RecordingEdits } from "../src/RecordingEdits.ts";
-import { RecordingHistory } from "../src/RecordingHistory.ts";
-import { RecordingRequests } from "../src/RecordingRequests.ts";
-import { SignedInLayer, SignInHandlers } from "../src/SignInHandlers.ts";
-import { StatsHandlers } from "../src/StatsHandlers.ts";
-import { TelemetryHandlers } from "../src/TelemetryHandlers.ts";
+import { ada, bodyOf, serveApi } from "./api.ts";
 
-const ada = { id: "u1", name: "Ada", avatarUrl: null };
+const { send, dispose } = serveApi();
 
-const Discord = Layer.succeed(
-  DiscordOAuth,
-  DiscordOAuth.of({
-    exchange: (code) =>
-      code === "good-code"
-        ? Effect.succeed({ accessToken: "t0k3n", user: ada })
-        : Effect.fail(DiscordRefused.make({ status: 400 })),
-  }),
-);
-
-const Settings = Layer.succeed(
-  SignInSettings,
-  SignInSettings.of({
-    clientId: "client-id",
-    clientSecret: Redacted.make("client-secret"),
-    sessionSecret: Redacted.make("session-secret"),
-  }),
-);
-
-const app = HttpRouter.toWebHandler(
-  HttpApiBuilder.layer(RecordingApi).pipe(
-    Layer.provide([
-      SignInHandlers.pipe(Layer.provide(Discord)),
-      RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerDisabled)),
-      TelemetryHandlers(Option.none()),
-      StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerDisabled)),
-      HistoryHandlers.pipe(Layer.provide(RecordingHistory.layerDisabled)),
-      EditHandlers.pipe(Layer.provide(RecordingEdits.layerDisabled)),
-      ConsentHandlers.pipe(Layer.provide(ConsentRequests.layerDisabled)),
-      ErasureAdminHandlers.pipe(Layer.provide(ConsentRequests.layerDisabled)),
-    ]),
-    Layer.provideMerge(SignedInLayer),
-    Layer.provide(Sessions.layer),
-    Layer.provide(Settings),
-    Layer.provide(HttpServer.layerServices),
-  ),
-  { disableLogger: true },
-);
-
-afterAll(() => app.dispose());
-
-const send = (path: string, init?: RequestInit) =>
-  Effect.promise(() => app.handler(new Request(`http://recorder.test${path}`, init)));
+afterAll(dispose);
 
 const signIn = (body: string) =>
   send("/api/token", { method: "POST", headers: { "content-type": "application/json" }, body });
-
-const bodyOf = (response: Response) => Effect.promise(() => response.text());
 
 const decodeConfig = Schema.decodeEffect(Schema.fromJsonString(SignInConfig));
 
@@ -128,14 +69,6 @@ describe("the sign-in API", () => {
 
         assert.strictEqual(response.status, 400);
       }
-    }),
-  );
-
-  it.effect("answers 404 to a path the API doesn't declare", () =>
-    Effect.gen(function* () {
-      const response = yield* send("/api/nothing-here");
-
-      assert.strictEqual(response.status, 404);
     }),
   );
 });

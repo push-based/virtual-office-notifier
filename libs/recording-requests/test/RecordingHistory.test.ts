@@ -3,16 +3,10 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Effect, Layer, Option, Schema, String } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { stateOf } from "office-domain/Recording";
 import { PAGE_SIZE, RecordingHistory } from "../src/RecordingHistory.ts";
 import { Occupant } from "office-domain/RecordingRequest";
 import { columnNaming } from "../src/SqlNaming.ts";
-import { migrated } from "./schema.ts";
-
-class ConnectionRefused extends Schema.TaggedError<
-  ConnectionRefused,
-  { readonly brand: unique symbol }
->()("ConnectionRefused", { message: Schema.String }) {}
+import { migrated, unreachable } from "./database.ts";
 
 const minute = (n: number) => DateTime.makeUnsafe(Date.UTC(2026, 9, 29, 12, n));
 
@@ -185,15 +179,6 @@ const fourStates = Effect.gen(function* () {
   yield* sql`UPDATE office.recording_status SET occupants = ${occupants}::jsonb`;
 
   return yield* RecordingHistory;
-});
-
-describe("stateOf", () => {
-  it("tells running, transcribing, finished and silent recordings apart", () => {
-    assert.strictEqual(stateOf({ stopped: false, finished: false, posted: false }), "running");
-    assert.strictEqual(stateOf({ stopped: true, finished: false, posted: false }), "transcribing");
-    assert.strictEqual(stateOf({ stopped: true, finished: true, posted: true }), "finished");
-    assert.strictEqual(stateOf({ stopped: true, finished: true, posted: false }), "silent");
-  });
 });
 
 describe("RecordingHistory.page", () => {
@@ -418,12 +403,7 @@ describe("RecordingHistory.layerPerCall", () => {
     Effect.gen(function* () {
       const history = yield* Effect.provide(
         Effect.service(RecordingHistory),
-        RecordingHistory.layerPerCall(
-          Layer.effect(
-            SqlClient.SqlClient,
-            Effect.fail(ConnectionRefused.make({ message: "Connection refused" })),
-          ),
-        ),
+        RecordingHistory.layerPerCall(unreachable),
       );
 
       const failures = yield* Effect.all([
