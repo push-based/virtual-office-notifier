@@ -66,6 +66,7 @@ export const startRecorder = Effect.gen(function* () {
   const runFor = Effect.fnUntraced(function* (office: OfficeLocation) {
     const presence = yield* Ref.make<BotPresence>("Away");
     const started = yield* Ref.make(false);
+    const reconciled = yield* Ref.make(false);
     const lastStatus = yield* Ref.make("");
     const statusChanged = yield* Queue.dropping<void>(1);
     const storeHealth = yield* StoreHealth.make;
@@ -293,6 +294,7 @@ export const startRecorder = Effect.gen(function* () {
 
     const tick = mutex.withPermits(1)(
       Effect.gen(function* () {
+        yield* reconcileIfNeeded;
         yield* saveUnsavedStop;
 
         const current = yield* capture.current;
@@ -342,11 +344,13 @@ export const startRecorder = Effect.gen(function* () {
         );
         yield* publication.finish(active.value.id).pipe(Effect.forkScoped);
       },
-      Effect.catchTag(
-        "StoreUnavailable",
-        StoreHealth.report("Couldn't check for a recording in progress"),
-      ),
+      Effect.andThen(Ref.set(reconciled, true)),
     );
+
+    const reconcileIfNeeded = Effect.gen(function* () {
+      if ((yield* Ref.get(started)) && !(yield* Ref.get(reconciled)))
+        yield* reconcileStartup(yield* Ref.get(presence));
+    });
 
     const onPresence = (next: BotPresence) =>
       mutex.withPermits(1)(
@@ -356,7 +360,12 @@ export const startRecorder = Effect.gen(function* () {
           const alreadyStarted = yield* Ref.getAndSet(started, true);
 
           if (!alreadyStarted) {
-            yield* reconcileStartup(next);
+            yield* reconcileStartup(next).pipe(
+              Effect.catchTag(
+                "StoreUnavailable",
+                StoreHealth.report("Couldn't check for a recording in progress"),
+              ),
+            );
           } else if (next === "Away") {
             yield* stopRecording("office_emptied", null).pipe(
               Effect.catchTag(
