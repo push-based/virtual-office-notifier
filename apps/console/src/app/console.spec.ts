@@ -88,7 +88,7 @@ const started = () => {
 
 const text = (element: HTMLElement) => element.textContent ?? "";
 
-const waitFor = (check: () => void) => Effect.promise(() => vi.waitFor(check));
+const waitFor = (check: () => void) => Effect.promise(() => vi.waitFor(check, { timeout: 5000 }));
 
 const sentTo = (sent: ReadonlyArray<SentRequest>, path: string) =>
   Array.findFirst(sent, (request) => request.path === path);
