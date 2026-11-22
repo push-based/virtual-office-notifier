@@ -86,7 +86,7 @@ Everything the bot does lives in [`apps/bot/src/`](../apps/bot/src). The top lev
 | Module                                                     | Responsibility                                                                                                           |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | [`SlackClient.ts`](../apps/bot/src/slack/SlackClient.ts)   | Slack's Web API: posting, reacting, reading threads and names, with retries and error classification.                    |
-| [`SlackSocket.ts`](../apps/bot/src/slack/SlackSocket.ts)   | The Socket Mode connection: acks every event at once, drops redeliveries and reconnects.                                 |
+| [`SlackSocket.ts`](../apps/bot/src/slack/SlackSocket.ts)   | The Socket Mode connection: acks every event at once, drops events it already had and reconnects.                        |
 | [`SlackEvent.ts`](../apps/bot/src/slack/SlackEvent.ts)     | Decodes Slack events and decides which ones the bot considers.                                                           |
 | [`SlackMessage.ts`](../apps/bot/src/slack/SlackMessage.ts) | The Block Kit pieces every message is built from, and escaping text from outside.                                        |
 | [`BotPosts.ts`](../apps/bot/src/slack/BotPosts.ts)         | Every post the bot makes in Slack: posts it and records it, and a failed record never hides the post.                    |
