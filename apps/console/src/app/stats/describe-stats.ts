@@ -1,12 +1,9 @@
 import { Array, Option, pipe } from "effect";
-import { type Bar, formatDuration, type HeatmapRow, type Tab } from "design-system";
+import { type Bar, type HeatmapRow, type Tabs } from "design-system";
 import type { BusyHour, OfficeStats, PersonDays, StatsRange } from "office-domain/OfficeStats";
+import { formatDuration } from "../time/duration.ts";
 
-export interface RangeTab extends Tab {
-  readonly id: StatsRange;
-}
-
-export const RANGES: ReadonlyArray<RangeTab> = [
+export const RANGES: ReadonlyArray<Tabs.Tab<StatsRange>> = [
   { id: "week", label: "This week" },
   { id: "month", label: "This month" },
   { id: "all", label: "All time" },
@@ -14,7 +11,7 @@ export const RANGES: ReadonlyArray<RangeTab> = [
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export interface BusiestGrid {
+interface BusiestGrid {
   readonly columns: ReadonlyArray<string>;
   readonly rows: ReadonlyArray<HeatmapRow>;
 }
@@ -30,13 +27,6 @@ export interface StatsView {
   readonly players: ReadonlyArray<Bar>;
   readonly reactions: ReadonlyArray<Bar>;
 }
-
-export const rangeOf = (id: string): StatsRange =>
-  pipe(
-    RANGES,
-    Array.findFirst((range) => range.id === id),
-    Option.match({ onNone: () => "week", onSome: (range) => range.id }),
-  );
 
 export const emojiLabel = (emoji: string): string =>
   /^[\w-]+$/.test(emoji) ? `:${emoji}:` : emoji;

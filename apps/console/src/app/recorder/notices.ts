@@ -1,7 +1,7 @@
-import type { Notice } from "../notice.ts";
+import type { NoticeContent } from "design-system";
 import type { HandledRequest } from "office-domain/RecordingRequest";
 
-export const outcomeNotice = (result: HandledRequest | null): Notice => {
+export const outcomeNotice = (result: HandledRequest | null): NoticeContent => {
   if (result === null)
     return { kind: "error", text: "The bot hasn't answered yet. Try again in a moment." };
 
@@ -22,7 +22,7 @@ export const outcomeNotice = (result: HandledRequest | null): Notice => {
   }
 };
 
-export const unreachableNotice = (reason: string): Notice => ({
+export const unreachableNotice = (reason: string): NoticeContent => ({
   kind: "error",
   text: `Couldn't reach the bot: ${reason}`,
 });

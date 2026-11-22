@@ -523,6 +523,43 @@ describe("ConsentRequests erasures", () => {
     ),
   );
 
+  it.effect(
+    "can't be cancelled or refused once it's due, so it never says so and erases anyway",
+    () =>
+      withRequests((requests) =>
+        Effect.gen(function* () {
+          const steps = yield* Ref.make<ReadonlyArray<string>>([]);
+          const { id } = yield* requests.erase("ada");
+          const handler = erasingHandler(steps);
+
+          yield* makeDue(id);
+
+          const [cancelled, refused] = yield* Effect.all([Ref.make(true), Ref.make(true)]);
+
+          yield* requests.handleErasures({
+            ...handler,
+            prepare: (erasure) =>
+              Effect.gen(function* () {
+                yield* handler.prepare(erasure);
+                yield* Ref.set(cancelled, Option.isSome(yield* requests.cancelErasure("ada", id)));
+                yield* Ref.set(
+                  refused,
+                  Option.isSome(
+                    yield* requests.refuse(id, CHRIS, { ground: "legal_claim", reason: "late" }),
+                  ),
+                );
+              }).pipe(Effect.orDie),
+          });
+
+          assert.isFalse(yield* Ref.get(cancelled));
+          assert.isFalse(yield* Ref.get(refused));
+          assert.deepStrictEqual(yield* requestRows, [
+            { userId: null, kind: "erase", outcome: "erased", decision: null },
+          ]);
+        }),
+      ),
+  );
+
   it.effect("cancels instead of erasing someone who agreed to being recorded since asking", () =>
     withRequests((requests) =>
       Effect.gen(function* () {

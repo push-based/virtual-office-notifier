@@ -4,7 +4,8 @@ import { HttpApiError } from "effect/http-api";
 import { TestClock } from "effect/testing";
 import { Unauthorized } from "office-domain/RecordingApi";
 
-import { type FakeRoutes, fakeApi, fakeServer } from "../fakes.ts";
+import { fakeApi } from "../dev/fake-worker.ts";
+import { type FakeRoutes, fakeServer } from "../fakes.ts";
 import { type GatewayFailure, GatewayFailures } from "../telemetry/gateway-failures.ts";
 import { type ApiFailure, ConsoleApi, reasonOf, RetryTiming, SessionToken } from "./api.ts";
 

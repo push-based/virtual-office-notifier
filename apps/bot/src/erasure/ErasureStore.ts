@@ -1,5 +1,6 @@
 import { Array, Context, Effect, Layer, pipe, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
+import { namesOf, slackIdsOf } from "recording-requests/ErasureInventory";
 import { guardChange, guardQuery, type QueryGuard } from "recording-requests/Query";
 import { FORMER_MEMBER, FORMER_MEMBER_ID } from "office-domain/wire";
 
@@ -28,10 +29,6 @@ export interface Erased {
   readonly objectPaths: ReadonlyArray<string>;
   readonly republishing: number;
 }
-
-const NameRow = Schema.Struct({ name: Schema.String });
-
-const SlackIdRow = Schema.Struct({ slackUserId: Schema.String });
 
 const PathRow = Schema.Struct({ objectPath: Schema.String });
 
@@ -114,41 +111,6 @@ export class ErasureStore extends Context.Service<
 
       const atomically = guardChange(guard, sql);
 
-      const findNames = SqlSchema.findAll({
-        Request: Schema.String,
-        Result: NameRow,
-        execute: (userId) => sql`
-          WITH m AS (SELECT * FROM office.members WHERE user_id = ${userId})
-          SELECT DISTINCT name FROM (
-            SELECT display_name AS name FROM m
-            UNION ALL SELECT real_name FROM m
-            UNION ALL
-            SELECT display_name FROM office.slack_messages
-            WHERE member_user_id = ${userId} OR user_id IN (SELECT slack_user_id FROM m)
-            UNION ALL
-            SELECT requested_by_name FROM office.recording_requests WHERE requested_by = ${userId}
-            UNION ALL
-            SELECT edited_by_name FROM office.recording_edits WHERE edited_by = ${userId}
-          ) names
-          WHERE name IS NOT NULL
-          ORDER BY name
-        `,
-      });
-
-      const findSlackIds = SqlSchema.findAll({
-        Request: Schema.String,
-        Result: SlackIdRow,
-        execute: (userId) => sql`
-          SELECT DISTINCT slack_user_id FROM (
-            SELECT slack_user_id FROM office.members WHERE user_id = ${userId}
-            UNION ALL
-            SELECT user_id FROM office.slack_messages WHERE member_user_id = ${userId}
-          ) ids
-          WHERE slack_user_id IS NOT NULL
-          ORDER BY slack_user_id
-        `,
-      });
-
       const findPaths = SqlSchema.findAll({
         Request: Schema.String,
         Result: PathRow,
@@ -185,8 +147,8 @@ export class ErasureStore extends Context.Service<
       });
 
       const subject = Effect.fn("ErasureStore.subject")(function* (userId: string) {
-        const names = yield* onceReady(findNames(userId));
-        const slackIds = yield* onceReady(findSlackIds(userId));
+        const names = yield* onceReady(namesOf(sql)(userId));
+        const slackIds = yield* onceReady(slackIdsOf(sql)(userId));
         const paths = yield* onceReady(findPaths(userId));
 
         const slackUserIds = Array.map(slackIds, ({ slackUserId }) => slackUserId);

@@ -1,5 +1,5 @@
 import { Array } from "effect";
-import { badge, description, people, type Person } from "design-system";
+import { badge, blockButton, description, people, type Person } from "design-system";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import type { ListedRecording, OfficeMember } from "office-domain/Recording";
@@ -11,13 +11,13 @@ export const personOf = (member: OfficeMember): Person => ({
   avatarUrl: member.avatarUrl,
 });
 
-export interface RecordingRowConfig<Message> {
+interface RecordingRowConfig<Message> {
   readonly recording: ListedRecording;
   readonly now: number;
   readonly onOpen: Message;
 }
 
-export const factLine = (recording: ListedRecording, now: number): string =>
+const factLine = (recording: ListedRecording, now: number): string =>
   Array.join(
     [
       ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
@@ -43,7 +43,7 @@ export const recordingRow = <Message>(
           [h.Class("text-body recording-row-when")],
           [recording.title ?? formatOfficeTime(recording.startedAt)],
         ),
-        badge(h, state.tone, state.label),
+        badge(h, { tone: state.tone, label: state.label }),
       ],
     ),
     description(h, [factLine(recording, config.now)]),
@@ -53,6 +53,6 @@ export const recordingRow = <Message>(
   ];
 
   return canOpen(recording.state)
-    ? h.button([h.Type("button"), h.Class("recording-row"), h.OnClick(config.onOpen)], facts)
+    ? blockButton(h, { className: "recording-row", onClick: config.onOpen, children: facts })
     : h.div([h.Class("recording-row")], facts);
 };

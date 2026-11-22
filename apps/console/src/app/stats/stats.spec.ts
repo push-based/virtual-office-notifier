@@ -1,4 +1,5 @@
 import { Array, DateTime, identity } from "effect";
+import { Tabs } from "design-system";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
@@ -34,13 +35,13 @@ describe("the office stats", () => {
       Story.model((model) => expect(model.stats).toEqual(StatsData.Loading())),
     );
     expect(Array.map(open(init()).commands ?? [], ({ name, args }) => ({ name, args }))).toEqual([
-      { name: FetchStats.name, args: { range: "week" } },
+      { name: FetchStats.name, args: { range: "week", request: 1 } },
     ]);
     Scene.scene(
       scene,
       Scene.given({ ...init(), stats: StatsData.Success({ data: stats }) }),
       Scene.expect(Scene.role("tab", { name: "This week" })).toHaveAttr("aria-selected", "true"),
-      Scene.expect(Scene.role("tabpanel")).toHaveId("range-panel-week"),
+      Scene.expect(Scene.role("tabpanel", { name: "This week" })).toExist(),
       Scene.expect(Scene.text("Recordings")).toExist(),
       Scene.expect(Scene.text("1h 30m")).toExist(),
       Scene.expect(Scene.role("list", { name: "Top emoji" })).toContainText(":tada:"),
@@ -48,14 +49,15 @@ describe("the office stats", () => {
     );
   });
 
-  it("loads the range that's picked, and ignores an answer for another one", () => {
+  it("loads the range that's picked, and ignores an answer to an earlier request", () => {
     Scene.scene(
       scene,
       Scene.given({ ...init(), stats: StatsData.Success({ data: stats }) }),
       Scene.click(Scene.role("tab", { name: "All time" })),
+      Scene.Command.resolve(Tabs.FocusTab, Tabs.Message.CompletedFocusTab()),
       Scene.expect(Scene.text("Counting…")).toExist(),
-      Scene.Command.expectExact(FetchStats({ range: "all" })),
-      Scene.Command.resolve(FetchStats, Message.SucceededFetchStats({ range: "week", stats })),
+      Scene.Command.expectExact(FetchStats({ range: "all", request: 1 })),
+      Scene.Command.resolve(FetchStats, Message.SucceededFetchStats({ request: 0, stats })),
       Scene.expect(Scene.text("Counting…")).toExist(),
     );
   });
@@ -64,7 +66,12 @@ describe("the office stats", () => {
     Story.story(
       update,
       Story.given({ ...init(), stats: StatsData.Success({ data: stats }) }),
-      Story.message(Message.ClickedRange({ range: "week" })),
+      Story.message(
+        Message.GotRangeTabsMessage({
+          message: Tabs.Message.SelectedTab({ index: 0, value: "week" }),
+        }),
+      ),
+      Story.Command.resolve(Tabs.FocusTab, Tabs.Message.CompletedFocusTab()),
       Story.Command.expectNone(),
     );
   });
@@ -75,9 +82,18 @@ describe("the office stats", () => {
       Scene.given({ ...init(), stats: StatsData.Failure({ error: "/api/stats answered 503" }) }),
       Scene.expect(Scene.text("Couldn't count the stats: /api/stats answered 503")).toExist(),
       Scene.click(Scene.role("button", { name: "Try again" })),
-      Scene.Command.expectExact(FetchStats({ range: "week" })),
-      Scene.Command.resolve(FetchStats, Message.SucceededFetchStats({ range: "week", stats })),
+      Scene.Command.expectExact(FetchStats({ range: "week", request: 1 })),
+      Scene.Command.resolve(FetchStats, Message.SucceededFetchStats({ request: 1, stats })),
       Scene.expect(Scene.text("Recordings")).toExist(),
+    );
+  });
+
+  it("keeps fresh stats when an earlier request for the same range fails late", () => {
+    Story.story(
+      update,
+      Story.given({ ...init(), requests: 3, stats: StatsData.Success({ data: stats }) }),
+      Story.message(Message.FailedFetchStats({ request: 1, reason: "/api/stats didn't answer" })),
+      Story.model((model) => expect(model.stats).toEqual(StatsData.Success({ data: stats }))),
     );
   });
 });

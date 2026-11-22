@@ -48,6 +48,13 @@ const PUBLISHING_STATUS = "Couldn't update the recording status";
 
 const encodeStatusKey = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
+interface UnsavedStop {
+  readonly recordingId: string;
+  readonly at: DateTime.Utc;
+  readonly reason: StopReason;
+  readonly by: string | null;
+}
+
 export const startRecorder = Effect.gen(function* () {
   const gateway = yield* DiscordGateway;
   const store = yield* RecordingStore;
@@ -59,10 +66,12 @@ export const startRecorder = Effect.gen(function* () {
   const runFor = Effect.fnUntraced(function* (office: OfficeLocation) {
     const presence = yield* Ref.make<BotPresence>("Away");
     const started = yield* Ref.make(false);
+    const reconciled = yield* Ref.make(false);
     const lastStatus = yield* Ref.make("");
     const statusChanged = yield* Queue.dropping<void>(1);
     const storeHealth = yield* StoreHealth.make;
     const mutex = yield* Semaphore.make(1);
+    const unsavedStop = yield* Ref.make(Option.none<UnsavedStop>());
 
     const statusChange = Queue.offer(statusChanged, undefined).pipe(Effect.asVoid);
 
@@ -116,6 +125,18 @@ export const startRecorder = Effect.gen(function* () {
         Effect.andThen(publication.finish(recordingId).pipe(Effect.forkScoped)),
       );
 
+    const saveStop = (stop: UnsavedStop) =>
+      store
+        .stopRecording(stop.recordingId, stop.at, stop.reason, stop.by)
+        .pipe(
+          Effect.andThen(Ref.set(unsavedStop, Option.none())),
+          Effect.andThen(stopped(stop.recordingId, stop.reason)),
+        );
+
+    const saveUnsavedStop = Ref.get(unsavedStop).pipe(
+      Effect.flatMap(Option.match({ onNone: () => Effect.void, onSome: saveStop })),
+    );
+
     const stopRecording = Effect.fn("Recorder.stopRecording")(function* (
       reason: StopReason,
       by: string | null,
@@ -124,8 +145,15 @@ export const startRecorder = Effect.gen(function* () {
 
       if (Option.isNone(ended)) return;
 
-      yield* store.stopRecording(ended.value.id, yield* DateTime.now, reason, by);
-      yield* stopped(ended.value.id, reason);
+      const stop: UnsavedStop = {
+        recordingId: ended.value.id,
+        at: yield* DateTime.now,
+        reason,
+        by,
+      };
+
+      yield* Ref.set(unsavedStop, Option.some(stop));
+      yield* saveStop(stop);
     });
 
     const requestHandler: RequestHandler<StoreUnavailable, Scope.Scope> = {
@@ -266,6 +294,9 @@ export const startRecorder = Effect.gen(function* () {
 
     const tick = mutex.withPermits(1)(
       Effect.gen(function* () {
+        yield* reconcileIfNeeded;
+        yield* saveUnsavedStop;
+
         const current = yield* capture.current;
         const now = yield* DateTime.now;
 
@@ -313,11 +344,13 @@ export const startRecorder = Effect.gen(function* () {
         );
         yield* publication.finish(active.value.id).pipe(Effect.forkScoped);
       },
-      Effect.catchTag(
-        "StoreUnavailable",
-        StoreHealth.report("Couldn't check for a recording in progress"),
-      ),
+      Effect.andThen(Ref.set(reconciled, true)),
     );
+
+    const reconcileIfNeeded = Effect.gen(function* () {
+      if ((yield* Ref.get(started)) && !(yield* Ref.get(reconciled)))
+        yield* reconcileStartup(yield* Ref.get(presence));
+    });
 
     const onPresence = (next: BotPresence) =>
       mutex.withPermits(1)(
@@ -327,7 +360,12 @@ export const startRecorder = Effect.gen(function* () {
           const alreadyStarted = yield* Ref.getAndSet(started, true);
 
           if (!alreadyStarted) {
-            yield* reconcileStartup(next);
+            yield* reconcileStartup(next).pipe(
+              Effect.catchTag(
+                "StoreUnavailable",
+                StoreHealth.report("Couldn't check for a recording in progress"),
+              ),
+            );
           } else if (next === "Away") {
             yield* stopRecording("office_emptied", null).pipe(
               Effect.catchTag(

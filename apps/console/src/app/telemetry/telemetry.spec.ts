@@ -4,7 +4,8 @@ import { Duration, Effect, Layer } from "effect";
 import type { Telemetry } from "office-domain/Telemetry";
 
 import { RetryTiming } from "../api/api.ts";
-import { type FakeAnswer, fakeApi, fakeServer } from "../fakes.ts";
+import { fakeApi } from "../dev/fake-worker.ts";
+import { type FakeAnswer, fakeServer } from "../fakes.ts";
 import { reportCrash, sentryOptionsFor, startTelemetry } from "./telemetry.ts";
 
 const telemetry: Telemetry = {
@@ -60,7 +61,7 @@ describe("the telemetry", () => {
       const errors: Array<string | undefined> = [];
 
       Sentry.init({
-        ...sentryOptionsFor(telemetry),
+        ...sentryOptionsFor(Sentry, telemetry),
         transport: (options) =>
           Sentry.createTransport(options, () => {
             sentTo.push(options.url);
@@ -74,7 +75,7 @@ describe("the telemetry", () => {
         },
       });
 
-      reportCrash(new Error("The page caught fire"));
+      yield* Effect.promise(() => reportCrash(new Error("The page caught fire")));
       yield* Effect.promise(() => Sentry.flush(2000));
 
       expect(errors).toEqual(["The page caught fire"]);
@@ -83,6 +84,6 @@ describe("the telemetry", () => {
   );
 
   it("leaves the release out when the Worker has none", () => {
-    expect(sentryOptionsFor({ ...telemetry, release: null }).release).toBeUndefined();
+    expect(sentryOptionsFor(Sentry, { ...telemetry, release: null }).release).toBeUndefined();
   });
 });

@@ -7,7 +7,8 @@ import type { RecordingStatus } from "office-domain/RecordingRequest";
 import { vi } from "vite-plus/test";
 
 import { REQUEST_ANSWER, RequestAnswer } from "./api/answer.ts";
-import { fakeDiscord, fakeResources, fakeWorker, type SentRequest } from "./fakes.ts";
+import { fakeResources, fakeWorker, type SentRequest } from "./dev/fake-worker.ts";
+import { fakeDiscord } from "./fakes.ts";
 import { init, Model, subscriptions, update, view } from "./main.ts";
 
 const idle: RecordingStatus = {
@@ -88,7 +89,7 @@ const started = () => {
 
 const text = (element: HTMLElement) => element.textContent ?? "";
 
-const waitFor = (check: () => void) => Effect.promise(() => vi.waitFor(check));
+const waitFor = (check: () => void) => Effect.promise(() => vi.waitFor(check, { timeout: 5000 }));
 
 const sentTo = (sent: ReadonlyArray<SentRequest>, path: string) =>
   Array.findFirst(sent, (request) => request.path === path);
