@@ -2,9 +2,11 @@ import { Array, Effect, Match, Option, Schema, String } from "effect";
 import {
   button,
   card,
+  confirmBox,
   description,
   eyebrow,
   notice,
+  NoticeContent,
   noticeRegion,
   type SelectOption,
   selectField,
@@ -16,38 +18,37 @@ import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
 import { ConsoleApi, isUnanswered, reasonOf } from "../api/api.ts";
-import { Notice } from "../notice.ts";
 import type { Resources } from "../resources.ts";
 import { ErasureCase, RefusalGround } from "office-domain/Consent";
 import { REFUSAL_GROUNDS } from "office-domain/wire";
 import { describeInventory, describeStanding, officeTime } from "./describe-erasure.ts";
 
-export const NOTED_NOW: Notice = {
+export const NOTED_NOW: NoticeContent = {
   kind: "info",
   text: "Noted. The bot deletes it within a minute, then tells them.",
 };
 
-export const NOTED_SEEN: Notice = {
+export const NOTED_SEEN: NoticeContent = {
   kind: "info",
   text: "Noted as seen. It still runs on the due date unless someone acts.",
 };
 
-export const NOTED_REFUSED: Notice = {
+export const NOTED_REFUSED: NoticeContent = {
   kind: "info",
   text: "Refused. They'll be told why, and that they can complain.",
 };
 
-export const ALREADY_DECIDED: Notice = {
+export const ALREADY_DECIDED: NoticeContent = {
   kind: "error",
   text: "That request was already decided, or the deletion has already run.",
 };
 
-export const NOT_SURE: Notice = {
+export const NOT_SURE: NoticeContent = {
   kind: "error",
   text: "The Console's server didn't answer, so this may or may not have gone through. The list below shows where it stands now.",
 };
 
-export const UNREACHABLE: Notice = {
+export const UNREACHABLE: NoticeContent = {
   kind: "error",
   text: "Couldn't reach the bot's records. Nothing changed, so try again in a moment.",
 };
@@ -66,7 +67,7 @@ const groundOf = (value: string): RefusalGround =>
 
 export const CasesData = AsyncData.Schema(Schema.Array(ErasureCase), Schema.String);
 
-export const Confirming = Schema.Struct({
+const Confirming = Schema.Struct({
   id: Schema.Finite,
   action: Schema.Literals(["now", "refuse"]),
 });
@@ -83,7 +84,7 @@ export const Model = Schema.Struct({
   cases: CasesData.schema,
   confirming: Schema.Option(Confirming),
   busy: Schema.Option(Schema.Finite),
-  notice: Schema.Option(Notice),
+  notice: Schema.Option(NoticeContent),
   ground: RefusalGround,
   reason: Schema.String,
 });
@@ -161,11 +162,6 @@ export const DecideErasure = Command.define("DecideErasure", {
 
 type UpdateReturn = Update.Return<Model, Message, Resources>;
 
-export const open = (model: Model): UpdateReturn => ({
-  model: modifyFields(model, { cases: () => CasesData.Loading() }),
-  commands: [FetchCases()],
-});
-
 const decide = (model: Model, id: number, decision: Decision): UpdateReturn =>
   Option.isSome(model.busy)
     ? { model }
@@ -192,7 +188,7 @@ const withoutDraft = (model: Model): Model =>
     reason: () => "",
   });
 
-const settle = (model: Model, shown: Notice): UpdateReturn =>
+const settle = (model: Model, shown: NoticeContent): UpdateReturn =>
   refresh(
     modifyFields(model, {
       busy: () => Option.none(),
@@ -200,7 +196,7 @@ const settle = (model: Model, shown: Notice): UpdateReturn =>
     }),
   );
 
-const noticeFor = (decision: Decision): Notice => {
+const noticeFor = (decision: Decision): NoticeContent => {
   switch (decision.kind) {
     case "now":
       return NOTED_NOW;
@@ -266,9 +262,9 @@ const workingLabel = (model: Model, id: number, idle: string): string =>
   Option.exists(model.busy, (busy) => busy === id) ? "Working…" : idle;
 
 const confirmNowView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class("confirm confirm-danger"), h.Role("group")],
-    [
+  confirmBox(h, {
+    isDanger: true,
+    children: [
       h.p(
         [h.Class("text-body-sm")],
         ["This runs the deletion within a minute, and it can't be undone."],
@@ -290,12 +286,13 @@ const confirmNowView = (model: Model, id: number, h: HtmlBuilder<Message>): Html
         ],
       ),
     ],
-  );
+  });
 
 const refuseView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
-  h.form(
-    [h.Class("confirm confirm-danger"), h.OnSubmit(Message.SubmittedRefusal({ id }))],
-    [
+  confirmBox(h, {
+    isDanger: true,
+    onSubmit: Message.SubmittedRefusal({ id }),
+    children: [
       selectField(h, {
         id: `ground-${id}`,
         label: "Ground",
@@ -332,7 +329,7 @@ const refuseView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
         ],
       ),
     ],
-  );
+  });
 
 const actionsView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
   h.div(
@@ -408,7 +405,7 @@ const casesView = (model: Model, cases: ReadonlyArray<ErasureCase>, h: HtmlBuild
 const loading = (h: HtmlBuilder<Message>) => [description(h, ["Loading…"])];
 
 export const view = Submodel.defineView<Model, Message>((model, h) =>
-  card(h, "lg", [
+  card(h, [
     eyebrow(h, { text: "Deletion requests" }),
     ...AsyncData.match(model.cases, {
       onIdle: () => loading(h),
@@ -420,9 +417,6 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
       onStale: ({ data }) => casesView(model, data, h),
       onSuccess: (cases) => casesView(model, cases, h),
     }),
-    noticeRegion(
-      h,
-      Option.match(model.notice, { onNone: () => [], onSome: (shown) => [notice(h, shown)] }),
-    ),
+    noticeRegion(h, model.notice),
   ]),
 );

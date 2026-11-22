@@ -2,9 +2,11 @@ import { Array, Duration, Effect, Option, Schema } from "effect";
 import {
   button,
   card,
+  confirmBox,
   description,
   eyebrow,
   notice,
+  NoticeContent,
   noticeRegion,
   statusHeading,
 } from "design-system";
@@ -15,7 +17,6 @@ import { modifyFields } from "foldkit/struct";
 
 import { type ApiFailure, ConsoleApi, isUnanswered, reasonOf } from "../api/api.ts";
 import { awaitAnswer } from "../api/answer.ts";
-import { Notice } from "../notice.ts";
 import type { Resources } from "../resources.ts";
 import { Session } from "../session/session.ts";
 import { ConsentStatus, type Refusal, SubmittedWithdrawal } from "office-domain/Consent";
@@ -30,47 +31,47 @@ import { type ConsentView, describeConsent } from "./describe-consent.ts";
 import { groundLabel, officeTime } from "./describe-erasure.ts";
 import * as ErasureAdmin from "./erasure-admin.ts";
 
-export const WITHDRAWN: Notice = {
+export const WITHDRAWN: NoticeContent = {
   kind: "info",
   text: "Your consent is withdrawn. If you were in the office, the bot has shown you out, and it's sent you a DM. We'll miss you.",
 };
 
-export const NOTHING_TO_WITHDRAW: Notice = {
+const NOTHING_TO_WITHDRAW: NoticeContent = {
   kind: "info",
   text: "There was nothing to withdraw: you hadn't agreed to being recorded.",
 };
 
-export const NO_ANSWER: Notice = {
+export const NO_ANSWER: NoticeContent = {
   kind: "error",
   text: "The bot didn't answer in time. It'll still withdraw your consent once it's back.",
 };
 
-export const NOT_WITHDRAWN: Notice = {
+export const NOT_WITHDRAWN: NoticeContent = {
   kind: "error",
   text: "Couldn't withdraw your consent. Nothing has changed, so try again in a moment.",
 };
 
-export const NOT_SURE: Notice = {
+export const NOT_SURE: NoticeContent = {
   kind: "error",
   text: "The Console's server didn't answer, so this may or may not have gone through. Check where things stand below before you try again.",
 };
 
-export const SCHEDULED: Notice = {
+export const SCHEDULED: NoticeContent = {
   kind: "info",
   text: "Done. Your consent is withdrawn, the bot will show you out if you're in and send you a DM with the date, and the office admins have been told what will be deleted.",
 };
 
-export const NOT_SCHEDULED: Notice = {
+export const NOT_SCHEDULED: NoticeContent = {
   kind: "error",
   text: "Couldn't ask for your data to be deleted. Nothing has changed, so try again in a moment.",
 };
 
-export const CANCELLED: Notice = {
+export const CANCELLED: NoticeContent = {
   kind: "info",
   text: "Your deletion request is cancelled. Nothing was deleted, and the bot will send you a DM.",
 };
 
-export const NOT_CANCELLED: Notice = {
+const NOT_CANCELLED: NoticeContent = {
   kind: "error",
   text: "Couldn't cancel the request. It may already have run, or the bot's records are out of reach. Check again in a moment.",
 };
@@ -90,7 +91,7 @@ export const Model = Schema.Struct({
   status: ConsentData.schema,
   confirming: Schema.Option(Action),
   busy: Schema.Option(Action),
-  notice: Schema.Option(Notice),
+  notice: Schema.Option(NoticeContent),
   admin: ErasureAdmin.Model,
 });
 
@@ -113,7 +114,7 @@ export const Message = defineMessageUnion({
   ClickedWithdraw: {},
   ClickedErase: {},
   ClickedCancelErasure: { id: Schema.Finite },
-  CompletedAct: { notice: Notice },
+  CompletedAct: { notice: NoticeContent },
   ClickedAuthorities: {},
   CompletedOpenAuthorities: {},
   GotAdminMessage: { message: ErasureAdmin.Message },
@@ -132,8 +133,8 @@ export const FetchConsent = Command.define("FetchConsent", {
 });
 
 const failedWith =
-  (refused: Notice) =>
-  (failure: ApiFailure): Notice =>
+  (refused: NoticeContent) =>
+  (failure: ApiFailure): NoticeContent =>
     isUnanswered(failure) ? NOT_SURE : refused;
 
 type AnsweredWithdrawal = SubmittedWithdrawal & {
@@ -143,7 +144,7 @@ type AnsweredWithdrawal = SubmittedWithdrawal & {
 const isAnswered = (withdrawal: SubmittedWithdrawal): withdrawal is AnsweredWithdrawal =>
   withdrawal.outcome !== null;
 
-const withdrawalNotice = (withdrawal: SubmittedWithdrawal): Notice =>
+const withdrawalNotice = (withdrawal: SubmittedWithdrawal): NoticeContent =>
   withdrawal.outcome === "ignored" ? NOTHING_TO_WITHDRAW : WITHDRAWN;
 
 export const WithdrawConsent = Command.define("WithdrawConsent", {
@@ -225,26 +226,15 @@ const foldAdmin = Update.foldChild({
   toParentMessage: (message) => Message.GotAdminMessage({ message }),
 });
 
-const stepAdmin = Update.foldChild({
-  update: (
-    admin: ErasureAdmin.Model,
-    step: Update.Step<ErasureAdmin.Model, ErasureAdmin.Message, Resources>,
-  ) => step(admin),
+const foldAdminRefresh = Update.foldChildStep({
+  update: ErasureAdmin.refresh,
   read: (model: Model) => Option.some(model.admin),
   write: (model, nextAdmin) => modifyFields(model, { admin: () => nextAdmin }),
   toParentMessage: (message) => Message.GotAdminMessage({ message }),
 });
 
-const withAdminCases = (model: Model, status: ConsentStatus): UpdateReturn => {
-  if (!status.admin) {
-    return { model };
-  }
-
-  return stepAdmin(
-    model,
-    AsyncData.isIdle(model.admin.cases) ? ErasureAdmin.open : ErasureAdmin.refresh,
-  );
-};
+const withAdminCases = (model: Model, status: ConsentStatus): UpdateReturn =>
+  status.admin ? foldAdminRefresh(model) : { model };
 
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
@@ -311,13 +301,10 @@ interface ConfirmConfig {
 }
 
 const confirmView = (model: Model, config: ConfirmConfig, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [
-      h.Class(config.isDanger === true ? "confirm confirm-danger" : "confirm"),
-      h.Role("group"),
-      h.AriaLabelledBy(`confirm-${config.action}-text`),
-    ],
-    [
+  confirmBox(h, {
+    labelledBy: `confirm-${config.action}-text`,
+    isDanger: config.isDanger === true,
+    children: [
       h.p([h.Id(`confirm-${config.action}-text`), h.Class("text-body-sm")], [config.text]),
       h.div(
         [h.Class("controls")],
@@ -337,7 +324,7 @@ const confirmView = (model: Model, config: ConfirmConfig, h: HtmlBuilder<Message
         ],
       ),
     ],
-  );
+  });
 
 const askButton = (model: Model, action: Action, label: string, h: HtmlBuilder<Message>): Html =>
   button(h, {
@@ -454,7 +441,12 @@ const statusView = (
   shown: ConsentView,
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> => [
-  statusHeading(h, { heading: shown.heading, description: shown.description, level: 2 }),
+  statusHeading(h, {
+    heading: shown.heading,
+    subheading: null,
+    description: shown.description,
+    level: 2,
+  }),
   recordedView(h),
   shown.canCancel && status.pendingErasure !== null
     ? cancelView(model, status.pendingErasure.id, h)
@@ -467,7 +459,7 @@ const statusView = (
 const checking = (h: HtmlBuilder<Message>): ReadonlyArray<Html> => [description(h, ["Checking…"])];
 
 const consentCard = (model: Model, h: HtmlBuilder<Message>): Html =>
-  card(h, "lg", [
+  card(h, [
     eyebrow(h, { text: "Privacy" }),
     ...AsyncData.match(model.status, {
       onIdle: () => checking(h),
@@ -485,10 +477,7 @@ const consentCard = (model: Model, h: HtmlBuilder<Message>): Html =>
       onStale: ({ data }) => statusView(model, data, describeConsent(data), h),
       onSuccess: (status) => statusView(model, status, describeConsent(status), h),
     }),
-    noticeRegion(
-      h,
-      Option.match(model.notice, { onNone: () => [], onSome: (shown) => [notice(h, shown)] }),
-    ),
+    noticeRegion(h, model.notice),
   ]);
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {

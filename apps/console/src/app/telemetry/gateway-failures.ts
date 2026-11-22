@@ -5,9 +5,9 @@ export const BODY_LIMIT = 200;
 
 const SAFE_HEADERS = ["retry-after", "cf-ray", "server", "via", "content-type"] as const;
 
-export type FailureDetails = Readonly<Record<string, string>>;
+type FailureDetails = Readonly<Record<string, string>>;
 
-export interface FailedResponse {
+interface FailedResponse {
   readonly status: number;
   readonly headers: Readonly<Record<string, string | undefined>>;
   readonly body: string;
@@ -35,12 +35,12 @@ export interface GatewayFailure {
   readonly details: FailureDetails;
 }
 
-export interface GatewayFailuresService {
+interface GatewayFailuresService {
   readonly retrying: (failure: GatewayFailure) => Effect.Effect<void>;
   readonly gaveUp: (failure: GatewayFailure) => Effect.Effect<void>;
 }
 
-export const sentryGatewayFailures: GatewayFailuresService = {
+const sentryGatewayFailures: GatewayFailuresService = {
   retrying: (failure) =>
     Effect.sync(() =>
       Sentry.addBreadcrumb({

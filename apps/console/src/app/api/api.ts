@@ -42,7 +42,7 @@ export class SessionToken extends Context.Service<SessionToken, Ref.Ref<Option.O
   static readonly layer = Layer.effect(SessionToken, Ref.make(Option.none<string>()));
 }
 
-export interface RetryTimingService {
+interface RetryTimingService {
   readonly retries: number;
   readonly delay: Duration.Duration;
   readonly timeout: Duration.Duration;
