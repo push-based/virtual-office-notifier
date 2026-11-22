@@ -1,17 +1,12 @@
 import { Array, DateTime, Duration, Option } from "effect";
-import type {
-  ErasureCase,
-  ErasureInventory,
-  RefusalGround,
-  Wording,
-} from "recording-requests/Consent";
+import type { ErasureCase, ErasureInventory, RefusalGround, Wording } from "office-domain/Consent";
 import {
   CONSENT_ANSWER_MS,
   DATA_PROTECTION_AUTHORITIES_URL,
   FORMER_MEMBER,
   RECORDED_IN_THE_OFFICE,
   REFUSAL_GROUNDS,
-} from "recording-requests/wire";
+} from "office-domain/wire";
 
 export const ANSWER_TIME = Duration.millis(CONSENT_ANSWER_MS);
 

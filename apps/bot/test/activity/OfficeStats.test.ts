@@ -6,13 +6,9 @@ import { HttpClientRequest, HttpServer } from "effect/http";
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
-import { type BusyHour, OfficeStatsReader } from "recording-requests/OfficeStats";
-import {
-  CurrentRequester,
-  RecordingApi,
-  SignedIn,
-  Unauthorized,
-} from "recording-requests/RecordingApi";
+import type { BusyHour } from "office-domain/OfficeStats";
+import { OfficeStatsReader } from "recording-requests/OfficeStats";
+import { CurrentRequester, RecordingApi, SignedIn, Unauthorized } from "office-domain/RecordingApi";
 import { StatsHandlers } from "recording-requests/StatsHandlers";
 
 import { ActivityLog } from "../../src/activity/ActivityLog.ts";

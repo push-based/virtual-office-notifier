@@ -13,19 +13,12 @@ import {
 } from "effect";
 import { HttpRouter } from "effect/http";
 import type { Severity } from "effect/LogLevel";
+import { type Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
 
 export interface SentryEnv {
   readonly SENTRY_DSN?: string;
   readonly SENTRY_ENVIRONMENT?: string;
 }
-
-export interface Telemetry {
-  readonly dsn: string;
-  readonly environment: string;
-  readonly release: string | null;
-}
-
-export const TUNNEL_PATH = "/api/sentry";
 
 const nonEmpty = (value: string | undefined) =>
   Option.fromNullishOr(value).pipe(Option.filter(String.isNonEmpty));

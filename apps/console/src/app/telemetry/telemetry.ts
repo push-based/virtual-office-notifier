@@ -1,17 +1,8 @@
 import * as Sentry from "@sentry/browser";
 import { Effect, Schema } from "effect";
+import { Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
 
 import * as Api from "../api/api.ts";
-
-export const Telemetry = Schema.Struct({
-  dsn: Schema.String,
-  environment: Schema.String,
-  release: Schema.NullOr(Schema.String),
-});
-
-export type Telemetry = typeof Telemetry.Type;
-
-export const TUNNEL = "/api/sentry";
 
 export const sentryOptionsFor = ({
   dsn,
@@ -21,7 +12,7 @@ export const sentryOptionsFor = ({
   dsn,
   environment,
   release: release ?? undefined,
-  tunnel: TUNNEL,
+  tunnel: TUNNEL_PATH,
   tracesSampleRate: 1,
   dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [] },
   integrations: (defaults) => [

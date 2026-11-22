@@ -6,7 +6,7 @@ import {
   HttpClientResponse,
 } from "effect/http";
 
-import { DiscordRefused, type SignedInUser } from "./SignInApi.ts";
+import { DiscordRefused, type SignedInUser } from "office-domain/SignInApi";
 import { SignInSettings } from "./SignInSettings.ts";
 
 const DISCORD_API = "https://discord.com/api";

@@ -15,8 +15,8 @@ import {
 } from "effect";
 import { SecureRandom } from "effect/crypto";
 import { TestClock } from "effect/testing";
-import type { Admin } from "recording-requests/Admins";
-import type { ErasureCase, ErasureDecision, ErasureRefusal } from "recording-requests/Consent";
+import type { Admin } from "office-domain/Admins";
+import type { ErasureCase, ErasureDecision, ErasureRefusal } from "office-domain/Consent";
 import {
   ConsentRequests,
   type ErasureHandler,
@@ -24,7 +24,7 @@ import {
   type NoticeMedium,
   type WithdrawalHandler,
 } from "recording-requests/ConsentRequests";
-import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
+import { CHECK_INTERVAL } from "office-domain/RecordingRequest";
 
 import { ConsentBook } from "../../src/consent/ConsentBook.ts";
 import * as Notice from "../../src/consent/Notice.ts";

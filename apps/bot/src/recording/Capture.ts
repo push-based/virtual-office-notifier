@@ -15,7 +15,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import type { ActiveRecording } from "recording-requests/RecordingRequest";
+import type { ActiveRecording } from "office-domain/RecordingRequest";
 
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
 import {

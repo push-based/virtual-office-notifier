@@ -17,6 +17,7 @@
     "design-system": "workspace:*",
     "effect": "catalog:",
     "foldkit": "catalog:",
+    "office-domain": "workspace:*",
     "recording-requests": "workspace:*"
   },
   "devDependencies": {

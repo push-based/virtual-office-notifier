@@ -1,10 +1,9 @@
-import type * as SignIn from "activity-sign-in/SignInApi";
-
 import type * as Consent from "./Consent.ts";
 import type * as Stats from "./OfficeStats.ts";
 import type * as History from "./Recording.ts";
 import type * as Edits from "./RecordingEdit.ts";
 import type * as Schemas from "./RecordingRequest.ts";
+import type * as SignIn from "./SignInApi.ts";
 
 export type RequestAction = typeof Schemas.RequestAction.Encoded;
 

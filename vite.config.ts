@@ -67,6 +67,7 @@ export default defineConfig({
           "apps/bot/**",
           "apps/console/worker/**",
           "libs/activity-sign-in/**",
+          "libs/office-domain/**",
           "libs/recording-requests/**",
         ],
         rules: {
@@ -115,6 +116,33 @@ export default defineConfig({
           "effecttsgo/unsafe-effect-type-assertion": "error",
           "effecttsgo/api-stability-leak": "off",
           "effecttsgo/missing-pipeable-signature": "off",
+        },
+      },
+      {
+        files: ["libs/office-domain/src/**"],
+        rules: {
+          "no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                {
+                  group: ["effect/sql", "@effect/sql-*", "node:*"],
+                  message:
+                    "office-domain is shared with the Console's page, so it holds no database or Node code.",
+                },
+                {
+                  group: [
+                    "recording-requests",
+                    "recording-requests/*",
+                    "activity-sign-in",
+                    "activity-sign-in/*",
+                  ],
+                  message:
+                    "The other libraries depend on office-domain, never the other way round.",
+                },
+              ],
+            },
+          ],
         },
       },
       {

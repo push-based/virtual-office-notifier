@@ -15,20 +15,16 @@ import {
   Stream,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
-import type { StopReason } from "recording-requests/Recording";
-import { rewritesSummary } from "recording-requests/RecordingEdit";
+import type { StopReason } from "office-domain/Recording";
+import { rewritesSummary } from "office-domain/RecordingEdit";
 import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEdits";
-import {
-  type ActiveRecording,
-  CHECK_INTERVAL,
-  isOverLimit,
-} from "recording-requests/RecordingRequest";
+import { type ActiveRecording, CHECK_INTERVAL, isOverLimit } from "office-domain/RecordingRequest";
 import {
   type RequestHandler,
   RecordingRequests,
   type StatusUpdate,
 } from "recording-requests/RecordingRequests";
-import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
+import { DEFAULT_SUMMARY_STYLE } from "office-domain/wire";
 
 import { type BotPresence, DiscordGateway, type OfficeLocation } from "../office/index.ts";
 import { Capture } from "./Capture.ts";

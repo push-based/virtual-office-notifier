@@ -1,12 +1,12 @@
-import * as SignIn from "activity-sign-in/SignInApi";
+import * as SignIn from "office-domain/SignInApi";
 import { Schema } from "effect";
-import * as Consent from "recording-requests/Consent";
-import * as Stats from "recording-requests/OfficeStats";
-import * as History from "recording-requests/Recording";
-import * as Edits from "recording-requests/RecordingEdit";
-import * as Requests from "recording-requests/RecordingRequest";
+import * as Consent from "office-domain/Consent";
+import * as Stats from "office-domain/OfficeStats";
+import * as History from "office-domain/Recording";
+import * as Edits from "office-domain/RecordingEdit";
+import * as Requests from "office-domain/RecordingRequest";
 
-export * from "recording-requests/wire";
+export * from "office-domain/wire";
 
 export const RequestAction = Schema.toEncoded(Requests.RequestAction);
 

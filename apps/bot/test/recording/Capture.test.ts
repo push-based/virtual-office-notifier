@@ -3,7 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, type Cause, DateTime, Effect, Layer, Option, Queue, Ref, Stream } from "effect";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
-import type { ActiveRecording } from "recording-requests/RecordingRequest";
+import type { ActiveRecording } from "office-domain/RecordingRequest";
 
 import { Capture } from "../../src/recording/Capture.ts";
 import { ClipArchive } from "../../src/recording/ClipArchive.ts";

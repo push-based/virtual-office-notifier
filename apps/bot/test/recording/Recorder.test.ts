@@ -19,10 +19,10 @@ import {
 import { SecureRandom } from "effect/crypto";
 import { SqlClient, type SqlError } from "effect/sql";
 import { TestClock } from "effect/testing";
-import { NO_PLAN, type RecordingPlan, type SummaryStyle } from "recording-requests/Recording";
-import { RECORDING_LIMIT, type RequestAction } from "recording-requests/RecordingRequest";
+import { NO_PLAN, type RecordingPlan, type SummaryStyle } from "office-domain/Recording";
+import { RECORDING_LIMIT, type RequestAction } from "office-domain/RecordingRequest";
 import { RecordingEdits } from "recording-requests/RecordingEdits";
-import type { RecordingChange } from "recording-requests/RecordingEdit";
+import type { RecordingChange } from "office-domain/RecordingEdit";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 
 import { BotPosts } from "../../src/slack/BotPosts.ts";

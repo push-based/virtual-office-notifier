@@ -1,5 +1,5 @@
 import { Array, Option, Order, pipe, Predicate, Record, type Schema, String } from "effect";
-import { FORMER_MEMBER } from "recording-requests/wire";
+import { FORMER_MEMBER } from "office-domain/wire";
 
 import { escapeSlackText } from "../slack/index.ts";
 

@@ -6,6 +6,9 @@
   "exports": {
     "./*": "./src/*.ts"
   },
+  "dependencies": {
+    "office-domain": "workspace:*"
+  },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "effect": "catalog:",

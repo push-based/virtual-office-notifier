@@ -2,7 +2,7 @@ import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Effect } from "effect";
 
-import { type RecordingState, stateOf } from "../src/Recording.ts";
+import { type RecordingState, stateOf } from "office-domain/Recording";
 import { inState } from "../src/RecordingStates.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
 import { migrated } from "./schema.ts";

@@ -1,10 +1,11 @@
 import * as Sentry from "@sentry/browser";
 import { afterEach, describe, expect, it } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
+import type { Telemetry } from "office-domain/Telemetry";
 
 import { RetryTiming, SessionToken } from "../api/api.ts";
 import { type FakeAnswer, fakeServer } from "../fakes.ts";
-import { reportCrash, sentryOptionsFor, startTelemetry, type Telemetry } from "./telemetry.ts";
+import { reportCrash, sentryOptionsFor, startTelemetry } from "./telemetry.ts";
 
 const telemetry: Telemetry = {
   dsn: "https://public@o1.ingest.sentry.io/42",

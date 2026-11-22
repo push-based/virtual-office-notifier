@@ -1,7 +1,7 @@
 import { Array, Effect } from "effect";
 import { Migrator, SqlClient } from "effect/sql";
 
-import { FORMER_MEMBER, FORMER_MEMBER_ID } from "./Wire.ts";
+import { FORMER_MEMBER, FORMER_MEMBER_ID } from "office-domain/wire";
 
 // Each flag turns into a pair of events in the voice_activity view.
 const FLAG_EVENTS = [

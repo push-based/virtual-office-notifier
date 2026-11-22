@@ -8,7 +8,8 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "activity-sign-in": "workspace:*"
+    "activity-sign-in": "workspace:*",
+    "office-domain": "workspace:*"
   },
   "devDependencies": {
     "@effect/sql-pglite": "catalog:",

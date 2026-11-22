@@ -10,10 +10,10 @@ import {
   stateOf,
   StopReason,
   SummaryStyle,
-} from "./Recording.ts";
-import { PersonInOffice, RowId } from "./RecordingRequest.ts";
+} from "office-domain/Recording";
+import { PersonInOffice, RowId } from "office-domain/RecordingRequest";
 import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
-import { FORMER_MEMBER_ID } from "./Wire.ts";
+import { FORMER_MEMBER_ID } from "office-domain/wire";
 import {
   recordingUnavailable,
   RecordingUnavailable,

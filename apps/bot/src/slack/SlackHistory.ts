@@ -1,7 +1,7 @@
 import { Array, Context, DateTime, Duration, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 import { guardQuery } from "recording-requests/Query";
-import { RowId } from "recording-requests/RecordingRequest";
+import { RowId } from "office-domain/RecordingRequest";
 
 import type { ClefRequest } from "../answering/index.ts";
 

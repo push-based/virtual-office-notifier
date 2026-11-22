@@ -16,14 +16,14 @@ import {
   Stream,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
-import type { Admin } from "recording-requests/Admins";
+import type { Admin } from "office-domain/Admins";
 import type {
   ConsentEventKind,
   ConsentStanding,
   Delivery,
   ErasureCase,
   Wording,
-} from "recording-requests/Consent";
+} from "office-domain/Consent";
 import {
   ConsentRequests,
   type ErasureHandler,
@@ -32,7 +32,7 @@ import {
   type Settled,
   type Withdrawal,
 } from "recording-requests/ConsentRequests";
-import { CHECK_INTERVAL } from "recording-requests/RecordingRequest";
+import { CHECK_INTERVAL } from "office-domain/RecordingRequest";
 import type { RecordingUnavailable } from "recording-requests/RecordingRequests";
 
 import { ConsentBook, LOOKUP_WAIT, Notice } from "../consent/index.ts";

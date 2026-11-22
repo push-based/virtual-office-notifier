@@ -1,7 +1,7 @@
 import { Array, Context, Effect, Layer, pipe, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 import { guardChange, guardQuery, type QueryGuard } from "recording-requests/Query";
-import { FORMER_MEMBER, FORMER_MEMBER_ID } from "recording-requests/wire";
+import { FORMER_MEMBER, FORMER_MEMBER_ID } from "office-domain/wire";
 
 import { Database, describeError } from "../database/index.ts";
 import { StoreUnavailable } from "../recording/index.ts";

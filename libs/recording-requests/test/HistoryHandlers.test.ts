@@ -1,6 +1,6 @@
 import { DiscordOAuth } from "activity-sign-in/DiscordOAuth";
 import { Sessions } from "activity-sign-in/Sessions";
-import { SignedInSession } from "activity-sign-in/SignInApi";
+import { SignedInSession } from "office-domain/SignInApi";
 import { SignInSettings } from "activity-sign-in/SignInSettings";
 import { afterAll, assert, describe, it } from "@effect/vitest";
 import { DateTime, Effect, Layer, Option, pipe, Redacted, Ref, Schema, String } from "effect";
@@ -10,16 +10,17 @@ import { HttpApiBuilder } from "effect/http-api";
 import { ConsentHandlers, ErasureAdminHandlers } from "../src/ConsentHandlers.ts";
 import { ConsentRequests } from "../src/ConsentRequests.ts";
 import { OfficeStatsReader } from "../src/OfficeStats.ts";
-import type { ListedRecording, RecordingDetail } from "../src/Recording.ts";
-import type { RecordingChange } from "../src/RecordingEdit.ts";
-import { RecordingApi } from "../src/RecordingApi.ts";
+import type { ListedRecording, RecordingDetail } from "office-domain/Recording";
+import type { RecordingChange } from "office-domain/RecordingEdit";
+import { RecordingApi } from "office-domain/RecordingApi";
 import { EditHandlers, HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
 import { RecordingEdits } from "../src/RecordingEdits.ts";
 import { RecordingHistory } from "../src/RecordingHistory.ts";
 import { recordingUnavailable, RecordingRequests } from "../src/RecordingRequests.ts";
 import { SignedInLayer, SignInHandlers } from "../src/SignInHandlers.ts";
 import { StatsHandlers } from "../src/StatsHandlers.ts";
-import type * as Wire from "../src/Wire.ts";
+import { TelemetryHandlers } from "../src/TelemetryHandlers.ts";
+import type * as Wire from "office-domain/wire";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 
@@ -135,6 +136,7 @@ const app = HttpRouter.toWebHandler(
       SignInHandlers.pipe(Layer.provide(Discord)),
       RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerDisabled)),
       HistoryHandlers.pipe(Layer.provide(History)),
+      TelemetryHandlers(Option.none()),
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerDisabled)),
       EditHandlers.pipe(Layer.provide(Edits)),
       ConsentHandlers.pipe(Layer.provide(ConsentRequests.layerDisabled)),

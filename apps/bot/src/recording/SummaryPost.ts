@@ -1,5 +1,5 @@
 import { Array, DateTime, Option, pipe, String } from "effect";
-import { type SummaryStyle, summaryStyleLabel } from "recording-requests/Recording";
+import { type SummaryStyle, summaryStyleLabel } from "office-domain/Recording";
 
 import {
   AI_DISCLAIMER,

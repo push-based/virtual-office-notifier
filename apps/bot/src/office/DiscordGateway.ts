@@ -41,10 +41,10 @@ import {
   type VoiceChannelEffect,
   type VoiceState,
 } from "discord.js";
-import type { Admin } from "recording-requests/Admins";
-import { type ErasureCase, RefusalGround } from "recording-requests/Consent";
+import type { Admin } from "office-domain/Admins";
+import { type ErasureCase, RefusalGround } from "office-domain/Consent";
 import type { ErasureNotice } from "recording-requests/ConsentRequests";
-import type { PersonInOffice } from "recording-requests/RecordingRequest";
+import type { PersonInOffice } from "office-domain/RecordingRequest";
 
 import { Notice } from "../consent/index.ts";
 import type { AdminLine, ErasureAction, ErasureVerdict } from "./AdminLine.ts";

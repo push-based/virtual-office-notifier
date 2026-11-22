@@ -5,7 +5,7 @@ import { Base64Url } from "effect/encoding";
 import { TestClock } from "effect/testing";
 
 import { SESSION_LIFETIME, Sessions } from "../src/Sessions.ts";
-import type { SignedInUser } from "../src/SignInApi.ts";
+import type { SignedInUser } from "office-domain/SignInApi";
 import { SignInSettings } from "../src/SignInSettings.ts";
 
 const ada: SignedInUser = { id: "u1", name: "Ada", avatarUrl: null };

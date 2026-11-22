@@ -1,7 +1,7 @@
 import { Array, Context, Duration, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 
-import { Admin } from "./Admins.ts";
+import { Admin } from "office-domain/Admins";
 import {
   type ConsentStanding,
   type ConsentStatus,
@@ -17,7 +17,7 @@ import {
   type SubmittedErasure,
   type SubmittedWithdrawal,
   WithdrawalOutcome,
-} from "./Consent.ts";
+} from "office-domain/Consent";
 import { inventoryOf } from "./ErasureInventory.ts";
 import {
   type Committable,
@@ -27,13 +27,13 @@ import {
   guardQuery,
   guardTransaction,
 } from "./Query.ts";
-import { RowId } from "./RecordingRequest.ts";
+import { RowId } from "office-domain/RecordingRequest";
 import {
   recordingUnavailable,
   type RecordingUnavailable,
   recordingUnreadable,
 } from "./RecordingRequests.ts";
-import { CONSENT_NOTICE_VERSION, ERASURE_REVIEW_DAYS, ERASURE_WAIT_MS } from "./Wire.ts";
+import { CONSENT_NOTICE_VERSION, ERASURE_REVIEW_DAYS, ERASURE_WAIT_MS } from "office-domain/wire";
 
 export const ERASURE_TIMEOUT = Duration.minutes(10);
 
