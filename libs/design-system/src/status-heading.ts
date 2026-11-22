@@ -8,13 +8,13 @@ export type HeadingLevel = 1 | 2 | 3;
 
 export interface StatusHeadingConfig {
   readonly heading: string;
-  readonly subheading?: string | null;
-  readonly description?: string | null;
+  readonly subheading: string | null;
+  readonly description: string;
   readonly isLive?: boolean;
   readonly level?: HeadingLevel;
 }
 
-export const liveDot = <Message>(h: HtmlBuilder<Message>): Html =>
+const liveDot = <Message>(h: HtmlBuilder<Message>): Html =>
   h.span([h.Class("pb-live-dot"), h.AriaHidden(true)]);
 
 const headingAt = <Message>(
@@ -42,11 +42,9 @@ export const statusHeading = <Message>(
         config.isLive === true ? liveDot(h) : h.empty,
         config.heading,
       ]),
-      config.subheading === null || config.subheading === undefined
+      config.subheading === null
         ? h.empty
         : h.p([h.Class("text-body pb-status-heading-subheading")], [config.subheading]),
-      config.description === null || config.description === undefined
-        ? h.empty
-        : description(h, [config.description]),
+      description(h, [config.description]),
     ],
   );
