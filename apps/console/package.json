@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "preview": "vp preview"
+    "preview": "vp preview",
+    "dev:fake": "vp dev --mode fake"
   },
   "dependencies": {
     "@discord/embedded-app-sdk": "2.5.0",
@@ -25,6 +26,7 @@
     "@cloudflare/vite-plugin": "1.66.0",
     "@cloudflare/workers-types": "^5.20261024.1",
     "@effect/vitest": "catalog:",
+    "@foldkit/devtools": "catalog:",
     "@foldkit/vite-plugin": "catalog:",
     "jsdom": "30.1.2",
     "playwright": "1.65.1",

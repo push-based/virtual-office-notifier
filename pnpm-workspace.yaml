@@ -14,6 +14,7 @@ catalog:
   "@effect/vitest": 4.1.0
   foldkit: 0.171.0
   "@foldkit/ui": 0.171.0
+  "@foldkit/devtools": 0.171.0
   "@foldkit/vite-plugin": 0.29.1
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vite-plus: 1.4.0

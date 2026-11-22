@@ -4,7 +4,8 @@ import { Duration, Effect, Layer } from "effect";
 import type { Telemetry } from "office-domain/Telemetry";
 
 import { RetryTiming } from "../api/api.ts";
-import { type FakeAnswer, fakeApi, fakeServer } from "../fakes.ts";
+import { fakeApi } from "../dev/fake-worker.ts";
+import { type FakeAnswer, fakeServer } from "../fakes.ts";
 import { reportCrash, sentryOptionsFor, startTelemetry } from "./telemetry.ts";
 
 const telemetry: Telemetry = {
