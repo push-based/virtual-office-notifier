@@ -6,11 +6,13 @@
   "author": "Christopher Holder",
   "type": "module",
   "scripts": {
-    "prepare": "vp config && effect-tsgo patch --oxlint && effect-tsgo unpatch --typescript"
+    "prepare": "vp config && effect-tsgo patch --oxlint && effect-tsgo unpatch --typescript",
+    "foldkit:vendor": "sh tools/foldkit/vendor.sh"
   },
   "devDependencies": {
     "@effect/tsgo": "0.63.0",
     "@types/node": "26.6.5",
+    "effect": "catalog:",
     "typescript": "7.0.2",
     "vite-plus": "catalog:"
   },

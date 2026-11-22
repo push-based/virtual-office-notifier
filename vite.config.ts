@@ -22,6 +22,7 @@ export default defineConfig({
       ".pi/**",
       ".roo/**",
       ".windsurf/**",
+      "repos/**",
       "tools/oxlint/anti-slop/**",
     ],
     jsPlugins: [
@@ -153,6 +154,7 @@ export default defineConfig({
       "pnpm-lock.yaml",
       "**/dist/**",
       "**/.wrangler/**",
+      "repos/**",
     ],
   },
   staged: {
