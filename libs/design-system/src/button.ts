@@ -67,7 +67,10 @@ export const blockButton = <Message>(
     {
       onClick: config.onClick,
       toView: (attributes) =>
-        h.button([...attributes.button, h.Class(config.className)], config.children),
+        h.button(
+          [...attributes.button, h.Class(`pb-block-button ${config.className}`)],
+          config.children,
+        ),
     },
     h,
   );

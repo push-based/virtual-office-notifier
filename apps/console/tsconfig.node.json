@@ -1,8 +1,8 @@
 {
-  "extends": "../../../tsconfig.json",
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
     "lib": ["esnext", "dom"],
     "types": ["node"]
   },
-  "include": ["."]
+  "include": ["smoke", "scripts"]
 }

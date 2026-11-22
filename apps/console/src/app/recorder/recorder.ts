@@ -5,11 +5,11 @@ import {
   disclosure,
   divider,
   eyebrow,
-  notice,
   noticeRegion,
   people,
   type Person,
   statusHeading,
+  NoticeContent,
 } from "design-system";
 import { Command, Submodel, Subscription, Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -22,9 +22,17 @@ import { awaitAnswer } from "../api/answer.ts";
 import * as RecordingEditor from "../edits/recording-editor.ts";
 import { planFields } from "../edits/plan-fields.ts";
 import { Draft, EMPTY_DRAFT, planOf, summaryStyleOf } from "../edits/plan.ts";
-import { Notice } from "../notice.ts";
 import type { Resources } from "../resources.ts";
 import { Session } from "../session/session.ts";
+import { SignIn } from "../session/sign-in.ts";
+import {
+  isAwaitingAnswer,
+  isNewerAnswer,
+  NO_REQUESTS,
+  recordAnswer,
+  RequestCount,
+  sendRequest,
+} from "../api/request-count.ts";
 import {
   HandledRequest,
   RecordingStatus,
@@ -36,22 +44,20 @@ import { describePresence, Presence, samePresence } from "./describe-presence.ts
 import { outcomeNotice, unreachableNotice } from "./notices.ts";
 import { recordButton } from "./record-button.ts";
 
-export const STATE_POLL = Duration.seconds(3);
+const STATE_POLL = Duration.seconds(3);
 
 export const RECORDING_POLL = Duration.seconds(1);
 
-export const NOTICE_SHOWN_FOR = Duration.seconds(6);
+const NOTICE_SHOWN_FOR = Duration.seconds(6);
 
 export const Connection = defineTaggedUnion({
-  SigningIn: {},
-  FailedSignIn: { reason: Schema.String },
   Loading: {},
   Loaded: { status: RecordingStatus },
 });
 
 export type Connection = typeof Connection.Type;
 
-export const ShownNotice = Schema.Struct({ id: Schema.Finite, notice: Notice });
+const ShownNotice = Schema.Struct({ id: Schema.Finite, notice: NoticeContent });
 
 export const Model = Schema.Struct({
   connection: Connection,
@@ -62,14 +68,13 @@ export const Model = Schema.Struct({
   noticeCount: Schema.Finite,
   presence: Schema.Option(Presence),
   editor: RecordingEditor.Model,
-  statusRequests: Schema.Finite,
-  statusApplied: Schema.Finite,
+  statusRequests: RequestCount,
 });
 
 export type Model = typeof Model.Type;
 
 export const init = (): Model => ({
-  connection: Connection.SigningIn(),
+  connection: Connection.Loading(),
   draft: EMPTY_DRAFT,
   isPlanOpen: false,
   isSubmitting: false,
@@ -77,25 +82,19 @@ export const init = (): Model => ({
   noticeCount: 0,
   presence: Option.none(),
   editor: RecordingEditor.init(),
-  statusRequests: 0,
-  statusApplied: 0,
+  statusRequests: NO_REQUESTS,
 });
 
-export const statusOf = (model: Model): RecordingStatus | null =>
+const statusOf = (model: Model): RecordingStatus | null =>
   Connection.match<RecordingStatus | null>(model.connection, {
-    SigningIn: () => null,
-    FailedSignIn: () => null,
     Loading: () => null,
     Loaded: ({ status }) => status,
   });
 
-export const runningOf = (model: Model): RunningRecording | null =>
-  statusOf(model)?.recording ?? null;
+const runningOf = (model: Model): RunningRecording | null => statusOf(model)?.recording ?? null;
 
-export const phaseOf = (model: Model): OfficePhase =>
-  Connection.match<OfficePhase>(model.connection, {
-    SigningIn: () => ({ kind: "connecting" }),
-    FailedSignIn: ({ reason }) => ({ kind: "failed", reason }),
+const connectionPhase = (connection: Connection): OfficePhase =>
+  Connection.match<OfficePhase>(connection, {
     Loading: () => ({ kind: "connecting" }),
     Loaded: ({ status }) => {
       const { recording } = status;
@@ -108,7 +107,14 @@ export const phaseOf = (model: Model): OfficePhase =>
     },
   });
 
-export const canPress = (model: Model): boolean =>
+const phaseOf = (model: Model, signIn: SignIn): OfficePhase =>
+  SignIn.match<OfficePhase>(signIn, {
+    SigningIn: () => ({ kind: "connecting" }),
+    FailedSignIn: ({ reason }) => ({ kind: "failed", reason }),
+    SignedIn: () => connectionPhase(model.connection),
+  });
+
+const canPress = (model: Model): boolean =>
   !model.isSubmitting && statusOf(model)?.botInOffice === true;
 
 export const Message = defineMessageUnion({
@@ -184,26 +190,33 @@ export const WaitBeforeDismissal = Command.define("WaitBeforeDismissal", {
 
 type UpdateReturn = Update.Return<Model, Message, Resources>;
 
-const requestStatus = (model: Model): UpdateReturn => {
-  const request = model.statusRequests + 1;
+type Step = Update.Step<Model, Message, Resources>;
+
+const requestStatus: Step = (model) => {
+  const statusRequests = sendRequest(model.statusRequests);
 
   return {
-    model: modifyFields(model, { statusRequests: () => request }),
-    commands: [FetchStatus({ request })],
+    model: modifyFields(model, { statusRequests: () => statusRequests }),
+    commands: [FetchStatus({ request: statusRequests.sent })],
   };
 };
 
-const showNotice = (model: Model, shown: Notice): UpdateReturn => {
-  const id = model.noticeCount + 1;
+const showNotice =
+  (shown: NoticeContent): Step =>
+  (model) => {
+    const id = model.noticeCount + 1;
 
-  return {
-    model: modifyFields(model, {
-      notice: () => Option.some({ id, notice: shown }),
-      noticeCount: () => id,
-    }),
-    commands: [WaitBeforeDismissal({ id })],
+    return {
+      model: modifyFields(model, {
+        notice: () => Option.some({ id, notice: shown }),
+        noticeCount: () => id,
+      }),
+      commands: [WaitBeforeDismissal({ id })],
+    };
   };
-};
+
+const answerStatus = (model: Model, request: number): Model =>
+  modifyFields(model, { statusRequests: (count) => recordAnswer(count, request) });
 
 const submit = (model: Model, submission: RequestSubmission): UpdateReturn =>
   canPress(model)
@@ -213,16 +226,11 @@ const submit = (model: Model, submission: RequestSubmission): UpdateReturn =>
       }
     : { model };
 
-const settle = (model: Model, shown: Notice): UpdateReturn => {
-  const shownNotice = showNotice(modifyFields(model, { isSubmitting: () => false }), shown);
-
-  const refetch = requestStatus(shownNotice.model);
-
-  return {
-    model: refetch.model,
-    commands: [...(shownNotice.commands ?? []), ...(refetch.commands ?? [])],
-  };
-};
+const settle = (model: Model, shown: NoticeContent): UpdateReturn =>
+  Update.combine(modifyFields(model, { isSubmitting: () => false }), [
+    showNotice(shown),
+    requestStatus,
+  ]);
 
 const withStatus = (model: Model, status: RecordingStatus): UpdateReturn => {
   const presence = describePresence(status);
@@ -249,7 +257,7 @@ const foldEditor = Update.foldChild({
   read: (model: Model) => Option.some(model.editor),
   write: (model, nextEditor) => modifyFields(model, { editor: () => nextEditor }),
   toParentMessage: (message) => Message.GotEditorMessage({ message }),
-  foldOutMessage: RecordingEditor.OutMessage.match<Update.Step<Model, Message, Resources>>({
+  foldOutMessage: RecordingEditor.OutMessage.match<Step>({
     SavedEdits: () => requestStatus,
   }),
 });
@@ -257,20 +265,17 @@ const foldEditor = Update.foldChild({
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
     TickedStatusPoll: () =>
-      model.statusRequests > model.statusApplied ? { model } : requestStatus(model),
+      isAwaitingAnswer(model.statusRequests) ? { model } : requestStatus(model),
 
     SucceededFetchStatus: ({ request, status }) =>
-      request <= model.statusApplied
-        ? { model }
-        : withStatus(modifyFields(model, { statusApplied: () => request }), status),
+      isNewerAnswer(model.statusRequests, request)
+        ? withStatus(answerStatus(model, request), status)
+        : { model },
 
     FailedFetchStatus: ({ request, reason }) =>
-      request <= model.statusApplied
-        ? { model }
-        : showNotice(
-            modifyFields(model, { statusApplied: () => request }),
-            unreachableNotice(reason),
-          ),
+      isNewerAnswer(model.statusRequests, request)
+        ? showNotice(unreachableNotice(reason))(answerStatus(model, request))
+        : { model },
 
     CompletedShowPresence: () => ({ model }),
 
@@ -331,38 +336,23 @@ export const update = (model: Model, message: Message) =>
     GotEditorMessage: ({ message: editorMessage }) => foldEditor(model, editorMessage),
   });
 
-export const signedIn = (model: Model): UpdateReturn => ({
-  model: modifyFields(model, { connection: () => Connection.Loading() }),
-});
-
-export const failedSignIn = (model: Model, reason: string): UpdateReturn => ({
-  model: modifyFields(model, { connection: () => Connection.FailedSignIn({ reason }) }),
-});
-
-export const pollInterval = (model: Model): Option.Option<number> =>
-  Connection.match<Option.Option<number>>(model.connection, {
-    SigningIn: () => Option.none(),
-    FailedSignIn: () => Option.none(),
-    Loading: () => Option.some(Duration.toMillis(STATE_POLL)),
-    Loaded: ({ status }) =>
-      Option.some(Duration.toMillis(status.recording === null ? STATE_POLL : RECORDING_POLL)),
-  });
+export const pollInterval = (model: Model): number =>
+  Duration.toMillis(runningOf(model) === null ? STATE_POLL : RECORDING_POLL);
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   pollStatus: entry(
-    { intervalMs: Schema.NullOr(Schema.Finite) },
+    { intervalMs: Schema.Finite },
     {
-      modelToDependencies: (model) => ({ intervalMs: Option.getOrNull(pollInterval(model)) }),
+      modelToDependencies: (model) => ({ intervalMs: pollInterval(model) }),
       dependenciesToStream: ({ intervalMs }) =>
-        intervalMs === null
-          ? Stream.empty
-          : Stream.tick(Duration.millis(intervalMs)).pipe(Stream.map(Message.TickedStatusPoll)),
+        Stream.tick(Duration.millis(intervalMs)).pipe(Stream.map(Message.TickedStatusPoll)),
     },
   ),
 }));
 
 export interface ViewInputs {
   readonly now: number;
+  readonly signIn: SignIn;
 }
 
 const peopleOf = (status: RecordingStatus | null): ReadonlyArray<Person> =>
@@ -370,7 +360,7 @@ const peopleOf = (status: RecordingStatus | null): ReadonlyArray<Person> =>
     id: occupant.userId,
     name: occupant.displayName,
     avatarUrl: occupant.avatarUrl,
-    speaking: occupant.speaking,
+    isSpeaking: occupant.speaking,
   }));
 
 const planView = (model: Model, h: HtmlBuilder<Message>): Html =>
@@ -435,10 +425,10 @@ const controlsView = (
 export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) => {
   const status = statusOf(model);
   const running = runningOf(model);
-  const phase = describePhase(phaseOf(model), inputs.now);
+  const phase = describePhase(phaseOf(model, inputs.signIn), inputs.now);
   const inTheOffice = peopleOf(status);
 
-  return card(h, "lg", [
+  return card(h, [
     eyebrow(h, { text: "Recording" }),
     statusHeading(h, {
       heading: phase.heading,
@@ -450,10 +440,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
     controlsView(model, running, h),
     noticeRegion(
       h,
-      Option.match(model.notice, {
-        onNone: () => [],
-        onSome: (shown) => [notice(h, shown.notice)],
-      }),
+      Option.map(model.notice, (shown) => shown.notice),
     ),
     ...(inTheOffice.length === 0
       ? []

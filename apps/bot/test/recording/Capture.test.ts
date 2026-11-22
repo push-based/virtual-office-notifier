@@ -98,9 +98,15 @@ const setUp = Effect.fnUntraced(function* (voice?: VoiceCapture["Service"], gate
     `,
   ).pipe(Effect.provideContext(context));
 
+  const loseClipTable = Effect.flatMap(
+    SqlClient.SqlClient,
+    (sql) => sql`ALTER TABLE office.recording_clips RENAME TO recording_clips_gone`,
+  ).pipe(Effect.provideContext(context), Effect.orDie);
+
   return {
     capture,
     clips,
+    loseClipTable,
     hear: (event: Heard) => Queue.offer(heard, event),
     modes: Queue.clear(modes),
     queued: Ref.get(queued),
@@ -229,6 +235,27 @@ describe("Capture", () => {
       assert.isAbove(yield* changes, 1);
     }),
   );
+
+  it.effect("reports a clip it couldn't record, not only logs it", () => {
+    const { reports, layer } = captureReports();
+
+    return Effect.gen(function* () {
+      const { capture, hear, loseClipTable } = yield* setUp();
+
+      yield* capture.begin(recording);
+      yield* loseClipTable;
+      yield* hear(Heard.Spoke({ clip: clip(2) }));
+      yield* pollUntil(
+        Effect.sync(() => reports.length),
+        (count) => count > 0,
+      );
+
+      assert.deepStrictEqual(
+        Array.map(reports, (report) => report.name),
+        ["StoreUnavailable"],
+      );
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("reports the first lost voice connection of a recording, not every rejoin", () => {
     const { reports, layer } = captureReports();

@@ -1,4 +1,4 @@
-import { Array } from "effect";
+import { Array, Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
   change,
@@ -10,6 +10,7 @@ import {
   role,
   scene,
   selector,
+  submit,
   text,
   type,
 } from "foldkit/scene";
@@ -17,12 +18,13 @@ import { describe, expect as expectValue, it } from "vite-plus/test";
 
 import { barList, barShare } from "./bar-list.ts";
 import { blockButton, button } from "./button.ts";
-import { checkbox } from "./checkbox.ts";
+import { checkbox, checkboxLabel } from "./checkbox.ts";
+import { confirmBox } from "./confirm-box.ts";
 import { disclosure } from "./disclosure.ts";
 import { inlineSelect, selectField, textField } from "./fields.ts";
 import { heatOf, heatmap } from "./heatmap.ts";
 import { initials } from "./initials.ts";
-import { notice, noticeRegion } from "./notice.ts";
+import { noticeRegion } from "./notice.ts";
 import { avatar, people } from "./people.ts";
 import { statusHeading } from "./status-heading.ts";
 
@@ -50,6 +52,15 @@ describe("button", () => {
       given<Clicks>([]),
       expect(role("button", { name: "Save" })).toHaveAttr("aria-disabled", "true"),
       expect(role("button", { name: "Save" })).toBeDisabled(),
+    );
+  });
+
+  it("sends nothing when it's clicked while disabled", () => {
+    scene(
+      counting((h) => button(h, { label: ["Save"], onClick: "saved", isDisabled: true })),
+      given<Clicks>([]),
+      expect(role("button", { name: "Save" })).not.toHaveHandler("click"),
+      expect(role("status")).toHaveText(""),
     );
   });
 
@@ -82,6 +93,7 @@ describe("blockButton", () => {
       ),
       given<Clicks>([]),
       expect(role("button", { name: /Deploy retro/ })).toHaveClass("row"),
+      expect(role("button", { name: /Deploy retro/ })).toHaveClass("pb-block-button"),
       click(role("button", { name: /Deploy retro/ })),
       expect(role("status")).toHaveText("opened"),
     );
@@ -91,13 +103,18 @@ describe("blockButton", () => {
 describe("checkbox", () => {
   const ticks = (isChecked: boolean, isDisabled = false) =>
     counting((h) =>
-      checkbox(h, {
-        id: "item-4",
-        label: "write up the checklist",
-        isChecked,
-        isDisabled,
-        onToggle: (next) => (next ? "ticked" : "unticked"),
-      }),
+      h.div(
+        [],
+        [
+          checkbox(h, {
+            id: "item-4",
+            isChecked,
+            isDisabled,
+            onToggle: (next) => (next ? "ticked" : "unticked"),
+          }),
+          checkboxLabel(h, { checkboxId: "item-4", text: "write up the checklist" }),
+        ],
+      ),
     );
 
   it("is a native checkbox named by its label", () => {
@@ -106,6 +123,15 @@ describe("checkbox", () => {
       given<Clicks>([]),
       expect(role("checkbox", { name: "write up the checklist" })).toBeChecked(),
       expect(role("checkbox", { name: "write up the checklist" })).toHaveAttr("type", "checkbox"),
+    );
+  });
+
+  it("is named by the visible text, which is its label", () => {
+    scene(
+      ticks(false),
+      given<Clicks>([]),
+      expect(role("checkbox", { name: "write up the checklist" })).toExist(),
+      expect(selector(".sr-only")).toBeAbsent(),
     );
   });
 
@@ -173,7 +199,7 @@ describe("disclosure", () => {
 describe("notice", () => {
   it("announces notices through a status region", () => {
     scene(
-      counting((h) => noticeRegion(h, [notice(h, { kind: "error", text: "Couldn't save" })])),
+      counting((h) => noticeRegion(h, Option.some({ kind: "error", text: "Couldn't save" }))),
       given<Clicks>([]),
       expect(selector(".pb-notice-region")).toHaveAttr("role", "status"),
       expect(text("Couldn't save")).toHaveClass("pb-notice-error"),
@@ -189,7 +215,7 @@ describe("people", () => {
           id: "office",
           label: "In the office · 2",
           people: [
-            { id: "1", name: "Ada Lovelace", avatarUrl: null, speaking: true },
+            { id: "1", name: "Ada Lovelace", avatarUrl: null, isSpeaking: true },
             { id: "2", name: "Ben", avatarUrl: "https://cdn.example/ben.png" },
           ],
         }),
@@ -209,7 +235,7 @@ describe("people", () => {
 
   it("names a lone avatar", () => {
     scene(
-      counting((h) => avatar(h, { name: "Linus", src: null })),
+      counting((h) => avatar(h, { name: "Linus", avatarUrl: null })),
       given<Clicks>([]),
       expect(role("img", { name: "Linus" })).toHaveText("L"),
     );
@@ -321,6 +347,16 @@ describe("fields", () => {
     );
   });
 
+  it("reports the option that's chosen", () => {
+    scene(
+      form,
+      given("brief"),
+      change(label("Summary"), "detailed"),
+      expect(role("option", { name: "Detailed" })).toHaveAttr("selected", "true"),
+      expect(label("Title")).toHaveValue("detailed"),
+    );
+  });
+
   const reason = {
     update: (_value: string, next: string) => ({ model: next }),
     view: (value: string, h: HtmlBuilder<string>) =>
@@ -415,6 +451,42 @@ describe("statusHeading", () => {
       expect(selector(".pb-live-dot")).toExist(),
       expect(text("Deploy retro")).toExist(),
       expect(text("Started by Chris")).toExist(),
+    );
+  });
+});
+
+describe("confirmBox", () => {
+  it("groups a confirmation under the text that asks for it", () => {
+    scene(
+      counting((h) =>
+        confirmBox(h, {
+          labelledBy: "erase-text",
+          isDanger: true,
+          children: [
+            h.p([h.Id("erase-text")], ["This can't be undone."]),
+            button(h, { label: ["Delete everything"], onClick: "erased" }),
+          ],
+        }),
+      ),
+      given<Clicks>([]),
+      expect(role("group", { name: "This can't be undone." })).toHaveClass("pb-confirm-danger"),
+      click(role("button", { name: "Delete everything" })),
+      expect(role("status")).toHaveText("erased"),
+    );
+  });
+
+  it("is a form that sends its message when it's submitted", () => {
+    scene(
+      counting((h) =>
+        confirmBox(h, {
+          onSubmit: "refused",
+          children: [button(h, { label: ["Refuse"], isSubmit: true })],
+        }),
+      ),
+      given<Clicks>([]),
+      expect(selector("form.pb-confirm")).toExist(),
+      submit(selector("form")),
+      expect(role("status")).toHaveText("refused"),
     );
   });
 });

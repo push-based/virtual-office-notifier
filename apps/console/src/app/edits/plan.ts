@@ -1,6 +1,6 @@
+import type { NoticeContent } from "design-system";
 import { Array, Option, pipe, Schema, String } from "effect";
 
-import type { Notice } from "../notice.ts";
 import { SummaryStyle } from "office-domain/Recording";
 import type { HandledEdit, RecordingChange } from "office-domain/RecordingEdit";
 import { DEFAULT_SUMMARY_STYLE, SUMMARY_STYLE_LABELS, SUMMARY_STYLES } from "office-domain/wire";
@@ -59,7 +59,7 @@ export const changesBetween = (current: Plan, draft: Draft): ReadonlyArray<Recor
   ];
 };
 
-export const editNotice = (results: ReadonlyArray<HandledEdit | null>): Notice | null => {
+export const editNotice = (results: ReadonlyArray<HandledEdit | null>): NoticeContent | null => {
   for (const result of results) {
     if (result?.outcome === "ignored") return { kind: "error", text: result.explanation };
   }
