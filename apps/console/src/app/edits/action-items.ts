@@ -1,23 +1,32 @@
-import { Effect, Option, Schema } from "effect";
-import { avatar, description, eyebrow, notice, noticeRegion } from "design-system";
+import { Array, Effect, Schema } from "effect";
+import {
+  avatar,
+  checkbox,
+  checkboxLabel,
+  description,
+  descriptionItem,
+  eyebrow,
+  inlineSelect,
+  noticeRegion,
+  type SelectOption,
+  NoticeContent,
+} from "design-system";
 import { Command, Submodel, type Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import { Notice } from "../notice.ts";
-import { unreachableNotice } from "../recorder/notices.ts";
 import { reasonOf } from "../api/api.ts";
 import type { Resources } from "../resources.ts";
 import { ActionItem, type OfficeMember } from "office-domain/Recording";
 import { RecordingChange } from "office-domain/RecordingEdit";
-import { saveChanges } from "./save.ts";
+import { answered, failedSave, isSaving, noticeOf, SaveState, saveChanges } from "./save.ts";
 
 export const NO_ACTION_ITEMS = "No action items could be pulled out.";
 
 export const NONE_TAKEN_ON = "Nobody took anything on.";
 
-export const UNASSIGNED = "Unassigned";
+const UNASSIGNED = "Unassigned";
 
 export const tickOf = (item: ActionItem): RecordingChange => ({
   kind: item.done ? "untick" : "tick",
@@ -30,27 +39,35 @@ export const reassignOf = (item: ActionItem, chosen: string): ReadonlyArray<Reco
   return owner === (item.owner?.userId ?? null) ? [] : [{ kind: "reassign", item: item.id, owner }];
 };
 
-export const ownerChoices = (
+const ownerChoices = (
   members: ReadonlyArray<OfficeMember>,
   owner: OfficeMember | null,
 ): ReadonlyArray<OfficeMember> =>
-  owner === null || members.some(({ userId }) => userId === owner.userId)
+  owner === null || Array.some(members, ({ userId }) => userId === owner.userId)
     ? members
     : [owner, ...members];
 
-export const Model = Schema.Struct({
-  isSaving: Schema.Boolean,
-  notice: Schema.Option(Notice),
-});
+const ownerOptions = (
+  members: ReadonlyArray<OfficeMember>,
+  owner: OfficeMember | null,
+): ReadonlyArray<SelectOption> => [
+  { value: "", label: UNASSIGNED },
+  ...Array.map(ownerChoices(members, owner), (member) => ({
+    value: member.userId,
+    label: member.name,
+  })),
+];
+
+export const Model = Schema.Struct({ save: SaveState });
 
 export type Model = typeof Model.Type;
 
-export const init = (): Model => ({ isSaving: false, notice: Option.none() });
+export const init = (): Model => ({ save: SaveState.Idle() });
 
 export const Message = defineMessageUnion({
   ToggledItem: { recordingId: Schema.String, item: ActionItem },
   ChoseOwner: { recordingId: Schema.String, item: ActionItem, chosen: Schema.String },
-  CompletedSaveActionItems: { notice: Schema.Option(Notice) },
+  CompletedSaveActionItems: { notice: Schema.Option(NoticeContent) },
   FailedSaveActionItems: { reason: Schema.String },
 });
 
@@ -81,19 +98,19 @@ const save = (
   recordingId: string,
   changes: ReadonlyArray<RecordingChange>,
 ): UpdateReturn => {
-  if (model.isSaving) {
+  if (isSaving(model.save)) {
     return { model };
   }
 
   if (changes.length === 0) {
     return {
-      model: modifyFields(model, { notice: () => Option.none() }),
+      model: modifyFields(model, { save: () => SaveState.Idle() }),
       outMessage: OutMessage.SavedEdits(),
     };
   }
 
   return {
-    model: modifyFields(model, { isSaving: () => true, notice: () => Option.none() }),
+    model: modifyFields(model, { save: () => SaveState.Saving() }),
     commands: [SaveActionItems({ recordingId, changes })],
   };
 };
@@ -106,15 +123,12 @@ export const update = (model: Model, message: Message) =>
       save(model, recordingId, reassignOf(item, chosen)),
 
     CompletedSaveActionItems: ({ notice: shown }) => ({
-      model: modifyFields(model, { isSaving: () => false, notice: () => shown }),
+      model: modifyFields(model, { save: () => answered(shown) }),
       outMessage: OutMessage.SavedEdits(),
     }),
 
     FailedSaveActionItems: ({ reason }) => ({
-      model: modifyFields(model, {
-        isSaving: () => false,
-        notice: () => Option.some(unreachableNotice(reason)),
-      }),
+      model: modifyFields(model, { save: () => failedSave(reason) }),
     }),
   });
 
@@ -134,44 +148,35 @@ const itemView = (
     String(item.id),
     [h.Class(item.done ? "action-item action-item-done" : "action-item")],
     [
-      h.input([
-        h.Type("checkbox"),
-        h.Class("action-item-tick"),
-        h.Checked(item.done),
-        h.Disabled(model.isSaving),
-        h.AriaLabel(item.text),
-        h.OnChange(() => Message.ToggledItem({ recordingId: inputs.recordingId, item })),
-      ]),
+      checkbox(h, {
+        id: `action-item-${item.id}`,
+        isChecked: item.done,
+        isDisabled: isSaving(model.save),
+        onToggle: () => Message.ToggledItem({ recordingId: inputs.recordingId, item }),
+      }),
       h.div(
         [h.Class("action-item-body")],
         [
-          h.p([h.Class("text-body action-item-text")], [item.text]),
+          checkboxLabel(h, {
+            checkboxId: `action-item-${item.id}`,
+            text: item.text,
+            className: "action-item-text",
+          }),
           h.div(
             [h.Class("action-item-owner")],
             [
               item.owner === null
                 ? h.empty
-                : avatar(h, { name: item.owner.name, src: item.owner.avatarUrl, size: "sm" }),
-              h.select(
-                [
-                  h.Class("text-body-sm action-item-choice"),
-                  h.AriaLabel(`Owner of ${item.text}`),
-                  h.Disabled(model.isSaving),
-                  h.OnChange((chosen) =>
-                    Message.ChoseOwner({ recordingId: inputs.recordingId, item, chosen }),
-                  ),
-                ],
-                [
-                  h.option([h.Value(""), h.Selected(item.owner === null)], [UNASSIGNED]),
-                  ...ownerChoices(inputs.members, item.owner).map((member) =>
-                    h.keyed("option")(
-                      member.userId,
-                      [h.Value(member.userId), h.Selected(member.userId === item.owner?.userId)],
-                      [member.name],
-                    ),
-                  ),
-                ],
-              ),
+                : avatar(h, { name: item.owner.name, avatarUrl: item.owner.avatarUrl, size: "sm" }),
+              inlineSelect(h, {
+                id: `action-item-${item.id}-owner`,
+                label: `Owner of ${item.text}`,
+                options: ownerOptions(inputs.members, item.owner),
+                value: item.owner?.userId ?? "",
+                isDisabled: isSaving(model.save),
+                onChange: (chosen) =>
+                  Message.ChoseOwner({ recordingId: inputs.recordingId, item, chosen }),
+              }),
             ],
           ),
         ],
@@ -186,13 +191,10 @@ const itemsView = (
   h: HtmlBuilder<Message>,
 ): Html =>
   items.length === 0
-    ? h.ul(
-        [h.Class("action-items")],
-        [h.li([h.Class("text-body-sm pb-description")], [NONE_TAKEN_ON])],
-      )
+    ? h.ul([h.Class("action-items")], [descriptionItem(h, [NONE_TAKEN_ON])])
     : h.ul(
         [h.Class("action-items")],
-        items.map((item) => itemView(model, inputs, item, h)),
+        Array.map(items, (item) => itemView(model, inputs, item, h)),
       );
 
 export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>
@@ -203,10 +205,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
       inputs.items === null
         ? description(h, [NO_ACTION_ITEMS])
         : itemsView(model, inputs, inputs.items, h),
-      noticeRegion(
-        h,
-        Option.match(model.notice, { onNone: () => [], onSome: (shown) => [notice(h, shown)] }),
-      ),
+      noticeRegion(h, noticeOf(model.save)),
     ],
   ),
 );

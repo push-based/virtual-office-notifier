@@ -1,12 +1,14 @@
-import { DateTime, Duration, Effect, Layer } from "effect";
+import { afterEach, describe, expect, it } from "@effect/vitest";
+import { Array, DateTime, Duration, Effect, Layer, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 import { Runtime } from "foldkit";
 import { RecordingApi, RecordingNotFound } from "office-domain/RecordingApi";
 import type { RecordingStatus } from "office-domain/RecordingRequest";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { vi } from "vite-plus/test";
 
 import { REQUEST_ANSWER, RequestAnswer } from "./api/answer.ts";
-import { fakeDiscord, fakeResources, fakeWorker } from "./fakes.ts";
+import { fakeResources, fakeWorker, type SentRequest } from "./dev/fake-worker.ts";
+import { fakeDiscord } from "./fakes.ts";
 import { init, Model, subscriptions, update, view } from "./main.ts";
 
 const idle: RecordingStatus = {
@@ -87,59 +89,73 @@ const started = () => {
 
 const text = (element: HTMLElement) => element.textContent ?? "";
 
+const waitFor = (check: () => void) => Effect.promise(() => vi.waitFor(check, { timeout: 5000 }));
+
+const sentTo = (sent: ReadonlyArray<SentRequest>, path: string) =>
+  Array.findFirst(sent, (request) => request.path === path);
+
 describe("the Console", () => {
   afterEach(() => {
     document.body.replaceChildren();
   });
 
-  it("signs in through Discord, then shows the office and who's in it", async () => {
-    const { server, discord, wrapper, handle } = started();
+  it.effect("signs in through Discord, then shows the office and who's in it", () =>
+    Effect.gen(function* () {
+      const { server, discord, wrapper, handle } = started();
 
-    await vi.waitFor(() => expect(text(wrapper)).toContain("Not recording"));
+      yield* waitFor(() => expect(text(wrapper)).toContain("Not recording"));
 
-    expect(text(wrapper)).toContain("In the office · 1");
-    expect(discord.commands.authenticate).toHaveBeenCalledWith({ access_token: "access-1" });
-    expect(server.sent.find(({ path }) => path === "/api/config")?.authorization).toBeUndefined();
-    expect(server.sent.find(({ path }) => path === "/api/status")?.authorization).toBe(
-      "Bearer session-1",
-    );
-    await vi.waitFor(() =>
-      expect(discord.commands.setActivity).toHaveBeenCalledWith({
-        activity: { details: "In the office", state: "Not recording", timestamps: null },
-      }),
-    );
+      expect(text(wrapper)).toContain("In the office · 1");
+      expect(discord.commands.authenticate).toHaveBeenCalledWith({ access_token: "access-1" });
+      expect(
+        Option.map(sentTo(server.sent, "/api/config"), ({ authorization }) => authorization),
+      ).toEqual(Option.some(undefined));
+      expect(
+        Option.map(sentTo(server.sent, "/api/status"), ({ authorization }) => authorization),
+      ).toEqual(Option.some("Bearer session-1"));
+      yield* waitFor(() =>
+        expect(discord.commands.setActivity).toHaveBeenCalledWith({
+          activity: { details: "In the office", state: "Not recording", timestamps: null },
+        }),
+      );
 
-    await handle.disposeAsync();
-  });
+      yield* Effect.promise(() => handle.disposeAsync());
+    }),
+  );
 
-  it("starts a recording with the plan and says once the bot started it", async () => {
-    const { server, wrapper, handle } = started();
+  it.effect("starts a recording with the plan and says once the bot started it", () =>
+    Effect.gen(function* () {
+      const { server, wrapper, handle } = started();
 
-    await vi.waitFor(() => expect(text(wrapper)).toContain("Not recording"));
+      yield* waitFor(() => expect(text(wrapper)).toContain("Not recording"));
 
-    const title = wrapper.querySelector<HTMLInputElement>("#plan-title");
+      const title = wrapper.querySelector<HTMLInputElement>("#plan-title");
 
-    if (title === null) throw new Error("The plan has no title field");
+      if (title === null) return yield* Effect.die("The plan has no title field");
 
-    title.value = "Deploy retro";
-    title.dispatchEvent(new Event("input", { bubbles: true }));
+      title.value = "Deploy retro";
+      title.dispatchEvent(new Event("input", { bubbles: true }));
 
-    const start = [...wrapper.querySelectorAll("button")].find(
-      (button) => text(button) === "Start recording",
-    );
+      const start = Array.findFirst(
+        wrapper.querySelectorAll("button"),
+        (button) => text(button) === "Start recording",
+      );
 
-    start?.click();
+      if (Option.isSome(start)) start.value.click();
 
-    await vi.waitFor(() => expect(text(wrapper)).toContain("Recording started."));
+      yield* waitFor(() => expect(text(wrapper)).toContain("Recording started."));
 
-    expect(server.sent.find(({ path }) => path === "/api/requests")?.body).toEqual({
-      action: "start",
-      title: "Deploy retro",
-      agenda: null,
-      summaryStyle: "brief",
-    });
-    await vi.waitFor(() => expect(text(wrapper)).toContain("Stop recording"));
+      expect(Option.map(sentTo(server.sent, "/api/requests"), ({ body }) => body)).toEqual(
+        Option.some({
+          action: "start",
+          title: "Deploy retro",
+          agenda: null,
+          summaryStyle: "brief",
+        }),
+      );
+      yield* waitFor(() => expect(text(wrapper)).toContain("Stop recording"));
 
-    await handle.disposeAsync();
-  });
+      yield* Effect.promise(() => handle.disposeAsync());
+    }),
+  );
 });

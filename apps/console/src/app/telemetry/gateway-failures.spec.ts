@@ -1,3 +1,4 @@
+import { pipe, String } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { BODY_LIMIT, describeGatewayFailure } from "./gateway-failures.ts";
@@ -14,7 +15,7 @@ describe("describeGatewayFailure", () => {
         authorization: "Bearer secret",
         "set-cookie": "session=secret",
       },
-      body: `upstream connect error ${"x".repeat(500)}`,
+      body: `upstream connect error ${pipe("x", String.repeat(500))}`,
     });
 
     expect(details).toEqual({
@@ -23,7 +24,7 @@ describe("describeGatewayFailure", () => {
       "cf-ray": "8f00000000000000-FRA",
       server: "cloudflare",
       "content-type": "text/plain",
-      body: `upstream connect error ${"x".repeat(BODY_LIMIT - 23)}`,
+      body: `upstream connect error ${pipe("x", String.repeat(BODY_LIMIT - 23))}`,
     });
   });
 

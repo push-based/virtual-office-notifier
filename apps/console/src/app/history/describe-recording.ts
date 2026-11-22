@@ -1,4 +1,4 @@
-import { DateTime } from "effect";
+import { DateTime, pipe, String } from "effect";
 import type { BadgeTone } from "design-system";
 import { OFFICE_TIME_ZONE } from "office-domain/OfficeStats";
 
@@ -14,7 +14,7 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const pad = (value: number): string => String(value).padStart(2, "0");
+const pad = (value: number): string => pipe(`${value}`, String.padStart(2, "0"));
 
 const inOffice = (at: DateTime.Utc) => DateTime.toParts(DateTime.setZone(at, OFFICE_TIME_ZONE));
 
@@ -43,7 +43,7 @@ export const formatRunTime = (
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 };
 
-export interface StateBadge {
+interface StateBadge {
   readonly label: string;
   readonly tone: BadgeTone;
 }

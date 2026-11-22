@@ -1,4 +1,5 @@
-import { badge, description, people, type Person } from "design-system";
+import { Array } from "effect";
+import { badge, blockButton, description, people, type Person } from "design-system";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import type { ListedRecording, OfficeMember } from "office-domain/Recording";
@@ -10,18 +11,21 @@ export const personOf = (member: OfficeMember): Person => ({
   avatarUrl: member.avatarUrl,
 });
 
-export interface RecordingRowConfig<Message> {
+interface RecordingRowConfig<Message> {
   readonly recording: ListedRecording;
   readonly now: number;
   readonly onOpen: Message;
 }
 
-export const factLine = (recording: ListedRecording, now: number): string =>
-  [
-    ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
-    formatRunTime(recording.startedAt, recording.stoppedAt, now),
-    `Started by ${recording.startedBy.name}`,
-  ].join(" · ");
+const factLine = (recording: ListedRecording, now: number): string =>
+  Array.join(
+    [
+      ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
+      formatRunTime(recording.startedAt, recording.stoppedAt, now),
+      `Started by ${recording.startedBy.name}`,
+    ],
+    " · ",
+  );
 
 export const recordingRow = <Message>(
   h: HtmlBuilder<Message>,
@@ -29,7 +33,7 @@ export const recordingRow = <Message>(
 ): Html => {
   const { recording } = config;
   const state = stateBadge(recording.state);
-  const speakers = recording.speakers.map(personOf);
+  const speakers = Array.map(recording.speakers, personOf);
 
   const facts = [
     h.span(
@@ -39,7 +43,7 @@ export const recordingRow = <Message>(
           [h.Class("text-body recording-row-when")],
           [recording.title ?? formatOfficeTime(recording.startedAt)],
         ),
-        badge(h, state.tone, state.label),
+        badge(h, { tone: state.tone, label: state.label }),
       ],
     ),
     description(h, [factLine(recording, config.now)]),
@@ -49,6 +53,6 @@ export const recordingRow = <Message>(
   ];
 
   return canOpen(recording.state)
-    ? h.button([h.Type("button"), h.Class("recording-row"), h.OnClick(config.onOpen)], facts)
+    ? blockButton(h, { className: "recording-row", onClick: config.onOpen, children: facts })
     : h.div([h.Class("recording-row")], facts);
 };

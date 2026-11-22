@@ -1,8 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option, Ref } from "effect";
+import { Array, Effect, Option, Ref } from "effect";
 
 import { SessionToken } from "../api/api.ts";
-import { fakeDiscord, fakeResources, fakeServer, fakeWorker } from "../fakes.ts";
+import { fakeResources, fakeWorker } from "../dev/fake-worker.ts";
+import { fakeDiscord, fakeServer } from "../fakes.ts";
 import { Session } from "./session.ts";
 
 const presence = { details: "In the office", state: "Not recording", timestamps: null };
@@ -22,9 +23,12 @@ describe("the session", () => {
         prompt: "none",
         scope: ["identify", "rpc.activities.write"],
       });
-      expect(worker.sent.find(({ path }) => path === "/api/token")?.body).toEqual({
-        code: "discord-code",
-      });
+      expect(
+        Option.map(
+          Array.findFirst(worker.sent, ({ path }) => path === "/api/token"),
+          ({ body }) => body,
+        ),
+      ).toEqual(Option.some({ code: "discord-code" }));
       expect(discord.commands.authenticate).toHaveBeenCalledWith({ access_token: "access-1" });
       expect(yield* Ref.get(yield* SessionToken)).toEqual(Option.some("session-1"));
     }).pipe(Effect.provide(fakeResources(worker.layer, discord)));

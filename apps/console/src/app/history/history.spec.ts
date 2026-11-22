@@ -1,9 +1,11 @@
-import { DateTime, identity, Option } from "effect";
-import { Scene, Story } from "foldkit";
+import { Array, DateTime, identity, Option } from "effect";
+import { AsyncData, Scene, Story } from "foldkit";
+import { modifyFields } from "foldkit/struct";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
 
 import * as RecordingEditor from "../edits/recording-editor.ts";
+import { noticeOf } from "../edits/save.ts";
 import * as SummaryRewrite from "../edits/summary-rewrite.ts";
 import { listedRecording, recordingDetail } from "./fixtures.ts";
 import {
@@ -33,13 +35,33 @@ const page = (recordings = [listedRecording()], older: DateTime.Utc | null = nul
 });
 
 const listed = (recordings = [listedRecording()], older: DateTime.Utc | null = null): Model =>
-  update(init(), Message.SucceededFetchNewest({ request: 1, page: page(recordings, older) })).model;
+  update(init(), Message.SucceededFetchNewest({ page: page(recordings, older) })).model;
 
 const opened = (detail = recordingDetail()): Model =>
   update(
-    update(listed(), Message.ClickedRecording({ id: detail.id })).model,
-    Message.SucceededFetchRecording({ opening: 1, request: 1, recording: detail }),
+    update(
+      update(listed(), Message.ClickedRecording({ id: detail.id })).model,
+      Message.TickedRecordingPoll({ id: detail.id }),
+    ).model,
+    Message.SucceededFetchRecording({ request: 1, recording: detail }),
   ).model;
+
+const lookedAgain = (first: string, second: string): Model =>
+  Array.reduce(
+    [
+      Message.ClickedRecording({ id: first }),
+      Message.TickedRecordingPoll({ id: first }),
+      Message.ClickedBack(),
+      Message.ClickedRecording({ id: second }),
+    ],
+    listed(),
+    (model, message) => update(model, message).model,
+  );
+
+const listOf = (model: Model) => Option.getOrThrow(AsyncData.getData(model.list));
+
+const openedRecording = (model: Model) =>
+  Option.flatMap(model.opened, ({ recording }) => AsyncData.getData(recording));
 
 describe("the recording history", () => {
   it("shows nothing until the first page arrives, then says when nothing was recorded", () => {
@@ -47,12 +69,9 @@ describe("the recording history", () => {
       update,
       Story.given(init()),
       Story.message(Message.TickedListPoll()),
-      Story.Command.expectExact(FetchNewest({ request: 1 })),
-      Story.Command.resolve(
-        FetchNewest,
-        Message.SucceededFetchNewest({ request: 1, page: page([]) }),
-      ),
-      Story.model((model) => expect(model.isLoaded).toBe(true)),
+      Story.Command.expectExact(FetchNewest()),
+      Story.Command.resolve(FetchNewest, Message.SucceededFetchNewest({ page: page([]) })),
+      Story.model((model) => expect(AsyncData.hasData(model.list)).toBe(true)),
     );
     Scene.scene(
       scene,
@@ -104,8 +123,8 @@ describe("the recording history", () => {
         }),
       ),
       Story.model((model) => {
-        expect(model.list.recordings.map(({ id }) => id)).toEqual(["r1", "r0"]);
-        expect(model.list.older).toBeNull();
+        expect(Array.map(listOf(model).recordings, ({ id }) => id)).toEqual(["r1", "r0"]);
+        expect(listOf(model).older).toBeNull();
         expect(model.isLoadingOlder).toBe(false);
       }),
     );
@@ -124,16 +143,9 @@ describe("the recording history", () => {
   it("ignores a recording that arrives after another one was opened", () => {
     Story.story(
       update,
-      Story.given(listed()),
-      Story.message(Message.ClickedRecording({ id: "r1" })),
-      Story.message(Message.ClickedBack()),
-      Story.message(Message.ClickedRecording({ id: "r2" })),
-      Story.message(
-        Message.SucceededFetchRecording({ opening: 1, request: 1, recording: recordingDetail() }),
-      ),
-      Story.model((model) =>
-        expect(Option.flatMap(model.opened, ({ recording }) => recording)).toEqual(Option.none()),
-      ),
+      Story.given(lookedAgain("r1", "r2")),
+      Story.message(Message.SucceededFetchRecording({ request: 1, recording: recordingDetail() })),
+      Story.model((model) => expect(openedRecording(model)).toEqual(Option.none())),
     );
   });
 
@@ -143,25 +155,16 @@ describe("the recording history", () => {
 
     Story.story(
       update,
-      Story.given(listed()),
-      Story.message(Message.ClickedRecording({ id: "r1" })),
-      Story.message(Message.ClickedBack()),
-      Story.message(Message.ClickedRecording({ id: "r1" })),
-      Story.message(Message.SucceededFetchRecording({ opening: 1, request: 1, recording: stale })),
-      Story.model((model) =>
-        expect(Option.flatMap(model.opened, ({ recording }) => recording)).toEqual(Option.none()),
-      ),
+      Story.given(lookedAgain("r1", "r1")),
+      Story.message(Message.SucceededFetchRecording({ request: 1, recording: stale })),
+      Story.model((model) => expect(openedRecording(model)).toEqual(Option.none())),
       Story.message(Message.TickedRecordingPoll({ id: "r1" })),
-      Story.Command.expectExact(FetchRecording({ id: "r1", opening: 2, request: 1 })),
+      Story.Command.expectExact(FetchRecording({ id: "r1", request: 2 })),
       Story.Command.resolve(
         FetchRecording,
-        Message.SucceededFetchRecording({ opening: 2, request: 1, recording: fresh }),
+        Message.SucceededFetchRecording({ request: 2, recording: fresh }),
       ),
-      Story.model((model) =>
-        expect(Option.flatMap(model.opened, ({ recording }) => recording)).toEqual(
-          Option.some(fresh),
-        ),
-      ),
+      Story.model((model) => expect(openedRecording(model)).toEqual(Option.some(fresh))),
     );
   });
 
@@ -169,10 +172,8 @@ describe("the recording history", () => {
     Scene.scene(
       scene,
       Scene.given(
-        update(
-          listed(),
-          Message.FailedFetchNewest({ request: 2, reason: "/api/recordings answered 503" }),
-        ).model,
+        update(listed(), Message.FailedFetchNewest({ reason: "/api/recordings answered 503" }))
+          .model,
       ),
       Scene.expect(
         Scene.text("Couldn't load the recording history: /api/recordings answered 503"),
@@ -184,10 +185,16 @@ describe("the recording history", () => {
   it("keeps a late failure off the view that didn't ask for it", () => {
     Story.story(
       update,
-      Story.given(opened()),
-      Story.message(Message.FailedFetchNewest({ request: 2, reason: "late" })),
-      Story.message(Message.FailedFetchRecording({ opening: 2, request: 2, reason: "elsewhere" })),
-      Story.model((model) => expect(model.failure).toEqual(Option.none())),
+      Story.given(lookedAgain("r2", "r1")),
+      Story.message(Message.FailedFetchNewest({ reason: "late" })),
+      Story.message(Message.FailedFetchRecording({ request: 1, reason: "elsewhere" })),
+      Story.model((model) =>
+        expect(
+          Option.flatMap(model.opened, ({ recording }) => AsyncData.getError(recording)),
+        ).toEqual(Option.none()),
+      ),
+      Story.message(Message.ClickedBack()),
+      Story.model((model) => expect(AsyncData.getError(model.list)).toEqual(Option.none())),
     );
   });
 
@@ -209,21 +216,23 @@ describe("the recording history", () => {
         }),
       ),
       Story.model((model) =>
-        expect(Option.map(model.opened, ({ rewrite }) => rewrite.notice)).toEqual(
+        expect(Option.map(model.opened, ({ rewrite }) => noticeOf(rewrite.save))).toEqual(
           Option.some(Option.none()),
         ),
       ),
     );
   });
 
-  it("asks for one list page at a time, and ignores an answer older than the last", () => {
+  it("asks for one list page at a time", () => {
     Story.story(
       update,
-      Story.given({ ...listed(), listRequests: 2 }),
+      Story.given(modifyFields(listed(), { isFetchingNewest: () => true })),
       Story.message(Message.TickedListPoll()),
       Story.Command.expectNone(),
-      Story.message(Message.SucceededFetchNewest({ request: 1, page: page([]) })),
-      Story.model((model) => expect(model.list.recordings).toHaveLength(1)),
+      Story.message(Message.SucceededFetchNewest({ page: page([]) })),
+      Story.message(Message.TickedListPoll()),
+      Story.Command.expectExact(FetchNewest()),
+      Story.Command.resolve(FetchNewest, Message.SucceededFetchNewest({ page: page([]) })),
     );
   });
 
@@ -250,12 +259,11 @@ describe("the recording history", () => {
         SummaryRewrite.RewriteSummary,
         SummaryRewrite.Message.CompletedRewriteSummary({ notice: Option.none() }),
       ),
-      Story.Command.expectExact(FetchRecording({ id: "r1", opening: 1, request: 1 })),
+      Story.Command.expectExact(FetchRecording({ id: "r1", request: 2 })),
       Story.Command.resolve(
         FetchRecording,
         Message.SucceededFetchRecording({
-          opening: 1,
-          request: 1,
+          request: 2,
           recording: recordingDetail({ rewriting: true }),
         }),
       ),
@@ -362,8 +370,7 @@ describe("a recording's page", () => {
       Scene.Command.resolve(
         FetchRecording,
         Message.SucceededFetchRecording({
-          opening: 1,
-          request: 1,
+          request: 2,
           recording: recordingDetail({ title: "Retro" }),
         }),
       ),

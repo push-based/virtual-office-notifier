@@ -1,6 +1,6 @@
-import { DateTime } from "effect";
+import { DateTime, pipe, String } from "effect";
 
-const pad = (value: number): string => String(value).padStart(2, "0");
+const pad = (value: number): string => pipe(`${value}`, String.padStart(2, "0"));
 
 export const formatElapsed = (since: DateTime.Utc, now: number): string => {
   const total = Math.max(0, Math.floor((now - DateTime.toEpochMillis(since)) / 1000));

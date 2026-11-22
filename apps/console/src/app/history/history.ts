@@ -1,11 +1,20 @@
-import { Duration, Effect, Option, Schema, Stream } from "effect";
-import { button, card, description, eyebrow, notice, noticeRegion } from "design-system";
-import { Command, Submodel, Subscription, Update } from "foldkit";
+import { Array, Duration, Effect, Option, Schema, Stream } from "effect";
+import { button, card, description, descriptionItem, eyebrow, noticeRegion } from "design-system";
+import { AsyncData, Command, Submodel, Subscription, Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
 import { ConsoleApi, reasonOf } from "../api/api.ts";
+import {
+  ignoreSentRequests,
+  isAwaitingAnswer,
+  isNewerAnswer,
+  NO_REQUESTS,
+  recordAnswer,
+  RequestCount,
+  sendRequest,
+} from "../api/request-count.ts";
 import * as ActionItems from "../edits/action-items.ts";
 import * as RecordingEditor from "../edits/recording-editor.ts";
 import * as SummaryRewrite from "../edits/summary-rewrite.ts";
@@ -17,74 +26,62 @@ import { EMPTY_HISTORY, HistoryList, withNewest, withOlder } from "./history-lis
 import { recordingPage } from "./recording-page.ts";
 import { recordingRow } from "./recording-row.ts";
 
-export const LIST_POLL = Duration.seconds(15);
+const LIST_POLL = Duration.seconds(15);
 
 export const RECORDING_POLL = Duration.seconds(5);
 
+const ListData = AsyncData.Schema(HistoryList, Schema.String);
+
+const RecordingData = AsyncData.Schema(RecordingDetail, Schema.String);
+
 export const Opened = Schema.Struct({
   id: Schema.String,
-  opening: Schema.Number,
-  recording: Schema.Option(RecordingDetail),
+  recording: RecordingData.schema,
   editor: RecordingEditor.Model,
   rewrite: SummaryRewrite.Model,
   actionItems: ActionItems.Model,
-  requests: Schema.Number,
-  applied: Schema.Number,
 });
 
 export type Opened = typeof Opened.Type;
 
 export const Model = Schema.Struct({
-  list: HistoryList,
-  isLoaded: Schema.Boolean,
+  list: ListData.schema,
+  isFetchingNewest: Schema.Boolean,
   isLoadingOlder: Schema.Boolean,
   opened: Schema.Option(Opened),
-  failure: Schema.Option(Schema.String),
-  listRequests: Schema.Number,
-  listApplied: Schema.Number,
-  openings: Schema.Number,
+  recordingRequests: RequestCount,
 });
 
 export type Model = typeof Model.Type;
 
 export const init = (): Model => ({
-  list: EMPTY_HISTORY,
-  isLoaded: false,
+  list: ListData.Idle(),
+  isFetchingNewest: false,
   isLoadingOlder: false,
   opened: Option.none(),
-  failure: Option.none(),
-  listRequests: 0,
-  listApplied: 0,
-  openings: 0,
+  recordingRequests: NO_REQUESTS,
 });
 
-const openedAt = (id: string, opening: number): Opened => ({
+const openedAt = (id: string): Opened => ({
   id,
-  opening,
-  recording: Option.none(),
+  recording: RecordingData.Loading(),
   editor: RecordingEditor.init(),
   rewrite: SummaryRewrite.init(),
   actionItems: ActionItems.init(),
-  requests: 0,
-  applied: 0,
 });
 
 export const Message = defineMessageUnion({
   TickedListPoll: {},
-  SucceededFetchNewest: { request: Schema.Number, page: RecordingPage },
-  FailedFetchNewest: { request: Schema.Number, reason: Schema.String },
+  SucceededFetchNewest: { page: RecordingPage },
+  FailedFetchNewest: { reason: Schema.String },
   ClickedShowOlder: {},
   SucceededFetchOlder: { page: RecordingPage },
   FailedFetchOlder: { reason: Schema.String },
   ClickedRecording: { id: Schema.String },
   ClickedBack: {},
   TickedRecordingPoll: { id: Schema.String },
-  SucceededFetchRecording: {
-    opening: Schema.Number,
-    request: Schema.Number,
-    recording: RecordingDetail,
-  },
-  FailedFetchRecording: { opening: Schema.Number, request: Schema.Number, reason: Schema.String },
+  SucceededFetchRecording: { request: Schema.Finite, recording: RecordingDetail },
+  FailedFetchRecording: { request: Schema.Finite, reason: Schema.String },
   ClickedOpenInSlack: { url: Schema.String },
   CompletedOpenInSlack: {},
   FailedOpenInSlack: { reason: Schema.String },
@@ -96,15 +93,13 @@ export const Message = defineMessageUnion({
 export type Message = typeof Message.Type;
 
 export const FetchNewest = Command.define("FetchNewest", {
-  args: { request: Schema.Number },
   messages: [Message.SucceededFetchNewest, Message.FailedFetchNewest],
-  execute: ({ request }) =>
-    ConsoleApi.use((api) => api.history.recordings({ query: {} })).pipe(
-      Effect.map((page) => Message.SucceededFetchNewest({ request, page })),
-      Effect.catch((failure) =>
-        Effect.succeed(Message.FailedFetchNewest({ request, reason: reasonOf(failure) })),
-      ),
+  execute: ConsoleApi.use((api) => api.history.recordings({ query: {} })).pipe(
+    Effect.map((page) => Message.SucceededFetchNewest({ page })),
+    Effect.catch((failure) =>
+      Effect.succeed(Message.FailedFetchNewest({ reason: reasonOf(failure) })),
     ),
+  ),
 });
 
 export const FetchOlder = Command.define("FetchOlder", {
@@ -120,15 +115,13 @@ export const FetchOlder = Command.define("FetchOlder", {
 });
 
 export const FetchRecording = Command.define("FetchRecording", {
-  args: { id: Schema.String, opening: Schema.Number, request: Schema.Number },
+  args: { id: Schema.String, request: Schema.Finite },
   messages: [Message.SucceededFetchRecording, Message.FailedFetchRecording],
-  execute: ({ id, opening, request }) =>
+  execute: ({ id, request }) =>
     ConsoleApi.use((api) => api.history.recording({ params: { id } })).pipe(
-      Effect.map((recording) => Message.SucceededFetchRecording({ opening, request, recording })),
+      Effect.map((recording) => Message.SucceededFetchRecording({ request, recording })),
       Effect.catch((failure) =>
-        Effect.succeed(
-          Message.FailedFetchRecording({ opening, request, reason: reasonOf(failure) }),
-        ),
+        Effect.succeed(Message.FailedFetchRecording({ request, reason: reasonOf(failure) })),
       ),
     ),
 });
@@ -149,101 +142,122 @@ type UpdateReturn = Update.Return<Model, Message, Resources>;
 
 type Step = Update.Step<Model, Message, Resources>;
 
-const requestList: Step = (model) => {
-  const request = model.listRequests + 1;
+const failedWith = <A>(data: AsyncData.AsyncData<A, string>, reason: string) =>
+  Option.match(AsyncData.getData(data), {
+    onNone: () => AsyncData.fail<string, A>(reason),
+    onSome: (kept) => AsyncData.Stale({ data: kept, error: reason }),
+  });
 
-  return {
-    model: modifyFields(model, { listRequests: () => request }),
-    commands: [FetchNewest({ request })],
-  };
-};
+const withoutError = (list: Model["list"]): Model["list"] =>
+  Option.match(AsyncData.getData(list), {
+    onNone: () => ListData.Idle(),
+    onSome: (data) => ListData.Success({ data }),
+  });
+
+const listOf = (model: Model): HistoryList =>
+  Option.getOrElse(AsyncData.getData(model.list), () => EMPTY_HISTORY);
+
+const openedWith = (model: Model, id: string): Option.Option<Opened> =>
+  Option.filter(model.opened, (opened) => opened.id === id);
 
 const writeOpened = (model: Model, write: (opened: Opened) => Opened): Model =>
   modifyFields(model, { opened: Option.map(write) });
 
-const openedWith = (model: Model, id: string): Option.Option<Opened> =>
-  Option.filter(model.opened, (opened) => opened.id === id);
+const writeOpenedWith = (model: Model, id: string, write: (opened: Opened) => Opened): Model =>
+  writeOpened(model, (opened) => (opened.id === id ? write(opened) : opened));
 
 const requestRecording: Step = (model) =>
   Option.match(model.opened, {
     onNone: () => ({ model }),
     onSome: (opened) => {
-      const request = opened.requests + 1;
+      const recordingRequests = sendRequest(model.recordingRequests);
 
       return {
-        model: writeOpened(model, (current) => ({ ...current, requests: request })),
-        commands: [FetchRecording({ id: opened.id, opening: opened.opening, request })],
+        model: modifyFields(model, { recordingRequests: () => recordingRequests }),
+        commands: [FetchRecording({ id: opened.id, request: recordingRequests.sent })],
       };
     },
   });
 
-const foldEditor = (id: string) =>
-  Update.foldChild({
-    update: RecordingEditor.update,
-    read: (model: Model) => Option.map(openedWith(model, id), ({ editor }) => editor),
-    write: (model, nextEditor) =>
-      writeOpened(model, (opened) => ({ ...opened, editor: nextEditor })),
-    toParentMessage: (message) => Message.GotEditorMessage({ id, message }),
-    foldOutMessage: RecordingEditor.OutMessage.match<Step>({ SavedEdits: () => requestRecording }),
-  });
+const answerRecording = (
+  model: Model,
+  request: number,
+  write: (recording: Opened["recording"]) => Opened["recording"],
+): UpdateReturn =>
+  Option.isSome(model.opened) && isNewerAnswer(model.recordingRequests, request)
+    ? {
+        model: modifyFields(
+          writeOpened(model, (opened) => ({ ...opened, recording: write(opened.recording) })),
+          {
+            recordingRequests: (count) => recordAnswer(count, request),
+          },
+        ),
+      }
+    : { model };
 
-const foldRewrite = (id: string) =>
-  Update.foldChild({
-    update: SummaryRewrite.update,
-    read: (model: Model) => Option.map(openedWith(model, id), ({ rewrite }) => rewrite),
-    write: (model, nextRewrite) =>
-      writeOpened(model, (opened) => ({ ...opened, rewrite: nextRewrite })),
-    toParentMessage: (message) => Message.GotRewriteMessage({ id, message }),
-    foldOutMessage: SummaryRewrite.OutMessage.match<Step>({ SavedEdits: () => requestRecording }),
-  });
+const foldEditorOutMessage = () =>
+  RecordingEditor.OutMessage.match<Step>({ SavedEdits: () => requestRecording });
 
-const foldActionItems = (id: string) =>
-  Update.foldChild({
-    update: ActionItems.update,
-    read: (model: Model) => Option.map(openedWith(model, id), ({ actionItems }) => actionItems),
-    write: (model, nextActionItems) =>
-      writeOpened(model, (opened) => ({ ...opened, actionItems: nextActionItems })),
-    toParentMessage: (message) => Message.GotActionItemsMessage({ id, message }),
-    foldOutMessage: ActionItems.OutMessage.match<Step>({ SavedEdits: () => requestRecording }),
-  });
+const foldEditor = Update.foldChildAt({
+  update: RecordingEditor.update,
+  readAt: (model: Model, id: string) => Option.map(openedWith(model, id), ({ editor }) => editor),
+  writeAt: (model, id, nextEditor) =>
+    writeOpenedWith(model, id, (opened) => ({ ...opened, editor: nextEditor })),
+  toParentMessage: (id, message) => Message.GotEditorMessage({ id, message }),
+  foldOutMessage: foldEditorOutMessage,
+});
 
-const isAnswerToCurrent = (model: Model, opening: number, request: number): boolean =>
-  Option.exists(model.opened, (opened) => opened.opening === opening && request > opened.applied);
+const foldRewriteOutMessage = () =>
+  SummaryRewrite.OutMessage.match<Step>({ SavedEdits: () => requestRecording });
 
-const appliedRecording = (model: Model, request: number): Model =>
-  writeOpened(model, (opened) => ({ ...opened, applied: request }));
+const foldRewrite = Update.foldChildAt({
+  update: SummaryRewrite.update,
+  readAt: (model: Model, id: string) => Option.map(openedWith(model, id), ({ rewrite }) => rewrite),
+  writeAt: (model, id, nextRewrite) =>
+    writeOpenedWith(model, id, (opened) => ({ ...opened, rewrite: nextRewrite })),
+  toParentMessage: (id, message) => Message.GotRewriteMessage({ id, message }),
+  foldOutMessage: foldRewriteOutMessage,
+});
 
-const failed = (model: Model, reason: string): Model =>
-  modifyFields(model, { failure: () => Option.some(reason) });
+const foldActionItemsOutMessage = () =>
+  ActionItems.OutMessage.match<Step>({ SavedEdits: () => requestRecording });
+
+const foldActionItems = Update.foldChildAt({
+  update: ActionItems.update,
+  readAt: (model: Model, id: string) =>
+    Option.map(openedWith(model, id), ({ actionItems }) => actionItems),
+  writeAt: (model, id, nextActionItems) =>
+    writeOpenedWith(model, id, (opened) => ({ ...opened, actionItems: nextActionItems })),
+  toParentMessage: (id, message) => Message.GotActionItemsMessage({ id, message }),
+  foldOutMessage: foldActionItemsOutMessage,
+});
 
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
-    TickedListPoll: () => (model.listRequests > model.listApplied ? { model } : requestList(model)),
-
-    SucceededFetchNewest: ({ request, page }) =>
-      request <= model.listApplied
+    TickedListPoll: () =>
+      model.isFetchingNewest
         ? { model }
         : {
-            model: modifyFields(model, {
-              list: (list) => withNewest(list, page),
-              isLoaded: () => true,
-              listApplied: () => request,
-              failure: (failure) => (Option.isNone(model.opened) ? Option.none() : failure),
-            }),
+            model: modifyFields(model, { isFetchingNewest: () => true }),
+            commands: [FetchNewest()],
           },
 
-    FailedFetchNewest: ({ request, reason }) => {
-      if (request <= model.listApplied) {
-        return { model };
-      }
+    SucceededFetchNewest: ({ page }) => ({
+      model: modifyFields(model, {
+        list: () => ListData.Success({ data: withNewest(listOf(model), page) }),
+        isFetchingNewest: () => false,
+      }),
+    }),
 
-      const nextModel = modifyFields(model, { listApplied: () => request });
-
-      return { model: Option.isNone(model.opened) ? failed(nextModel, reason) : nextModel };
-    },
+    FailedFetchNewest: ({ reason }) => ({
+      model: modifyFields(model, {
+        list: (list) => failedWith(list, reason),
+        isFetchingNewest: () => false,
+      }),
+    }),
 
     ClickedShowOlder: () => {
-      const { older } = model.list;
+      const { older } = listOf(model);
 
       if (model.isLoadingOlder || older === null) {
         return { model };
@@ -257,74 +271,66 @@ export const update = (model: Model, message: Message) =>
 
     SucceededFetchOlder: ({ page }) => ({
       model: modifyFields(model, {
-        list: (list) => withOlder(list, page),
+        list: () => ListData.Success({ data: withOlder(listOf(model), page) }),
         isLoadingOlder: () => false,
-        failure: () => Option.none(),
       }),
     }),
 
     FailedFetchOlder: ({ reason }) => ({
-      model: failed(modifyFields(model, { isLoadingOlder: () => false }), reason),
+      model: modifyFields(model, {
+        list: (list) => failedWith(list, reason),
+        isLoadingOlder: () => false,
+      }),
     }),
 
-    ClickedRecording: ({ id }) => {
-      const opening = model.openings + 1;
-
-      return {
-        model: modifyFields(model, {
-          opened: () => Option.some(openedAt(id, opening)),
-          openings: () => opening,
-          failure: () => Option.none(),
-        }),
-      };
-    },
+    ClickedRecording: ({ id }) => ({
+      model: modifyFields(model, {
+        opened: () => Option.some(openedAt(id)),
+        recordingRequests: ignoreSentRequests,
+      }),
+    }),
 
     ClickedBack: () => ({
-      model: modifyFields(model, { opened: () => Option.none(), failure: () => Option.none() }),
+      model: modifyFields(model, { opened: () => Option.none(), list: withoutError }),
     }),
 
     TickedRecordingPoll: ({ id }) =>
-      Option.exists(openedWith(model, id), (opened) => opened.requests === opened.applied)
+      Option.isSome(openedWith(model, id)) && !isAwaitingAnswer(model.recordingRequests)
         ? requestRecording(model)
         : { model },
 
-    SucceededFetchRecording: ({ opening, request, recording }) =>
-      isAnswerToCurrent(model, opening, request)
-        ? {
-            model: modifyFields(
-              writeOpened(appliedRecording(model, request), (opened) => ({
-                ...opened,
-                recording: Option.some(recording),
-              })),
-              { failure: () => Option.none() },
-            ),
-          }
-        : { model },
+    SucceededFetchRecording: ({ request, recording }) =>
+      answerRecording(model, request, () => RecordingData.Success({ data: recording })),
 
-    FailedFetchRecording: ({ opening, request, reason }) =>
-      isAnswerToCurrent(model, opening, request)
-        ? { model: failed(appliedRecording(model, request), reason) }
-        : { model },
+    FailedFetchRecording: ({ request, reason }) =>
+      answerRecording(model, request, (current) => failedWith(current, reason)),
 
     ClickedOpenInSlack: ({ url }) => ({ model, commands: [OpenInSlack({ url })] }),
 
     CompletedOpenInSlack: () => ({ model }),
 
-    FailedOpenInSlack: ({ reason }) => ({ model: failed(model, reason) }),
+    FailedOpenInSlack: ({ reason }) => ({
+      model: Option.isSome(model.opened)
+        ? writeOpened(model, (opened) => ({
+            ...opened,
+            recording: failedWith(opened.recording, reason),
+          }))
+        : modifyFields(model, { list: (list) => failedWith(list, reason) }),
+    }),
 
-    GotEditorMessage: ({ id, message: editorMessage }) => foldEditor(id)(model, editorMessage),
+    GotEditorMessage: ({ id, message: editorMessage }) => foldEditor(model, id, editorMessage),
 
-    GotRewriteMessage: ({ id, message: rewriteMessage }) => foldRewrite(id)(model, rewriteMessage),
+    GotRewriteMessage: ({ id, message: rewriteMessage }) => foldRewrite(model, id, rewriteMessage),
 
     GotActionItemsMessage: ({ id, message: actionItemsMessage }) =>
-      foldActionItems(id)(model, actionItemsMessage),
+      foldActionItems(model, id, actionItemsMessage),
   });
 
 export const polledRecordingId = (model: Model): string | null =>
   Option.match(model.opened, {
     onNone: () => null,
     onSome: (opened) =>
-      Option.match(opened.recording, {
+      Option.match(AsyncData.getData(opened.recording), {
         onNone: () => opened.id,
         onSome: (recording) => (isChanging(recording) ? opened.id : null),
       }),
@@ -357,15 +363,13 @@ export interface ViewInputs {
   readonly now: number;
 }
 
-const problemsView = (model: Model, h: HtmlBuilder<Message>): Html =>
+const problemsView = <A>(data: AsyncData.AsyncData<A, string>, h: HtmlBuilder<Message>): Html =>
   noticeRegion(
     h,
-    Option.match(model.failure, {
-      onNone: () => [],
-      onSome: (failure) => [
-        notice(h, { kind: "error", text: `Couldn't load the recording history: ${failure}` }),
-      ],
-    }),
+    Option.map(AsyncData.getError(data), (failure) => ({
+      kind: "error",
+      text: `Couldn't load the recording history: ${failure}`,
+    })),
   );
 
 const backButton = (h: HtmlBuilder<Message>): Html =>
@@ -376,9 +380,9 @@ const backButton = (h: HtmlBuilder<Message>): Html =>
     className: "align-start",
   });
 
-const openedView = (model: Model, opened: Opened, now: number, h: HtmlBuilder<Message>): Html =>
-  card(h, "lg", [
-    ...Option.match(opened.recording, {
+const openedView = (opened: Opened, now: number, h: HtmlBuilder<Message>): Html =>
+  card(h, [
+    ...Option.match(AsyncData.getData(opened.recording), {
       onNone: () => [backButton(h), description(h, ["Loading the recording…"])],
       onSome: (recording) => [
         recordingPage(h, {
@@ -424,17 +428,17 @@ const openedView = (model: Model, opened: Opened, now: number, h: HtmlBuilder<Me
         }),
       ],
     }),
-    problemsView(model, h),
+    problemsView(opened.recording, h),
   ]);
 
-const listView = (model: Model, now: number, h: HtmlBuilder<Message>): Html =>
-  card(h, "lg", [
+const listView = (model: Model, list: HistoryList, now: number, h: HtmlBuilder<Message>): Html =>
+  card(h, [
     eyebrow(h, { text: "Recording history", tone: "muted" }),
     h.ul(
       [h.Class("recordings")],
-      model.list.recordings.length === 0 && model.isLoaded
-        ? [h.li([h.Class("text-body-sm pb-description")], ["Nothing has been recorded yet."])]
-        : model.list.recordings.map((recording) =>
+      Option.exists(AsyncData.getData(model.list), ({ recordings }) => recordings.length === 0)
+        ? [descriptionItem(h, ["Nothing has been recorded yet."])]
+        : Array.map(list.recordings, (recording) =>
             h.keyed("li")(
               recording.id,
               [],
@@ -448,7 +452,7 @@ const listView = (model: Model, now: number, h: HtmlBuilder<Message>): Html =>
             ),
           ),
     ),
-    model.list.older === null
+    list.older === null
       ? h.empty
       : button(h, {
           label: ["Show older"],
@@ -457,13 +461,13 @@ const listView = (model: Model, now: number, h: HtmlBuilder<Message>): Html =>
           isDisabled: model.isLoadingOlder,
           onClick: Message.ClickedShowOlder(),
         }),
-    problemsView(model, h),
+    problemsView(model.list, h),
   ]);
 
 export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>
   Option.match(model.opened, {
-    onSome: (opened) => openedView(model, opened, inputs.now, h),
+    onSome: (opened) => openedView(opened, inputs.now, h),
     onNone: () =>
-      model.isLoaded || Option.isSome(model.failure) ? listView(model, inputs.now, h) : h.empty,
+      AsyncData.isIdle(model.list) ? h.empty : listView(model, listOf(model), inputs.now, h),
   }),
 );

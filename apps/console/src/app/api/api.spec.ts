@@ -1,10 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Duration, Effect, Fiber, Layer, Option, Ref, Schema } from "effect";
+import { Array, Duration, Effect, Fiber, Layer, Option, Ref, Schema } from "effect";
 import { HttpApiError } from "effect/http-api";
 import { TestClock } from "effect/testing";
 import { Unauthorized } from "office-domain/RecordingApi";
 
-import { type FakeRoutes, fakeApi, fakeServer } from "../fakes.ts";
+import { fakeApi } from "../dev/fake-worker.ts";
+import { type FakeRoutes, fakeServer } from "../fakes.ts";
 import { type GatewayFailure, GatewayFailures } from "../telemetry/gateway-failures.ts";
 import { type ApiFailure, ConsoleApi, reasonOf, RetryTiming, SessionToken } from "./api.ts";
 
@@ -58,7 +59,7 @@ const stop = ConsoleApi.use((api) => api.recording.submit({ payload: { action: "
 const reasonFor = <A, E extends ApiFailure, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.flip, Effect.map(reasonOf));
 
-const encodeError = Schema.encodeSync(
+const encodeError = Schema.encodeEffect(
   Schema.Union([HttpApiError.ServiceUnavailable, Unauthorized]),
 );
 
@@ -73,7 +74,7 @@ describe("the API", () => {
       yield* Ref.set(yield* SessionToken, Option.some("session-1"));
       yield* status;
 
-      expect(server.sent.map(({ authorization }) => authorization)).toEqual([
+      expect(Array.map(server.sent, ({ authorization }) => authorization)).toEqual([
         undefined,
         "Bearer session-1",
       ]);
@@ -132,6 +133,7 @@ describe("the API", () => {
     "asks again when Discord's proxy briefly answers 503, and reports only the retry",
     () => {
       reported.length = 0;
+
       const { server, layer } = answering(unavailable, { body: STATUS });
 
       return Effect.gen(function* () {
@@ -166,35 +168,44 @@ describe("the API", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("says in words when the Worker itself says the bot's records are out of reach", () => {
-    reported.length = 0;
+  it.effect("says in words when the Worker itself says the bot's records are out of reach", () =>
+    Effect.gen(function* () {
+      reported.length = 0;
 
-    const { layer } = answering({
-      status: 503,
-      body: encodeError(HttpApiError.ServiceUnavailable.make({})),
-    });
+      const { layer } = answering({
+        status: 503,
+        body: yield* encodeError(HttpApiError.ServiceUnavailable.make({})),
+      });
 
-    return Effect.gen(function* () {
-      expect(yield* reasonFor(stop)).toBe("the bot's records are out of reach");
+      expect(yield* reasonFor(stop).pipe(Effect.provide(layer))).toBe(
+        "the bot's records are out of reach",
+      );
       expect(reported).toEqual(["gave up /api/requests 503"]);
-    }).pipe(Effect.provide(layer));
-  });
+    }),
+  );
 
-  it.effect("doesn't ask again or report when the Worker itself refused", () => {
-    reported.length = 0;
-    const { server, layer } = answering({ status: 401, body: encodeError(Unauthorized.make()) });
+  it.effect("doesn't ask again or report when the Worker itself refused", () =>
+    Effect.gen(function* () {
+      reported.length = 0;
 
-    return Effect.gen(function* () {
-      expect(yield* reasonFor(status)).toBe("the sign-in ran out, so reopen the Activity");
+      const { server, layer } = answering({
+        status: 401,
+        body: yield* encodeError(Unauthorized.make()),
+      });
+
+      expect(yield* reasonFor(status).pipe(Effect.provide(layer))).toBe(
+        "the sign-in ran out, so reopen the Activity",
+      );
       expect(server.sent).toHaveLength(1);
       expect(reported).toEqual([]);
-    }).pipe(Effect.provide(layer));
-  });
+    }),
+  );
 
   it.effect(
     "never sends a request that changes something twice, but reports the proxy's answer",
     () => {
       reported.length = 0;
+
       const { server, layer } = answering(unavailable);
 
       return Effect.gen(function* () {

@@ -37,12 +37,12 @@ import {
 } from "../telemetry/gateway-failures.ts";
 
 export class SessionToken extends Context.Service<SessionToken, Ref.Ref<Option.Option<string>>>()(
-  "console/api/SessionToken",
+  "console/app/api/api/SessionToken",
 ) {
   static readonly layer = Layer.effect(SessionToken, Ref.make(Option.none<string>()));
 }
 
-export interface RetryTimingService {
+interface RetryTimingService {
   readonly retries: number;
   readonly delay: Duration.Duration;
   readonly timeout: Duration.Duration;
@@ -129,7 +129,7 @@ const withGatewayRetries = (client: HttpClient.HttpClient): HttpClient.HttpClien
 export class ConsoleApi extends Context.Service<
   ConsoleApi,
   HttpApiClient.ForApi<typeof RecordingApi>
->()("console/api/ConsoleApi") {
+>()("console/app/api/api/ConsoleApi") {
   static readonly layer = Layer.effect(
     ConsoleApi,
     HttpApiClient.make(RecordingApi, { transformClient: withGatewayRetries }),
@@ -184,6 +184,10 @@ const clientReason = (error: HttpClientError.HttpClientError): string => {
         : `${path} answered ${status}`,
   });
 };
+
+export const isUnanswered = (failure: ApiFailure): boolean =>
+  Predicate.isTagged(failure, "HttpClientError") &&
+  Predicate.isTagged(failure.reason, "TransportError");
 
 export const reasonOf: (failure: ApiFailure) => string = Match.type<ApiFailure>().pipe(
   Match.tags({

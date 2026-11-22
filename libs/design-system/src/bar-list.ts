@@ -1,3 +1,4 @@
+import { Array } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import { eyebrow } from "./text.ts";
@@ -17,7 +18,7 @@ export interface BarListConfig {
 }
 
 export const barShare = (items: ReadonlyArray<Bar>, item: Bar): number => {
-  const most = Math.max(0, ...items.map((each) => each.value));
+  const most = Math.max(0, ...Array.map(items, (each) => each.value));
 
   return most > 0 ? (item.value / most) * 100 : 0;
 };
@@ -32,7 +33,7 @@ export const barList = <Message>(h: HtmlBuilder<Message>, config: BarListConfig)
       config.items.length > 0
         ? h.ol(
             [h.AriaLabelledBy(labelId)],
-            config.items.map((item) =>
+            Array.map(config.items, (item) =>
               h.keyed("li")(
                 item.id,
                 [h.Class("text-body-sm")],

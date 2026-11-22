@@ -1,6 +1,6 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option } from "effect";
+import { DateTime, Effect, Layer, Option, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 
@@ -107,6 +107,45 @@ describe("ConsentBook", () => {
       ),
     ),
   );
+
+  it.effect("gives up on a write that hangs and tries it again", () => {
+    const firstWriteHangs = Layer.effect(
+      ConsentLog,
+      Effect.gen(function* () {
+        const log = yield* ConsentLog;
+        const writes = yield* Ref.make(0);
+
+        return ConsentLog.of({
+          history: log.history,
+          append: (event) =>
+            Ref.getAndUpdate(writes, (count) => count + 1).pipe(
+              Effect.flatMap((count) => (count === 0 ? Effect.never : log.append(event))),
+            ),
+        });
+      }),
+    ).pipe(Layer.provide(ConsentLog.layer));
+
+    return Effect.gen(function* () {
+      const book = yield* ConsentBook;
+      const sql = yield* SqlClient.SqlClient;
+      const database = yield* Database;
+
+      yield* database.ready;
+      yield* book.note({ userId: "ada", at, kind: "agreed" });
+      yield* Effect.repeat(TestClock.adjust("10 seconds"), { times: 6 });
+
+      const rows = yield* pollUntil(
+        sql<{ kind: string }>`SELECT kind FROM office.consent_events ORDER BY id`,
+        (found) => found.length > 0,
+      );
+
+      assert.deepStrictEqual(rows, [{ kind: "agreed" }]);
+    }).pipe(
+      Effect.provide(
+        ConsentBook.layer.pipe(Layer.provide(firstWriteHangs), Layer.provideMerge(storage)),
+      ),
+    );
+  });
 
   it.effect("doesn't write what was noted about someone before their data was erased", () =>
     Effect.gen(function* () {

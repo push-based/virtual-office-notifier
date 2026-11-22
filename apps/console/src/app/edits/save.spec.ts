@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Duration, Effect, Fiber, Option, Ref } from "effect";
+import { Array, Duration, Effect, Fiber, Option, Ref } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 import { RecordingApi } from "office-domain/RecordingApi";
 import type { HandledEdit } from "office-domain/RecordingEdit";
@@ -7,7 +7,7 @@ import { TestClock } from "effect/testing";
 
 import { REQUEST_ANSWER } from "../api/answer.ts";
 import { SessionToken } from "../api/api.ts";
-import { fakeApi, fakeWorker, SESSION } from "../fakes.ts";
+import { fakeApi, fakeWorker, SESSION } from "../dev/fake-worker.ts";
 import { saveChanges } from "./save.ts";
 
 const RECORDING = "6a1f2c3e-4b5d-4e6f-8a7b-9c0d1e2f3a4b";
@@ -56,7 +56,7 @@ describe("saving edits", () => {
 
     return Effect.gen(function* () {
       expect(yield* run(server, 2)).toEqual(Option.none());
-      expect(server.sent.map(({ method, path }) => `${method} ${path}`)).toEqual([
+      expect(Array.map(server.sent, ({ method, path }) => `${method} ${path}`)).toEqual([
         `POST /api/recordings/${RECORDING}/edits`,
         "GET /api/edits/1",
         `POST /api/recordings/${RECORDING}/edits`,
@@ -90,7 +90,7 @@ describe("saving edits", () => {
           text: "The bot hasn't saved that yet. It will once it's back.",
         }),
       );
-      expect(server.sent.filter(({ path }) => path === "/api/edits/1")).toHaveLength(
+      expect(Array.filter(server.sent, ({ path }) => path === "/api/edits/1")).toHaveLength(
         REQUEST_ANSWER.attempts,
       );
     });

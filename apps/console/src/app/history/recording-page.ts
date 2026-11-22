@@ -1,9 +1,10 @@
-import { DateTime } from "effect";
+import { Array, DateTime } from "effect";
 import {
   avatar,
   badge,
   button,
   description,
+  descriptionItem,
   divider,
   eyebrow,
   heading,
@@ -26,7 +27,7 @@ import {
 } from "./describe-recording.ts";
 import { personOf } from "./recording-row.ts";
 
-export interface RecordingPageConfig<Message> {
+interface RecordingPageConfig<Message> {
   readonly recording: RecordingDetail;
   readonly now: number;
   readonly back: Html;
@@ -36,13 +37,16 @@ export interface RecordingPageConfig<Message> {
   readonly onOpenInSlack: (url: string) => Message;
 }
 
-export const pageFacts = (recording: RecordingDetail, now: number): string =>
-  [
-    ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
-    formatRunTime(recording.startedAt, recording.stoppedAt, now),
-    `Started by ${recording.startedBy.name}`,
-    ...[describeStop(recording)].flatMap((stop) => (stop === null ? [] : [stop])),
-  ].join(" · ");
+const pageFacts = (recording: RecordingDetail, now: number): string =>
+  Array.join(
+    [
+      ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
+      formatRunTime(recording.startedAt, recording.stoppedAt, now),
+      `Started by ${recording.startedBy.name}`,
+      ...Array.flatMap([describeStop(recording)], (stop) => (stop === null ? [] : [stop])),
+    ],
+    " · ",
+  );
 
 const headerView = <Message>(
   h: HtmlBuilder<Message>,
@@ -50,7 +54,7 @@ const headerView = <Message>(
 ): Html => {
   const { recording } = config;
   const state = stateBadge(recording.state);
-  const speakers = recording.speakers.map(personOf);
+  const speakers = Array.map(recording.speakers, personOf);
 
   return h.header(
     [h.Class("stack-2")],
@@ -58,8 +62,8 @@ const headerView = <Message>(
       h.div(
         [h.Class("recording-page-top")],
         [
-          heading(h, recording.title ?? formatOfficeTime(recording.startedAt)),
-          badge(h, state.tone, state.label),
+          heading(h, { text: recording.title ?? formatOfficeTime(recording.startedAt) }),
+          badge(h, { tone: state.tone, label: state.label }),
         ],
       ),
       description(h, [pageFacts(recording, config.now)]),
@@ -113,7 +117,7 @@ const turnView = <Message>(h: HtmlBuilder<Message>, turn: TranscriptTurn): Html 
     `${DateTime.toEpochMillis(turn.startedAt)}${turn.speaker.userId}`,
     [h.Class("transcript-turn")],
     [
-      avatar(h, { name: turn.speaker.name, src: turn.speaker.avatarUrl }),
+      avatar(h, { name: turn.speaker.name, avatarUrl: turn.speaker.avatarUrl }),
       h.div(
         [h.Class("transcript-said")],
         [
@@ -124,7 +128,7 @@ const turnView = <Message>(h: HtmlBuilder<Message>, turn: TranscriptTurn): Html 
               h.span([h.Class("text-caption transcript-time")], [formatClock(turn.startedAt)]),
             ],
           ),
-          ...turn.lines.map((line) => h.p([h.Class("text-body preserved-lines")], [line])),
+          ...Array.map(turn.lines, (line) => h.p([h.Class("text-body preserved-lines")], [line])),
         ],
       ),
     ],
@@ -140,8 +144,8 @@ const transcriptView = <Message>(h: HtmlBuilder<Message>, recording: RecordingDe
       h.ol(
         [h.Class("transcript")],
         turns.length === 0
-          ? [h.li([h.Class("text-body-sm pb-description")], ["Nothing transcribed yet."])]
-          : turns.map((turn) => turnView(h, turn)),
+          ? [descriptionItem(h, ["Nothing transcribed yet."])]
+          : Array.map(turns, (turn) => turnView(h, turn)),
       ),
       isLive(recording.state) ? description(h, ["More on the way…"]) : h.empty,
     ],

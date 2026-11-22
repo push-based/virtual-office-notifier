@@ -1,7 +1,7 @@
 import { Context, Duration, Effect, Option } from "effect";
 import { ANSWER_WINDOW_MS } from "office-domain/wire";
 
-export interface AnswerTiming {
+interface AnswerTiming {
   readonly every: Duration.Duration;
   readonly attempts: number;
 }
@@ -21,19 +21,12 @@ const polled = <A, Answered extends A, E, R>(
   check: Effect.Effect<A, E, R>,
   isAnswered: (found: A) => found is Answered,
   timing: AnswerTiming,
-): Effect.Effect<Option.Option<Answered>, E, R> => {
-  const attempt = (left: number): Effect.Effect<Option.Option<Answered>, E, R> =>
-    left === 0
-      ? Effect.succeed(Option.none())
-      : Effect.sleep(timing.every).pipe(
-          Effect.andThen(check),
-          Effect.flatMap((found) =>
-            isAnswered(found) ? Effect.succeed(Option.some(found)) : attempt(left - 1),
-          ),
-        );
-
-  return attempt(timing.attempts);
-};
+): Effect.Effect<Option.Option<Answered>, E, R> =>
+  Effect.sleep(timing.every).pipe(
+    Effect.andThen(check),
+    Effect.repeat({ until: isAnswered, times: timing.attempts - 1 }),
+    Effect.map(Option.liftPredicate(isAnswered)),
+  );
 
 export const awaitAnswer = <A, Answered extends A, E, R>(
   check: Effect.Effect<A, E, R>,

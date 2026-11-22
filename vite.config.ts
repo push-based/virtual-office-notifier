@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 import { strict as effectStrict } from "@effect/tsgo/oxlint-presets";
+import foldkit from "@foldkit/oxlint-plugin";
 import { defineConfig } from "vite-plus";
 
 import { typecheck } from "./tools/vite-task/typecheck.ts";
@@ -29,6 +30,7 @@ export default defineConfig({
       { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
       { name: "anti-slop", specifier: plugin("./tools/oxlint/anti-slop/index.ts") },
       { name: "anti-slop-effect", specifier: plugin("./tools/oxlint/anti-slop/effect/index.ts") },
+      { name: "foldkit", specifier: "@foldkit/oxlint-plugin" },
     ],
     options: {
       typeAware: true,
@@ -65,8 +67,10 @@ export default defineConfig({
       {
         files: [
           "apps/bot/**",
+          "apps/console/src/**",
           "apps/console/worker/**",
           "libs/activity-sign-in/**",
+          "libs/design-system/**",
           "libs/office-domain/**",
           "libs/recording-requests/**",
         ],
@@ -119,6 +123,11 @@ export default defineConfig({
         },
       },
       {
+        files: ["apps/console/src/**", "libs/design-system/**"],
+        rules: foldkit.configs.recommended.rules,
+      },
+      ...foldkit.configs.recommended.overrides,
+      {
         files: ["libs/office-domain/src/**"],
         rules: {
           "no-restricted-imports": [
@@ -170,8 +179,12 @@ export default defineConfig({
         },
       },
       {
-        files: ["**/test/**", "**/scripts/**", "apps/bot/src/main.ts"],
+        files: ["**/test/**", "**/*.spec.ts", "**/scripts/**", "apps/bot/src/main.ts"],
         rules: { "effecttsgo/strict-effect-provide": "off" },
+      },
+      {
+        files: ["apps/console/src/app/resources.ts"],
+        rules: { "effecttsgo/global-fetch": "off" },
       },
     ],
   },
@@ -192,7 +205,13 @@ export default defineConfig({
     tasks: {
       typecheck: typecheck(),
       check: "vp check",
-      ci: ["vp run -r typecheck", "vp run check", "vp run -r test", "vp run -r build"],
+      ci: [
+        "vp run -r typecheck",
+        "vp run check",
+        "vp run -r test",
+        "vp run -r build",
+        "vp run console#smoke",
+      ],
     },
   },
 });
