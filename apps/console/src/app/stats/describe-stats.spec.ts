@@ -1,12 +1,13 @@
-import type { OfficeStats } from "../wire.ts";
+import { Array, DateTime } from "effect";
+import type { OfficeStats } from "office-domain/OfficeStats";
 import { describe, expect, it } from "vite-plus/test";
 
-import { busiestGrid, describeStats, emojiLabel, rangeOf } from "./describe-stats.ts";
+import { busiestGrid, describeStats, emojiLabel } from "./describe-stats.ts";
 
 const stats: OfficeStats = {
   range: "week",
-  since: "2026-10-25T22:00:00.000Z",
-  until: "2026-10-27T12:00:00.000Z",
+  since: DateTime.makeUnsafe("2026-10-25T22:00:00.000Z"),
+  until: DateTime.makeUnsafe("2026-10-27T12:00:00.000Z"),
   timeInOffice: [{ userId: "ada", name: "Ada Lovelace", seconds: 19_800, days: 2 }],
   firstIn: [{ userId: "ada", name: "Ada Lovelace", days: 1 }],
   lastOut: [{ userId: "grace", name: "Grace", days: 2 }],
@@ -35,7 +36,10 @@ describe("describeStats", () => {
     expect(view.lastOut).toEqual([{ id: "grace", label: "Grace", value: 2, display: "2 days" }]);
     expect(view.sounds).toEqual([{ id: "airhorn", label: "airhorn", value: 3, display: "3" }]);
     expect(view.players).toEqual([{ id: "grace", label: "Grace", value: 3, display: "3" }]);
-    expect(view.reactions.map((reaction) => reaction.label)).toEqual(["🎉", ":partyparrot:"]);
+    expect(Array.map(view.reactions, (reaction) => reaction.label)).toEqual([
+      "🎉",
+      ":partyparrot:",
+    ]);
   });
 });
 
@@ -43,13 +47,6 @@ describe("emojiLabel", () => {
   it("wraps a custom emoji's name in colons and leaves real emoji alone", () => {
     expect(emojiLabel("party_parrot")).toBe(":party_parrot:");
     expect(emojiLabel("👍")).toBe("👍");
-  });
-});
-
-describe("rangeOf", () => {
-  it("falls back to this week for anything it doesn't know", () => {
-    expect(rangeOf("month")).toBe("month");
-    expect(rangeOf("year")).toBe("week");
   });
 });
 
@@ -65,7 +62,7 @@ describe("busiestGrid", () => {
     ]);
 
     expect(grid.columns).toEqual(["9", "10", "11"]);
-    expect(grid.rows.map((row) => row.label)).toEqual([
+    expect(Array.map(grid.rows, (row) => row.label)).toEqual([
       "Mon",
       "Tue",
       "Wed",

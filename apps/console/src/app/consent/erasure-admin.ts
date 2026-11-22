@@ -1,55 +1,61 @@
-import { Effect, Option, Schema } from "effect";
+import { Array, Effect, Match, Option, Schema, String } from "effect";
 import {
   button,
   card,
+  confirmBox,
   description,
   eyebrow,
   notice,
+  NoticeContent,
   noticeRegion,
   type SelectOption,
   selectField,
+  textField,
 } from "design-system";
 import { AsyncData, Command, Submodel, type Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import * as Api from "../api/api.ts";
-import { Notice } from "../notice.ts";
+import { ConsoleApi, isUnanswered, reasonOf } from "../api/api.ts";
 import type { Resources } from "../resources.ts";
-import {
-  type ErasureCase,
-  ErasureCases,
-  REFUSAL_GROUNDS,
-  RefusalGround,
-  SubmittedErasure,
-} from "../wire.ts";
+import { ErasureCase, RefusalGround } from "office-domain/Consent";
+import { REFUSAL_GROUNDS } from "office-domain/wire";
 import { describeInventory, describeStanding, officeTime } from "./describe-erasure.ts";
 
-export const NOTED_NOW: Notice = {
+export const NOTED_NOW: NoticeContent = {
   kind: "info",
   text: "Noted. The bot deletes it within a minute, then tells them.",
 };
 
-export const NOTED_SEEN: Notice = {
+export const NOTED_SEEN: NoticeContent = {
   kind: "info",
   text: "Noted as seen. It still runs on the due date unless someone acts.",
 };
 
-export const NOTED_REFUSED: Notice = {
+export const NOTED_REFUSED: NoticeContent = {
   kind: "info",
   text: "Refused. They'll be told why, and that they can complain.",
 };
 
-export const ALREADY_DECIDED: Notice = {
+export const ALREADY_DECIDED: NoticeContent = {
   kind: "error",
   text: "That request was already decided, or the deletion has already run.",
 };
 
-export const UNREACHABLE: Notice = {
+export const NOT_SURE: NoticeContent = {
+  kind: "error",
+  text: "The Console's server didn't answer, so this may or may not have gone through. The list below shows where it stands now.",
+};
+
+export const UNREACHABLE: NoticeContent = {
   kind: "error",
   text: "Couldn't reach the bot's records. Nothing changed, so try again in a moment.",
 };
+
+const REASON_ROWS = 4;
+
+const REASON_MAX_LENGTH = 1000;
 
 const GROUNDS: ReadonlyArray<SelectOption> = [
   { value: "legal_obligation", label: REFUSAL_GROUNDS.legal_obligation },
@@ -59,10 +65,10 @@ const GROUNDS: ReadonlyArray<SelectOption> = [
 const groundOf = (value: string): RefusalGround =>
   value === "legal_claim" ? "legal_claim" : "legal_obligation";
 
-export const CasesData = AsyncData.Schema(ErasureCases, Schema.String);
+export const CasesData = AsyncData.Schema(Schema.Array(ErasureCase), Schema.String);
 
-export const Confirming = Schema.Struct({
-  id: Schema.Number,
+const Confirming = Schema.Struct({
+  id: Schema.Finite,
   action: Schema.Literals(["now", "refuse"]),
 });
 
@@ -77,8 +83,8 @@ export type Decision = typeof Decision.Type;
 export const Model = Schema.Struct({
   cases: CasesData.schema,
   confirming: Schema.Option(Confirming),
-  busy: Schema.Option(Schema.Number),
-  notice: Schema.Option(Notice),
+  busy: Schema.Option(Schema.Finite),
+  notice: Schema.Option(NoticeContent),
   ground: RefusalGround,
   reason: Schema.String,
 });
@@ -95,63 +101,66 @@ export const init = (): Model => ({
 });
 
 export const Message = defineMessageUnion({
-  SucceededFetchCases: { cases: ErasureCases },
+  SucceededFetchCases: { cases: Schema.Array(ErasureCase) },
   FailedFetchCases: { reason: Schema.String },
   ClickedConfirm: { confirming: Confirming },
   ClickedBack: {},
-  ClickedDeleteNow: { id: Schema.Number },
-  ClickedLetItRun: { id: Schema.Number },
+  ClickedDeleteNow: { id: Schema.Finite },
+  ClickedLetItRun: { id: Schema.Finite },
   UpdatedGround: { value: Schema.String },
   UpdatedReason: { value: Schema.String },
-  SubmittedRefusal: { id: Schema.Number },
+  SubmittedRefusal: { id: Schema.Finite },
   SucceededDecideErasure: { decision: Decision },
-  FailedDecideErasure: { isAlreadyDecided: Schema.Boolean },
+  FailedDecideErasure: { why: Schema.Literals(["already_decided", "unreachable", "unanswered"]) },
 });
 
 export type Message = typeof Message.Type;
 
 export const FetchCases = Command.define("FetchCases", {
   messages: [Message.SucceededFetchCases, Message.FailedFetchCases],
-  execute: Api.get("/api/admin/erasures", ErasureCases).pipe(
+  execute: ConsoleApi.use((api) => api.erasureAdmin.cases()).pipe(
     Effect.map((cases) => Message.SucceededFetchCases({ cases })),
-    Effect.catchTag("ApiFailure", ({ reason }) =>
-      Effect.succeed(Message.FailedFetchCases({ reason })),
+    Effect.catch((failure) =>
+      Effect.succeed(Message.FailedFetchCases({ reason: reasonOf(failure) })),
     ),
   ),
 });
 
-const decided = (id: number, decision: Decision) => {
-  switch (decision.kind) {
-    case "now":
-      return Api.post(`/api/admin/erasures/${id}/now`, SubmittedErasure);
-    case "seen":
-      return Api.post(`/api/admin/erasures/${id}/seen`, SubmittedErasure);
-    case "refuse":
-      return Api.post(`/api/admin/erasures/${id}/refuse`, SubmittedErasure, {
-        ground: decision.ground,
-        reason: decision.reason,
-      });
-  }
-};
+const decided = (id: number, decision: Decision) =>
+  ConsoleApi.use((api) => {
+    switch (decision.kind) {
+      case "now":
+        return api.erasureAdmin.expedite({ params: { id } });
+      case "seen":
+        return api.erasureAdmin.seen({ params: { id } });
+      case "refuse":
+        return api.erasureAdmin.refuse({
+          params: { id },
+          payload: { ground: decision.ground, reason: decision.reason },
+        });
+    }
+  });
 
 export const DecideErasure = Command.define("DecideErasure", {
-  args: { id: Schema.Number, decision: Decision },
+  args: { id: Schema.Finite, decision: Decision },
   messages: [Message.SucceededDecideErasure, Message.FailedDecideErasure],
   execute: ({ id, decision }) =>
     decided(id, decision).pipe(
       Effect.as(Message.SucceededDecideErasure({ decision })),
-      Effect.catchTag("ApiFailure", ({ status }) =>
-        Effect.succeed(Message.FailedDecideErasure({ isAlreadyDecided: status === 404 })),
+      Effect.catchTag("ErasureNotFound", () =>
+        Effect.succeed(Message.FailedDecideErasure({ why: "already_decided" })),
+      ),
+      Effect.catch((failure) =>
+        Effect.succeed(
+          Message.FailedDecideErasure({
+            why: isUnanswered(failure) ? "unanswered" : "unreachable",
+          }),
+        ),
       ),
     ),
 });
 
 type UpdateReturn = Update.Return<Model, Message, Resources>;
-
-export const open = (model: Model): UpdateReturn => ({
-  model: modifyFields(model, { cases: () => CasesData.Loading() }),
-  commands: [FetchCases()],
-});
 
 const decide = (model: Model, id: number, decision: Decision): UpdateReturn =>
   Option.isSome(model.busy)
@@ -161,22 +170,33 @@ const decide = (model: Model, id: number, decision: Decision): UpdateReturn =>
         commands: [DecideErasure({ id, decision })],
       };
 
-const settle = (model: Model, shown: Notice): UpdateReturn => ({
-  model: modifyFields(model, {
-    busy: () => Option.none(),
-    confirming: () => Option.none(),
-    reason: () => "",
-    notice: () => Option.some(shown),
-    cases: (cases) =>
-      Option.match(AsyncData.getData(cases), {
-        onNone: () => CasesData.Loading(),
-        onSome: (data) => CasesData.Refreshing({ data }),
-      }),
-  }),
+const refreshedCases = (cases: Model["cases"]): Model["cases"] =>
+  Option.match(AsyncData.getData(cases), {
+    onNone: () => CasesData.Loading(),
+    onSome: (data) => CasesData.Refreshing({ data }),
+  });
+
+export const refresh = (model: Model): UpdateReturn => ({
+  model: modifyFields(model, { cases: refreshedCases }),
   commands: [FetchCases()],
 });
 
-const noticeFor = (decision: Decision): Notice => {
+const withoutDraft = (model: Model): Model =>
+  modifyFields(model, {
+    confirming: () => Option.none(),
+    ground: () => "legal_obligation",
+    reason: () => "",
+  });
+
+const settle = (model: Model, shown: NoticeContent): UpdateReturn =>
+  refresh(
+    modifyFields(model, {
+      busy: () => Option.none(),
+      notice: () => Option.some(shown),
+    }),
+  );
+
+const noticeFor = (decision: Decision): NoticeContent => {
   switch (decision.kind) {
     case "now":
       return NOTED_NOW;
@@ -198,10 +218,10 @@ export const update = (model: Model, message: Message) =>
     }),
 
     ClickedConfirm: ({ confirming }) => ({
-      model: modifyFields(model, { confirming: () => Option.some(confirming) }),
+      model: modifyFields(withoutDraft(model), { confirming: () => Option.some(confirming) }),
     }),
 
-    ClickedBack: () => ({ model: modifyFields(model, { confirming: () => Option.none() }) }),
+    ClickedBack: () => ({ model: withoutDraft(model) }),
 
     ClickedDeleteNow: ({ id }) => decide(model, id, { kind: "now" }),
 
@@ -214,17 +234,22 @@ export const update = (model: Model, message: Message) =>
     UpdatedReason: ({ value }) => ({ model: modifyFields(model, { reason: () => value }) }),
 
     SubmittedRefusal: ({ id }) => {
-      const reason = model.reason.trim();
+      const reason = String.trim(model.reason);
 
       return reason === ""
         ? { model }
         : decide(model, id, { kind: "refuse", ground: model.ground, reason });
     },
 
-    SucceededDecideErasure: ({ decision }) => settle(model, noticeFor(decision)),
+    SucceededDecideErasure: ({ decision }) => settle(withoutDraft(model), noticeFor(decision)),
 
-    FailedDecideErasure: ({ isAlreadyDecided }) =>
-      settle(model, isAlreadyDecided ? ALREADY_DECIDED : UNREACHABLE),
+    FailedDecideErasure: ({ why }) =>
+      Match.value(why).pipe(
+        Match.when("already_decided", () => settle(withoutDraft(model), ALREADY_DECIDED)),
+        Match.when("unanswered", () => settle(withoutDraft(model), NOT_SURE)),
+        Match.when("unreachable", () => settle(model, UNREACHABLE)),
+        Match.exhaustive,
+      ),
   });
 
 const isConfirming = (model: Model, id: number, action: "now" | "refuse"): boolean =>
@@ -237,9 +262,9 @@ const workingLabel = (model: Model, id: number, idle: string): string =>
   Option.exists(model.busy, (busy) => busy === id) ? "Working…" : idle;
 
 const confirmNowView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [h.Class("confirm confirm-danger"), h.Role("group")],
-    [
+  confirmBox(h, {
+    isDanger: true,
+    children: [
       h.p(
         [h.Class("text-body-sm")],
         ["This runs the deletion within a minute, and it can't be undone."],
@@ -261,12 +286,13 @@ const confirmNowView = (model: Model, id: number, h: HtmlBuilder<Message>): Html
         ],
       ),
     ],
-  );
+  });
 
 const refuseView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
-  h.form(
-    [h.Class("confirm confirm-danger"), h.OnSubmit(Message.SubmittedRefusal({ id }))],
-    [
+  confirmBox(h, {
+    isDanger: true,
+    onSubmit: Message.SubmittedRefusal({ id }),
+    children: [
       selectField(h, {
         id: `ground-${id}`,
         label: "Ground",
@@ -274,31 +300,25 @@ const refuseView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
         value: model.ground,
         onChange: (value) => Message.UpdatedGround({ value }),
       }),
-      h.div(
-        [h.Class("pb-field")],
-        [
-          h.label(
-            [h.Class("text-body-sm label"), h.For(`reason-${id}`)],
-            ["Why it has to be kept. This goes to them, word for word."],
-          ),
-          h.textarea([
-            h.Id(`reason-${id}`),
-            h.Class("text-body pb-field-control"),
-            h.Rows(4),
-            h.Required(true),
-            h.Maxlength(1000),
-            h.Value(model.reason),
-            h.OnInput((value) => Message.UpdatedReason({ value })),
-          ]),
-        ],
-      ),
+      textField(h, {
+        id: `reason-${id}`,
+        label: "Why it has to be kept. This goes to them, word for word.",
+        value: model.reason,
+        onInput: (value) => Message.UpdatedReason({ value }),
+        isMultiline: true,
+        rows: REASON_ROWS,
+        maxLength: REASON_MAX_LENGTH,
+        isRequired: true,
+        isCountHidden: true,
+        isLabelStrong: true,
+      }),
       h.div(
         [h.Class("controls")],
         [
           button(h, {
             label: [workingLabel(model, id, "Refuse the deletion")],
             isSubmit: true,
-            isDisabled: Option.isSome(model.busy) || model.reason.trim() === "",
+            isDisabled: Option.isSome(model.busy) || String.trim(model.reason) === "",
           }),
           button(h, {
             label: ["Keep it open"],
@@ -309,7 +329,7 @@ const refuseView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
         ],
       ),
     ],
-  );
+  });
 
 const actionsView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
   h.div(
@@ -347,7 +367,7 @@ const decisionView = (model: Model, erasure: ErasureCase, h: HtmlBuilder<Message
 
 const caseView = (model: Model, erasure: ErasureCase, h: HtmlBuilder<Message>): Html =>
   h.keyed("article")(
-    String(erasure.id),
+    globalThis.String(erasure.id),
     [h.Class("case"), h.AriaLabelledBy(`case-${erasure.id}`)],
     [
       h.h3(
@@ -369,7 +389,7 @@ const caseView = (model: Model, erasure: ErasureCase, h: HtmlBuilder<Message>): 
       h.h4([h.Class("text-body-sm label")], ["What will be deleted"]),
       h.ul(
         [h.Class("text-body-sm bullets")],
-        describeInventory(erasure.inventory).map((line) => h.li([], [line])),
+        Array.map(describeInventory(erasure.inventory), (line) => h.li([], [line])),
       ),
       decisionView(model, erasure, h),
     ],
@@ -379,13 +399,13 @@ const casesView = (model: Model, cases: ReadonlyArray<ErasureCase>, h: HtmlBuild
   ...(cases.length === 0
     ? [description(h, ["Nobody has asked for their data to be deleted."])]
     : []),
-  ...cases.map((erasure) => caseView(model, erasure, h)),
+  ...Array.map(cases, (erasure) => caseView(model, erasure, h)),
 ];
 
 const loading = (h: HtmlBuilder<Message>) => [description(h, ["Loading…"])];
 
 export const view = Submodel.defineView<Model, Message>((model, h) =>
-  card(h, "lg", [
+  card(h, [
     eyebrow(h, { text: "Deletion requests" }),
     ...AsyncData.match(model.cases, {
       onIdle: () => loading(h),
@@ -397,9 +417,6 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
       onStale: ({ data }) => casesView(model, data, h),
       onSuccess: (cases) => casesView(model, cases, h),
     }),
-    noticeRegion(
-      h,
-      Option.match(model.notice, { onNone: () => [], onSome: (shown) => [notice(h, shown)] }),
-    ),
+    noticeRegion(h, model.notice),
   ]),
 );

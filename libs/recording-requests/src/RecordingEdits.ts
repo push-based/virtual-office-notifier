@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Match, Option, Schema } from "effect";
 import { SqlClient, SqlSchema, type Statement } from "effect/sql";
 
-import type { Requester } from "./RecordingApi.ts";
+import type { Requester } from "office-domain/RecordingApi";
 import {
   decideEdit,
   EditIgnoreReason,
@@ -9,8 +9,8 @@ import {
   RecordingChange,
   type RecordingEdit,
   type SubmittedEdit,
-} from "./RecordingEdit.ts";
-import { RowId } from "./RecordingRequest.ts";
+} from "office-domain/RecordingEdit";
+import { RowId } from "office-domain/RecordingRequest";
 import {
   type Connected,
   connectedPerCall,

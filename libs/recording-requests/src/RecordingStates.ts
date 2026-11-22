@@ -1,6 +1,6 @@
 import type { SqlClient, Statement } from "effect/sql";
 
-import type { RecordingState } from "./Recording.ts";
+import type { RecordingState } from "office-domain/Recording";
 
 export const inState = (
   sql: SqlClient.SqlClient,

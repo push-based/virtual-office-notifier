@@ -234,7 +234,13 @@ const MAX_POLLS = 10_000;
 const everyTurn = Schedule.recurs(MAX_POLLS).pipe(Schedule.tap(() => Effect.yieldNow));
 
 export const pollUntil = <A, E, R>(poll: Effect.Effect<A, E, R>, done: (value: A) => boolean) =>
-  Effect.repeat(poll, { until: done, schedule: everyTurn });
+  Effect.repeat(poll, { until: done, schedule: everyTurn }).pipe(
+    Effect.filterOrElse(done, (value) =>
+      Effect.die(
+        new Error(`Still waiting after ${MAX_POLLS} turns, last saw ${globalThis.String(value)}`),
+      ),
+    ),
+  );
 
 export interface Report {
   readonly name: string;

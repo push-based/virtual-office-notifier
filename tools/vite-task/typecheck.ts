@@ -10,6 +10,7 @@ export const typecheck = (command = "tsc --noEmit") => ({
       "!node_modules/**",
       "!dist/**",
       "!.wrangler/**",
+      "!repos/**",
       workspace("tsconfig.json"),
       workspace("pnpm-lock.yaml"),
       workspace("libs/*/src/**"),

@@ -8,7 +8,7 @@ import {
   NotAnAdmin,
   RecordingApi,
   WithdrawalNotFound,
-} from "./RecordingApi.ts";
+} from "office-domain/RecordingApi";
 import type { RecordingUnavailable } from "./RecordingRequests.ts";
 
 const serviceUnavailable = (error: RecordingUnavailable) =>

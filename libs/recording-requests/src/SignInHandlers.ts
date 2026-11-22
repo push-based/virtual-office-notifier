@@ -10,7 +10,7 @@ import {
   type Requester,
   SignedIn,
   Unauthorized,
-} from "./RecordingApi.ts";
+} from "office-domain/RecordingApi";
 
 export const SignInHandlers = HttpApiBuilder.group(
   RecordingApi,

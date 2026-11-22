@@ -4,9 +4,10 @@ import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
 
 import { anna, ben } from "../history/fixtures.ts";
-import type { ActionItem } from "../wire.ts";
+import type { ActionItem } from "office-domain/Recording";
 import * as ActionItems from "./action-items.ts";
 import * as RecordingEditor from "./recording-editor.ts";
+import { isSaving, noticeOf, SaveState } from "./save.ts";
 import * as SummaryRewrite from "./summary-rewrite.ts";
 
 const current = { title: "Deploy retro", agenda: null, summaryStyle: "brief" as const };
@@ -94,14 +95,14 @@ describe("the recording editor", () => {
   it("explains a change the bot ignored", () => {
     Story.story(
       RecordingEditor.update,
-      Story.given({ ...RecordingEditor.init(), isSaving: true }),
+      Story.given({ ...RecordingEditor.init(), save: SaveState.Saving() }),
       Story.message(
         RecordingEditor.Message.CompletedSaveEdits({
           notice: Option.some({ kind: "error", text: "That recording is still running." }),
         }),
       ),
       Story.model((model) =>
-        expect(model.notice).toEqual(
+        expect(noticeOf(model.save)).toEqual(
           Option.some({ kind: "error", text: "That recording is still running." }),
         ),
       ),
@@ -117,7 +118,7 @@ describe("rewriting the summary", () => {
       Story.given(SummaryRewrite.init()),
       Story.message(SummaryRewrite.Message.ClickedRewrite({ recordingId: "r1" })),
       Story.Command.expectExact(SummaryRewrite.RewriteSummary({ recordingId: "r1" })),
-      Story.model((model) => expect(model.isSaving).toBe(true)),
+      Story.model((model) => expect(isSaving(model.save)).toBe(true)),
       Story.Command.resolve(
         SummaryRewrite.RewriteSummary,
         SummaryRewrite.Message.CompletedRewriteSummary({ notice: Option.none() }),
@@ -155,7 +156,7 @@ describe("the action items", () => {
     Scene.scene(
       itemsScene([checklist, vpn, room]),
       Scene.given(ActionItems.init()),
-      Scene.change(Scene.role("checkbox", { name: checklist.text }), "on"),
+      Scene.click(Scene.role("checkbox", { name: checklist.text })),
       Scene.Command.expectExact(
         ActionItems.SaveActionItems({ recordingId: "r1", changes: [{ kind: "tick", item: 4 }] }),
       ),

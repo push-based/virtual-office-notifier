@@ -109,6 +109,17 @@ const reaches = (connection: VoiceConnection, status: VoiceConnectionStatus) =>
     Effect.orElseSucceed(() => false),
   );
 
+const leavesReady = (connection: VoiceConnection) =>
+  Effect.raceAll([
+    reaches(connection, VoiceConnectionStatus.Signalling),
+    reaches(connection, VoiceConnectionStatus.Connecting),
+    reaches(connection, VoiceConnectionStatus.Disconnected),
+    reaches(connection, VoiceConnectionStatus.Destroyed),
+  ]);
+
+const isDisconnected = (connection: VoiceConnection) =>
+  connection.state.status === VoiceConnectionStatus.Disconnected;
+
 const recovers = (connection: VoiceConnection) =>
   Effect.raceFirst(
     reaches(connection, VoiceConnectionStatus.Signalling),
@@ -236,14 +247,11 @@ export const officeVoiceIn = Effect.fnUntraced(function* (port: VoicePort) {
         }
 
         yield* Ref.set(stalled, 0);
-        yield* Effect.raceFirst(
-          reaches(voice.connection, VoiceConnectionStatus.Disconnected),
-          reaches(voice.connection, VoiceConnectionStatus.Destroyed),
-        );
+        yield* leavesReady(voice.connection);
 
         if (!isLive(voice.connection)) return;
 
-        if (!(yield* recovers(voice.connection)))
+        if (isDisconnected(voice.connection) && !(yield* recovers(voice.connection)))
           return yield* replace(voice, connectionStep(voice.connection.state));
       }
     });

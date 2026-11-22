@@ -15,7 +15,7 @@ import {
   Schema,
 } from "effect";
 
-import { type ActivityLogError, Outage } from "../activity/index.ts";
+import { type ActivityLogError, Outage, withinQueryTimeout } from "../activity/index.ts";
 import { Database, reconnectSchedule } from "../database/index.ts";
 import { type ConsentEvent, ConsentLog, type ConsentRecord, NEVER_ASKED } from "./ConsentLog.ts";
 
@@ -134,7 +134,7 @@ export class ConsentBook extends Context.Service<
 
       const book = yield* make(
         database.ready.pipe(
-          Effect.andThen(log.history),
+          Effect.andThen(withinQueryTimeout(log.history)),
           Effect.retry(retryOutages),
           Effect.catchCause((cause) =>
             Effect.logError(
@@ -162,7 +162,7 @@ export class ConsentBook extends Context.Service<
           Effect.flatMap((erased) =>
             erased
               ? Effect.logInfo("Dropped a consent event noted before that person's data was erased")
-              : log.append(event),
+              : withinQueryTimeout(log.append(event)),
           ),
           Effect.retry(retryOutages),
           Effect.catch((error) =>

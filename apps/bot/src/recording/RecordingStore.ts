@@ -11,9 +11,9 @@ import {
   Schema,
 } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
-import { StopReason, SummaryStyle } from "recording-requests/Recording";
-import type { RecordingChange } from "recording-requests/RecordingEdit";
-import { type ActiveRecording, RowId } from "recording-requests/RecordingRequest";
+import { StopReason, SummaryStyle } from "office-domain/Recording";
+import type { RecordingChange } from "office-domain/RecordingEdit";
+import { type ActiveRecording, RowId } from "office-domain/RecordingRequest";
 import { inState } from "recording-requests/RecordingStates";
 
 import {

@@ -1,24 +1,3 @@
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  height: 100%;
-}
-
-body {
-  font-family: var(--font-sans);
-  color: var(--color-text);
-  background: var(--color-surface);
-}
-
-.text-tabular {
-  font-variant-numeric: tabular-nums;
-}
-
-/* Button — mirrors push-based.io .pb-btn */
 .pb-btn {
   appearance: none;
   cursor: pointer;
@@ -51,10 +30,6 @@ body {
   outline: none;
   box-shadow: var(--btn-shadow-focus, var(--shadow-focus));
 }
-.pb-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
 .pb-btn-lg {
   font-size: 1rem;
   font-weight: 500;
@@ -72,7 +47,7 @@ body {
   --btn-color: var(--color-neutral-600);
   --btn-color-hover: var(--color-neutral-900);
   --btn-border: 1px solid var(--color-neutral-300);
-  --btn-shadow-focus: 0 0 0 4px #98a2b324;
+  --btn-shadow-focus: var(--shadow-focus-neutral);
 }
 .pb-btn-tertiary {
   --btn-bg: transparent;
@@ -86,16 +61,14 @@ body {
   column-gap: var(--space-2);
 }
 
-/* Card — mirrors push-based.io .card--default */
 .pb-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-4);
   background: var(--color-neutral-50);
   border: 1px solid var(--color-neutral-100);
   border-radius: var(--radius-lg);
   padding: var(--space-8);
-  max-width: 300px;
 }
 
 .pb-btn-full {
@@ -108,18 +81,36 @@ body {
   opacity: 0.5;
 }
 
-.pb-card-lg {
-  max-width: none;
-  gap: var(--space-4);
+.pb-block-button {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease-out;
+}
+.pb-block-button:hover {
+  border-color: var(--color-primary-300);
+}
+.pb-block-button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+.pb-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.pb-confirm-danger {
+  border-color: var(--color-error-300);
+}
+.pb-confirm p {
+  margin: 0;
 }
 
 .pb-eyebrow {
@@ -349,19 +340,6 @@ body {
   color: var(--color-error-800);
 }
 
-.pb-record-button {
-  gap: var(--space-2);
-}
-.pb-record-button-icon {
-  width: var(--space-3);
-  height: var(--space-3);
-  border-radius: var(--radius-full);
-  background: currentColor;
-}
-.pb-record-button-recording .pb-record-button-icon {
-  border-radius: var(--radius-sm);
-}
-
 .pb-field {
   display: flex;
   flex-direction: column;
@@ -398,6 +376,71 @@ textarea.pb-field-control {
 .pb-field-count {
   align-self: flex-end;
   color: var(--color-text-muted);
+}
+
+.pb-inline-select {
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-neutral-300);
+  border-radius: var(--radius-lg);
+}
+.pb-inline-select:focus-visible {
+  outline: none;
+  border-color: var(--color-primary-300);
+  box-shadow: var(--shadow-focus);
+}
+.pb-inline-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pb-checkbox {
+  flex: none;
+  display: flex;
+}
+.pb-checkbox input {
+  flex: none;
+  width: var(--space-5);
+  height: var(--space-5);
+  margin: var(--space-0-5) 0 0;
+  accent-color: var(--color-primary-600);
+  cursor: pointer;
+}
+.pb-checkbox input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pb-checkbox-label {
+  cursor: pointer;
+}
+
+.pb-disclosure-button {
+  appearance: none;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+.pb-disclosure-button::before {
+  content: "";
+  display: inline list-item;
+  list-style: inside disclosure-closed;
+}
+.pb-disclosure-button[aria-expanded="true"] {
+  margin-bottom: var(--space-3);
+}
+.pb-disclosure-button[aria-expanded="true"]::before {
+  list-style-type: disclosure-open;
 }
 
 .pb-stat {

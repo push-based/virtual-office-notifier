@@ -17,10 +17,10 @@ import {
   guardQuery,
   guardTransaction,
 } from "./Query.ts";
-import { NO_PLAN, type RecordingPlan, SummaryStyle } from "./Recording.ts";
+import { NO_PLAN, type RecordingPlan, SummaryStyle } from "office-domain/Recording";
 import { inState } from "./RecordingStates.ts";
-import { DEFAULT_SUMMARY_STYLE } from "./Wire.ts";
-import type { Requester } from "./RecordingApi.ts";
+import { DEFAULT_SUMMARY_STYLE } from "office-domain/wire";
+import type { Requester } from "office-domain/RecordingApi";
 import {
   type ActiveRecording,
   decideRequest,
@@ -35,7 +35,7 @@ import {
   type RequestOutcome,
   RowId,
   type SubmittedRequest,
-} from "./RecordingRequest.ts";
+} from "office-domain/RecordingRequest";
 
 export class RecordingUnavailable extends Schema.TaggedError<
   RecordingUnavailable,

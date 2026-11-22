@@ -1,22 +1,23 @@
 import { DiscordOAuth } from "activity-sign-in/DiscordOAuth";
 import { Sessions } from "activity-sign-in/Sessions";
-import { DiscordRefused, SignedInSession, SignInConfig } from "activity-sign-in/SignInApi";
+import { DiscordRefused, SignedInSession, SignInConfig } from "office-domain/SignInApi";
 import { SignInSettings } from "activity-sign-in/SignInSettings";
 import { afterAll, assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Redacted, Schema } from "effect";
+import { Effect, Layer, Option, Redacted, Schema } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 
 import { ConsentHandlers, ErasureAdminHandlers } from "../src/ConsentHandlers.ts";
 import { ConsentRequests } from "../src/ConsentRequests.ts";
 import { OfficeStatsReader } from "../src/OfficeStats.ts";
-import { RecordingApi } from "../src/RecordingApi.ts";
+import { RecordingApi } from "office-domain/RecordingApi";
 import { EditHandlers, HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
 import { RecordingEdits } from "../src/RecordingEdits.ts";
 import { RecordingHistory } from "../src/RecordingHistory.ts";
 import { RecordingRequests } from "../src/RecordingRequests.ts";
 import { SignedInLayer, SignInHandlers } from "../src/SignInHandlers.ts";
 import { StatsHandlers } from "../src/StatsHandlers.ts";
+import { TelemetryHandlers } from "../src/TelemetryHandlers.ts";
 
 const ada = { id: "u1", name: "Ada", avatarUrl: null };
 
@@ -44,6 +45,7 @@ const app = HttpRouter.toWebHandler(
     Layer.provide([
       SignInHandlers.pipe(Layer.provide(Discord)),
       RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerDisabled)),
+      TelemetryHandlers(Option.none()),
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerDisabled)),
       HistoryHandlers.pipe(Layer.provide(RecordingHistory.layerDisabled)),
       EditHandlers.pipe(Layer.provide(RecordingEdits.layerDisabled)),

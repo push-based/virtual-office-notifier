@@ -15,7 +15,7 @@ import {
   Scope,
   Stream,
 } from "effect";
-import type { ActiveRecording } from "recording-requests/RecordingRequest";
+import type { ActiveRecording } from "office-domain/RecordingRequest";
 
 import { ClipArchive, objectPathOf } from "./ClipArchive.ts";
 import {
@@ -34,6 +34,7 @@ import {
 import { DiscordGateway, type OfficeLocation, OfficeSeat } from "../office/index.ts";
 import { MIN_CLIP_DURATION } from "./Recording.ts";
 import { RecordingStore } from "./RecordingStore.ts";
+import { StoreHealth } from "./StoreHealth.ts";
 import type { Transcription } from "./Transcription.ts";
 
 const SAVING_LIMIT = Duration.seconds(30);
@@ -154,9 +155,7 @@ const make = Effect.fnUntraced(function* (
         }),
       );
     },
-    Effect.catchTag("StoreUnavailable", (error) =>
-      Effect.logError("Couldn't record a clip").pipe(Effect.annotateLogs({ reason: error.reason })),
-    ),
+    Effect.catchTag("StoreUnavailable", StoreHealth.report("Couldn't record a clip")),
   );
 
   const updateVoices = (change: (current: Voices) => Voices) =>

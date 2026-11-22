@@ -1,10 +1,11 @@
+import { DateTime } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { formatDuration, formatElapsed, formatTimeLeft, formatTimeSince } from "./duration.ts";
 
 describe("formatElapsed", () => {
-  const since = "2026-10-27T12:00:00Z";
-  const at = (seconds: number) => Date.parse(since) + seconds * 1000;
+  const since = DateTime.makeUnsafe("2026-10-27T12:00:00Z");
+  const at = (seconds: number) => DateTime.toEpochMillis(since) + seconds * 1000;
 
   it("shows hours, minutes and seconds", () => {
     expect(formatElapsed(since, at(3725))).toBe("01:02:05");
@@ -20,8 +21,8 @@ describe("formatElapsed", () => {
 });
 
 describe("formatTimeLeft", () => {
-  const until = "2026-10-27T13:00:00Z";
-  const before = (ms: number) => Date.parse(until) - ms;
+  const until = DateTime.makeUnsafe("2026-10-27T13:00:00Z");
+  const before = (ms: number) => DateTime.toEpochMillis(until) - ms;
 
   it("rounds a partial minute up", () => {
     expect(formatTimeLeft(until, before(30_000))).toBe("1m");
@@ -53,8 +54,8 @@ describe("formatDuration", () => {
 });
 
 describe("formatTimeSince", () => {
-  const since = "2026-10-27T12:00:00Z";
-  const after = (ms: number) => Date.parse(since) + ms;
+  const since = DateTime.makeUnsafe("2026-10-27T12:00:00Z");
+  const after = (ms: number) => DateTime.toEpochMillis(since) + ms;
 
   it("counts whole minutes, rounding a partial one down", () => {
     expect(formatTimeSince(since, after(30_000))).toBe("0m");

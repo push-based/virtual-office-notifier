@@ -1,11 +1,7 @@
+import { Array, type DateTime } from "effect";
 import { formatOfficeTime } from "../history/describe-recording.ts";
-import {
-  type ErasureCase,
-  type ErasureInventory,
-  FORMER_MEMBER,
-  type RefusalGround,
-  REFUSAL_GROUNDS,
-} from "../wire.ts";
+import type { ErasureCase, ErasureInventory, RefusalGround } from "office-domain/Consent";
+import { FORMER_MEMBER, REFUSAL_GROUNDS } from "office-domain/wire";
 
 const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
@@ -19,13 +15,13 @@ export const describeInventory = (inventory: ErasureInventory): ReadonlyArray<st
   `${plural(inventory.actionItemsOwned, "action item")} they own, left without an owner`,
   inventory.names.length === 0
     ? "No name on record, so nothing to take out of other people's text"
-    : `Their name (${inventory.names.join(", ")}) taken out of ${plural(inventory.linesMentioningThem, "other person's line", "other people's lines")}, ${plural(inventory.recordingTextsMentioningThem, "title, agenda, summary or action item", "titles, agendas, summaries and action items")}, ${inventory.slackPostsMentioningThem} of the bot's Slack posts and ${plural(inventory.slackMessagesMentioningThem, "other Slack message")}, in the database and in Slack`,
+    : `Their name (${Array.join(inventory.names, ", ")}) taken out of ${plural(inventory.linesMentioningThem, "other person's line", "other people's lines")}, ${plural(inventory.recordingTextsMentioningThem, "title, agenda, summary or action item", "titles, agendas, summaries and action items")}, ${inventory.slackPostsMentioningThem} of the bot's Slack posts and ${plural(inventory.slackMessagesMentioningThem, "other Slack message")}, in the database and in Slack`,
   "Their membership and consent history, keeping one row with no personal data as proof",
 ];
 
 export const groundLabel = (ground: RefusalGround): string => REFUSAL_GROUNDS[ground];
 
-export const adminName = (name: string | null): string => name ?? "an admin";
+const adminName = (name: string | null): string => name ?? "an admin";
 
 export const describeStanding = (erasure: ErasureCase): string => {
   switch (erasure.decision) {
@@ -38,8 +34,8 @@ export const describeStanding = (erasure: ErasureCase): string => {
     case null:
       return erasure.seenBy.length === 0
         ? "Nobody has looked at it yet."
-        : `Seen by ${erasure.seenByNames.map(adminName).join(" and ")}.`;
+        : `Seen by ${Array.join(Array.map(erasure.seenByNames, adminName), " and ")}.`;
   }
 };
 
-export const officeTime = (iso: string): string => `${formatOfficeTime(iso)}, UTC+2`;
+export const officeTime = (at: DateTime.Utc): string => `${formatOfficeTime(at)}, UTC+2`;

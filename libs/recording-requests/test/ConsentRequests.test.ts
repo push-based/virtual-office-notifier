@@ -3,14 +3,14 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Duration, Effect, Option, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { NOT_AGREED, standingOf } from "../src/Consent.ts";
+import { NOT_AGREED, standingOf } from "office-domain/Consent";
 import {
   ConsentRequests,
   type ErasureHandler,
   type WithdrawalHandler,
 } from "../src/ConsentRequests.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
-import { CONSENT_NOTICE_VERSION, ERASURE_REVIEW_DAYS } from "../src/Wire.ts";
+import { CONSENT_NOTICE_VERSION, ERASURE_REVIEW_DAYS } from "office-domain/wire";
 import { migrated } from "./schema.ts";
 
 const CHRIS = "553340374836314142";
@@ -521,6 +521,43 @@ describe("ConsentRequests erasures", () => {
         assert.strictEqual((yield* requests.status("ada")).pendingErasure, null);
       }),
     ),
+  );
+
+  it.effect(
+    "can't be cancelled or refused once it's due, so it never says so and erases anyway",
+    () =>
+      withRequests((requests) =>
+        Effect.gen(function* () {
+          const steps = yield* Ref.make<ReadonlyArray<string>>([]);
+          const { id } = yield* requests.erase("ada");
+          const handler = erasingHandler(steps);
+
+          yield* makeDue(id);
+
+          const [cancelled, refused] = yield* Effect.all([Ref.make(true), Ref.make(true)]);
+
+          yield* requests.handleErasures({
+            ...handler,
+            prepare: (erasure) =>
+              Effect.gen(function* () {
+                yield* handler.prepare(erasure);
+                yield* Ref.set(cancelled, Option.isSome(yield* requests.cancelErasure("ada", id)));
+                yield* Ref.set(
+                  refused,
+                  Option.isSome(
+                    yield* requests.refuse(id, CHRIS, { ground: "legal_claim", reason: "late" }),
+                  ),
+                );
+              }).pipe(Effect.orDie),
+          });
+
+          assert.isFalse(yield* Ref.get(cancelled));
+          assert.isFalse(yield* Ref.get(refused));
+          assert.deepStrictEqual(yield* requestRows, [
+            { userId: null, kind: "erase", outcome: "erased", decision: null },
+          ]);
+        }),
+      ),
   );
 
   it.effect("cancels instead of erasing someone who agreed to being recorded since asking", () =>

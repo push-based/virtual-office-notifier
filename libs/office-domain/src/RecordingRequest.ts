@@ -175,6 +175,8 @@ export const RecordingPause = Schema.Struct({
   byName: Schema.String,
 });
 
+export type RecordingPause = typeof RecordingPause.Type;
+
 export const RunningRecording = Schema.Struct({
   id: Schema.String,
   startedAt: Schema.DateTimeUtcFromString,
@@ -185,6 +187,8 @@ export const RunningRecording = Schema.Struct({
   agenda: Schema.NullOr(Schema.String),
   summaryStyle: SummaryStyle,
 });
+
+export type RunningRecording = typeof RunningRecording.Type;
 
 export const RecordingStatus = Schema.Struct({
   botInOffice: Schema.Boolean,
@@ -223,6 +227,16 @@ export const IgnoredRequest = Schema.Struct({
   reason: IgnoreReason,
   explanation: Schema.String,
 });
+
+export const HandledRequest = Schema.Union([
+  StartedRequest,
+  StoppedRequest,
+  PausedRequest,
+  ResumedRequest,
+  IgnoredRequest,
+]);
+
+export type HandledRequest = typeof HandledRequest.Type;
 
 export const SubmittedRequest = Schema.Union([
   PendingRequest,

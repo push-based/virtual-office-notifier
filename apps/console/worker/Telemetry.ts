@@ -8,7 +8,7 @@ import {
   HttpServerResponse,
 } from "effect/http";
 
-import { type Telemetry, TUNNEL_PATH } from "./Observability.ts";
+import { type Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
 
 const RATE_LIMIT_HEADERS = ["retry-after", "x-sentry-rate-limits"];
 
@@ -60,16 +60,11 @@ const forwardEnvelope = Effect.fn("forwardEnvelope")(
   }),
 );
 
-export const TelemetryRoutes = (telemetry: Option.Option<Telemetry>) =>
+export const SentryTunnel = (telemetry: Option.Option<Telemetry>) =>
   HttpRouter.use(
     Effect.fnUntraced(function* (router) {
       const client = yield* HttpClient.HttpClient;
 
-      yield* router.add(
-        "GET",
-        "/api/telemetry",
-        HttpServerResponse.jsonUnsafe(Option.getOrNull(telemetry)),
-      );
       yield* router.add("POST", TUNNEL_PATH, (request) =>
         Option.match(telemetry, {
           onNone: () => Effect.succeed(HttpServerResponse.empty({ status: 404 })),

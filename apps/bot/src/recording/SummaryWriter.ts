@@ -9,7 +9,7 @@ import {
   type SchemaAST,
   String,
 } from "effect";
-import type { SummaryStyle } from "recording-requests/Recording";
+import type { SummaryStyle } from "office-domain/Recording";
 
 import { type Brief, unquoted } from "../ai/index.ts";
 import { officeClock } from "../office/index.ts";

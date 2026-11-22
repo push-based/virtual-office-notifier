@@ -17,6 +17,7 @@
     "@snazzah/davey": "0.1.12",
     "discord.js": "14.27.0",
     "effect": "catalog:",
+    "office-domain": "workspace:*",
     "recording-requests": "workspace:*"
   },
   "devDependencies": {

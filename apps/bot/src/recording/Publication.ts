@@ -14,7 +14,7 @@ import {
   Stream,
   String,
 } from "effect";
-import { DEFAULT_SUMMARY_STYLE } from "recording-requests/wire";
+import { DEFAULT_SUMMARY_STYLE } from "office-domain/wire";
 
 import { ActionItemList } from "./ActionItems.ts";
 import {
