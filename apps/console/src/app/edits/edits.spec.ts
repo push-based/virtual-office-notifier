@@ -155,7 +155,7 @@ describe("the action items", () => {
     Scene.scene(
       itemsScene([checklist, vpn, room]),
       Scene.given(ActionItems.init()),
-      Scene.change(Scene.role("checkbox", { name: checklist.text }), "on"),
+      Scene.click(Scene.role("checkbox", { name: checklist.text })),
       Scene.Command.expectExact(
         ActionItems.SaveActionItems({ recordingId: "r1", changes: [{ kind: "tick", item: 4 }] }),
       ),

@@ -1,75 +1,91 @@
+import { Tabs } from "@foldkit/ui";
 import { Array, Option } from "effect";
-import type { Html, HtmlBuilder } from "foldkit/html";
+import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
+
+import type { Content } from "./content.ts";
 
 export interface Tab<Id extends string = string> {
   readonly id: Id;
   readonly label: string;
 }
 
-export type TabsAppearance = "underline" | "pills";
+export type Appearance = "underline" | "pills";
 
-export interface TabsConfig<Id extends string, Message> {
-  readonly name: string;
+export const Model = Tabs.Model;
+
+export type Model = Tabs.Model;
+
+export const Message = Tabs.Message;
+
+export type Message = Tabs.Message;
+
+export const OutMessage = Tabs.OutMessage;
+
+export type OutMessage = Tabs.OutMessage;
+
+export const FocusTab = Tabs.FocusTab;
+
+const tabsBundle = Tabs.create();
+
+export const init = (name: string): Model => Tabs.init({ id: name });
+
+export const update = tabsBundle.update;
+
+export interface Layout<Id extends string, ParentMessage> {
+  readonly tablist: Html;
+  readonly panel: (
+    id: Id,
+    attributes: ReadonlyArray<Attribute<ParentMessage>>,
+    children: ReadonlyArray<Content>,
+  ) => Html;
+}
+
+export interface ViewConfig<Id extends string, ParentMessage> {
+  readonly slotId: string;
+  readonly model: Model;
   readonly label: string;
   readonly tabs: ReadonlyArray<Tab<Id>>;
   readonly selected: Id;
-  readonly appearance: TabsAppearance;
-  readonly onSelect: (id: Id) => Message;
+  readonly appearance: Appearance;
+  readonly toParentMessage: (message: Message) => ParentMessage;
+  readonly toView: (layout: Layout<Id, ParentMessage>) => Html;
 }
 
-export const tabId = (name: string, id: string): string => `${name}-tab-${id}`;
-
-export const tabPanelId = (name: string, id: string): string => `${name}-panel-${id}`;
-
-const MOVES = new Map<string, (index: number, count: number) => number>([
-  ["ArrowRight", (index, count) => (index + 1) % count],
-  ["ArrowLeft", (index, count) => (index - 1 + count) % count],
-  ["Home", () => 0],
-  ["End", (_, count) => count - 1],
-]);
-
-export const tabAfterKey = <Id extends string>(
-  tabs: ReadonlyArray<Tab<Id>>,
-  from: Id,
-  key: string,
-): Option.Option<Tab<Id>> => {
-  const index = Array.findFirstIndex(tabs, (tab) => tab.id === from).pipe(
-    Option.getOrElse(() => -1),
-  );
-
-  return Option.fromNullishOr(MOVES.get(key)).pipe(
-    Option.flatMap((move) => Array.get(tabs, move(index, tabs.length))),
-  );
-};
-
-export const tabs = <Id extends string, Message>(
-  h: HtmlBuilder<Message>,
-  config: TabsConfig<Id, Message>,
-): Html =>
-  h.div(
-    [h.Class(`pb-tabs pb-tabs-${config.appearance}`), h.Role("tablist"), h.AriaLabel(config.label)],
-    Array.map(config.tabs, (tab) =>
-      h.keyed("button")(
-        tab.id,
-        [
-          h.Type("button"),
-          h.Role("tab"),
-          h.Class("text-body-sm"),
-          h.Id(tabId(config.name, tab.id)),
-          h.AriaControls(tabPanelId(config.name, tab.id)),
-          h.AriaSelected(tab.id === config.selected),
-          h.Tabindex(tab.id === config.selected ? 0 : -1),
-          h.OnClick(config.onSelect(tab.id)),
-          h.OnKeyDownFocus((key) =>
-            tabAfterKey(config.tabs, tab.id, key).pipe(
-              Option.map((target) => ({
-                focusSelector: `#${tabId(config.name, target.id)}`,
-                message: config.onSelect(target.id),
-              })),
-            ),
-          ),
-        ],
-        [tab.label],
-      ),
+const layoutOf = <Id extends string, ParentMessage>(
+  h: HtmlBuilder<ParentMessage>,
+  config: ViewConfig<Id, ParentMessage>,
+  render: Tabs.RenderInfo,
+): Layout<Id, ParentMessage> => ({
+  tablist: h.div(
+    [...render.tablist, h.Class(`pb-tabs pb-tabs-${config.appearance}`)],
+    Array.map(Array.zip(config.tabs, render.tabs), ([tab, info]) =>
+      h.keyed("button")(tab.id, [...info.tab, h.Class("text-body-sm")], [tab.label]),
     ),
-  );
+  ),
+  panel: (id, attributes, children) =>
+    Option.match(
+      Array.findFirst(render.tabs, (info) => info.value === id),
+      {
+        onNone: () => h.div(attributes, children),
+        onSome: (info) => h.div([...info.panel, h.Tabindex(-1), ...attributes], children),
+      },
+    ),
+});
+
+export const view = <Id extends string, ParentMessage>(
+  h: HtmlBuilder<ParentMessage>,
+  config: ViewConfig<Id, ParentMessage>,
+): Html =>
+  h.submodel({
+    slotId: config.slotId,
+    model: config.model,
+    view: tabsBundle.view,
+    viewInputs: {
+      tabs: Array.map(config.tabs, (tab) => tab.id),
+      selectedValue: config.selected,
+      ariaLabel: config.label,
+      panelMount: "All",
+      toView: (render) => config.toView(layoutOf(h, config, render)),
+    },
+    toParentMessage: config.toParentMessage,
+  });

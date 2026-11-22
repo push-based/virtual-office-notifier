@@ -1,5 +1,5 @@
 import { Array, Clock, Duration, Effect, Option, pipe, Predicate, Schema, Stream } from "effect";
-import { type Tab, tabId, tabPanelId, tabs } from "design-system";
+import { Tabs } from "design-system";
 import { Command, Subscription, Update } from "foldkit";
 import type { Document, Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
@@ -20,7 +20,7 @@ export const View = Schema.Literals(["now", "history", "stats", "privacy"]);
 
 export type View = typeof View.Type;
 
-export const VIEWS: ReadonlyArray<Tab<View>> = [
+export const VIEWS: ReadonlyArray<Tabs.Tab<View>> = [
   { id: "now", label: "Now" },
   { id: "history", label: "History" },
   { id: "stats", label: "Stats" },
@@ -42,6 +42,7 @@ export const SignIn = defineTaggedUnion({
 
 export const Model = Schema.Struct({
   view: View,
+  viewTabs: Tabs.Model,
   signIn: SignIn,
   now: Schema.Finite,
   recorder: Recorder.Model,
@@ -55,7 +56,7 @@ export type Model = typeof Model.Type;
 export const isSignedIn = (model: Model): boolean => Predicate.isTagged(model.signIn, "SignedIn");
 
 export const Message = defineMessageUnion({
-  ClickedView: { view: Schema.String },
+  GotViewTabsMessage: { message: Tabs.Message },
   SucceededSignIn: {},
   FailedSignIn: { reason: Schema.String },
   CompletedStartTelemetry: {},
@@ -85,6 +86,7 @@ export const StartTelemetry = Command.define("StartTelemetry", {
 
 export const initModel = (): Model => ({
   view: "now",
+  viewTabs: Tabs.init("view"),
   signIn: SignIn.SigningIn(),
   now: 0,
   recorder: Recorder.init(),
@@ -99,6 +101,8 @@ export const init = (): Update.Return<Model, Message, Resources> => ({
 });
 
 type UpdateReturn = Update.Return<Model, Message, Resources>;
+
+const toViewTabsMessage = (message: Tabs.Message) => Message.GotViewTabsMessage({ message });
 
 const toRecorderMessage = (message: Recorder.Message) => Message.GotRecorderMessage({ message });
 
@@ -178,12 +182,27 @@ const openView = (model: Model): UpdateReturn => {
   return { model };
 };
 
+const selectView = (model: Model, view: View): UpdateReturn =>
+  view === model.view ? { model } : openView(modifyFields(model, { view: () => view }));
+
+const foldViewTabsOutMessage = Tabs.OutMessage.match<Update.Step<Model, Message, Resources>>({
+  Selected:
+    ({ value }) =>
+    (stepModel) =>
+      selectView(stepModel, viewOf(value)),
+});
+
+const foldViewTabs = Update.foldChild({
+  update: Tabs.update,
+  read: (model: Model) => Option.some(model.viewTabs),
+  write: (model, nextViewTabs) => modifyFields(model, { viewTabs: () => nextViewTabs }),
+  toParentMessage: toViewTabsMessage,
+  foldOutMessage: foldViewTabsOutMessage,
+});
+
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
-    ClickedView: ({ view }) =>
-      viewOf(view) === model.view
-        ? { model }
-        : openView(modifyFields(model, { view: () => viewOf(view) })),
+    GotViewTabsMessage: ({ message: viewTabsMessage }) => foldViewTabs(model, viewTabsMessage),
 
     SucceededSignIn: () =>
       Update.combine(modifyFields(model, { signIn: () => SignIn.SignedIn() }), [
@@ -237,15 +256,70 @@ export const subscriptions = Subscription.aggregate(
   }),
 );
 
-const panel = (h: HtmlBuilder<Message>, view: View, isHidden: boolean, content: Html): Html =>
+const frame = (
+  model: Model,
+  h: HtmlBuilder<Message>,
+  { tablist, panel }: Tabs.Layout<View, Message>,
+): Html =>
   h.div(
+    [h.Class("console-frame")],
     [
-      h.Role("tabpanel"),
-      h.Id(tabPanelId("view", view)),
-      h.AriaLabelledBy(tabId("view", view)),
-      h.Hidden(isHidden),
+      h.nav([h.Class("console-nav")], [tablist]),
+      panel(
+        "now",
+        [h.Hidden(model.view !== "now")],
+        [
+          h.submodel({
+            slotId: "recorder",
+            model: model.recorder,
+            view: Recorder.view,
+            viewInputs: { now: model.now },
+            toParentMessage: toRecorderMessage,
+          }),
+        ],
+      ),
+      panel(
+        "history",
+        [h.Hidden(model.view !== "history")],
+        [
+          h.submodel({
+            slotId: "history",
+            model: model.history,
+            view: History.view,
+            viewInputs: { now: model.now },
+            toParentMessage: toHistoryMessage,
+          }),
+        ],
+      ),
+      model.view === "stats"
+        ? panel(
+            "stats",
+            [h.Hidden(false)],
+            [
+              h.submodel({
+                slotId: "stats",
+                model: model.stats,
+                view: Stats.view,
+                toParentMessage: toStatsMessage,
+              }),
+            ],
+          )
+        : h.empty,
+      model.view === "privacy"
+        ? panel(
+            "privacy",
+            [h.Hidden(false)],
+            [
+              h.submodel({
+                slotId: "consent",
+                model: model.consent,
+                view: Consent.view,
+                toParentMessage: toConsentMessage,
+              }),
+            ],
+          )
+        : h.empty,
     ],
-    [content],
   );
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
@@ -253,74 +327,16 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   body: h.main(
     [h.Class("console")],
     [
-      h.div(
-        [h.Class("console-frame")],
-        [
-          h.nav(
-            [h.Class("console-nav")],
-            [
-              tabs(h, {
-                name: "view",
-                label: "Console",
-                appearance: "underline",
-                tabs: VIEWS,
-                selected: model.view,
-                onSelect: (view) => Message.ClickedView({ view }),
-              }),
-            ],
-          ),
-          panel(
-            h,
-            "now",
-            model.view !== "now",
-            h.submodel({
-              slotId: "recorder",
-              model: model.recorder,
-              view: Recorder.view,
-              viewInputs: { now: model.now },
-              toParentMessage: toRecorderMessage,
-            }),
-          ),
-          panel(
-            h,
-            "history",
-            model.view !== "history",
-            h.submodel({
-              slotId: "history",
-              model: model.history,
-              view: History.view,
-              viewInputs: { now: model.now },
-              toParentMessage: toHistoryMessage,
-            }),
-          ),
-          model.view === "stats"
-            ? panel(
-                h,
-                "stats",
-                false,
-                h.submodel({
-                  slotId: "stats",
-                  model: model.stats,
-                  view: Stats.view,
-                  toParentMessage: toStatsMessage,
-                }),
-              )
-            : h.empty,
-          model.view === "privacy"
-            ? panel(
-                h,
-                "privacy",
-                false,
-                h.submodel({
-                  slotId: "consent",
-                  model: model.consent,
-                  view: Consent.view,
-                  toParentMessage: toConsentMessage,
-                }),
-              )
-            : h.empty,
-        ],
-      ),
+      Tabs.view(h, {
+        slotId: "view-tabs",
+        model: model.viewTabs,
+        label: "Console",
+        appearance: "underline",
+        tabs: VIEWS,
+        selected: model.view,
+        toParentMessage: toViewTabsMessage,
+        toView: (layout) => frame(model, h, layout),
+      }),
     ],
   ),
 });

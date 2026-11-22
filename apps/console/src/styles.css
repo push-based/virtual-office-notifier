@@ -29,16 +29,6 @@
   background: var(--color-surface);
 }
 
-.align-start {
-  align-self: flex-start;
-}
-
-.stack-2 {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
 .controls,
 .editor-actions,
 .recorder-controls {
@@ -51,6 +41,21 @@
   flex: 1;
 }
 
+.record-button {
+  gap: var(--space-2);
+}
+
+.record-button-icon {
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.record-button-recording .record-button-icon {
+  border-radius: var(--radius-sm);
+}
+
 .editor,
 .plan-fields {
   display: flex;
@@ -58,34 +63,9 @@
   gap: var(--space-3);
 }
 
-.plan summary {
-  cursor: pointer;
-  font-weight: 500;
-  color: var(--color-text-muted);
-}
-
-.plan[open] summary {
-  margin-bottom: var(--space-3);
-}
-
 .preserved-lines {
   margin: 0;
   white-space: pre-line;
-}
-
-.label {
-  margin: 0;
-  font-weight: 600;
-  color: var(--color-text-heading);
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: baseline;
-}
-
-.muted {
-  font-weight: 400;
-  color: var(--color-text-muted);
 }
 
 .bullets {
@@ -204,21 +184,6 @@ button.recording-row:focus-visible {
   align-items: flex-start;
 }
 
-.action-item-tick {
-  flex: none;
-  width: var(--space-5);
-  height: var(--space-5);
-  margin: var(--space-0-5) 0 0;
-  accent-color: var(--color-primary-600);
-  cursor: pointer;
-}
-
-.action-item-tick:disabled,
-.action-item-choice:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 .action-item-body {
   display: flex;
   flex-direction: column;
@@ -240,22 +205,6 @@ button.recording-row:focus-visible {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-}
-
-.action-item-choice {
-  max-width: 100%;
-  padding: var(--space-1) var(--space-2);
-  font-family: var(--font-sans);
-  color: var(--color-text);
-  background: var(--color-surface);
-  border: 1px solid var(--color-neutral-300);
-  border-radius: var(--radius-lg);
-}
-
-.action-item-choice:focus-visible {
-  outline: none;
-  border-color: var(--color-primary-300);
-  box-shadow: var(--shadow-focus);
 }
 
 .stats-panel {
@@ -298,22 +247,4 @@ blockquote {
   padding-left: var(--space-3);
   border-left: 3px solid var(--color-border);
   color: var(--color-text);
-}
-
-.confirm {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-}
-
-.confirm-danger {
-  border-color: var(--color-error-300);
-}
-
-.confirm p {
-  margin: 0;
 }

@@ -1,4 +1,4 @@
-import { formatElapsed, formatTimeLeft, formatTimeSince } from "design-system";
+import { formatElapsed, formatTimeLeft, formatTimeSince } from "../time/duration.ts";
 
 import type { RecordingPause, RunningRecording } from "office-domain/RecordingRequest";
 

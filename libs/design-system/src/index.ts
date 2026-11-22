@@ -5,22 +5,25 @@ export { type BadgeTone, badge } from "./badge.ts";
 export { type Bar, type BarListConfig, barList, barShare } from "./bar-list.ts";
 
 export {
+  type BlockButtonConfig,
   type ButtonConfig,
   type ButtonSize,
   type ButtonVariant,
-  type RecordButtonConfig,
+  blockButton,
   button,
-  recordButton,
 } from "./button.ts";
 
 export { type CardSize, card } from "./card.ts";
 
-export { formatDuration, formatElapsed, formatTimeLeft, formatTimeSince } from "./duration.ts";
+export { type CheckboxConfig, checkbox } from "./checkbox.ts";
+
+export { type DisclosureConfig, disclosure } from "./disclosure.ts";
 
 export {
   type SelectFieldConfig,
   type SelectOption,
   type TextFieldConfig,
+  inlineSelect,
   selectField,
   textField,
 } from "./fields.ts";
@@ -55,20 +58,13 @@ export {
   statusHeading,
 } from "./status-heading.ts";
 
-export {
-  type Tab,
-  type TabsAppearance,
-  type TabsConfig,
-  tabAfterKey,
-  tabId,
-  tabPanelId,
-  tabs,
-} from "./tabs.ts";
+export * as Tabs from "./tabs.ts";
 
 export {
   type EyebrowConfig,
   type EyebrowTone,
   description,
+  descriptionItem,
   divider,
   eyebrow,
   heading,

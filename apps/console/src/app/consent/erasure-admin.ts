@@ -8,6 +8,7 @@ import {
   noticeRegion,
   type SelectOption,
   selectField,
+  textField,
 } from "design-system";
 import { AsyncData, Command, Submodel, type Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -45,6 +46,10 @@ export const UNREACHABLE: Notice = {
   kind: "error",
   text: "Couldn't reach the bot's records. Nothing changed, so try again in a moment.",
 };
+
+const REASON_ROWS = 4;
+
+const REASON_MAX_LENGTH = 1000;
 
 const GROUNDS: ReadonlyArray<SelectOption> = [
   { value: "legal_obligation", label: REFUSAL_GROUNDS.legal_obligation },
@@ -271,24 +276,18 @@ const refuseView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
         value: model.ground,
         onChange: (value) => Message.UpdatedGround({ value }),
       }),
-      h.div(
-        [h.Class("pb-field")],
-        [
-          h.label(
-            [h.Class("text-body-sm label"), h.For(`reason-${id}`)],
-            ["Why it has to be kept. This goes to them, word for word."],
-          ),
-          h.textarea([
-            h.Id(`reason-${id}`),
-            h.Class("text-body pb-field-control"),
-            h.Rows(4),
-            h.Required(true),
-            h.Maxlength(1000),
-            h.Value(model.reason),
-            h.OnInput((value) => Message.UpdatedReason({ value })),
-          ]),
-        ],
-      ),
+      textField(h, {
+        id: `reason-${id}`,
+        label: "Why it has to be kept. This goes to them, word for word.",
+        value: model.reason,
+        onInput: (value) => Message.UpdatedReason({ value }),
+        isMultiline: true,
+        rows: REASON_ROWS,
+        maxLength: REASON_MAX_LENGTH,
+        isRequired: true,
+        isCountHidden: true,
+        isLabelStrong: true,
+      }),
       h.div(
         [h.Class("controls")],
         [

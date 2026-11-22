@@ -1,5 +1,5 @@
 import { Array } from "effect";
-import { badge, description, people, type Person } from "design-system";
+import { badge, blockButton, description, people, type Person } from "design-system";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import type { ListedRecording, OfficeMember } from "office-domain/Recording";
@@ -53,6 +53,6 @@ export const recordingRow = <Message>(
   ];
 
   return canOpen(recording.state)
-    ? h.button([h.Type("button"), h.Class("recording-row"), h.OnClick(config.onOpen)], facts)
+    ? blockButton(h, { className: "recording-row", onClick: config.onOpen, children: facts })
     : h.div([h.Class("recording-row")], facts);
 };

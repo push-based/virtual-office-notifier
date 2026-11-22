@@ -1,5 +1,6 @@
+import { Button } from "@foldkit/ui";
 import { Array } from "effect";
-import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
+import type { Html, HtmlBuilder } from "foldkit/html";
 
 import type { Content } from "./content.ts";
 
@@ -32,41 +33,41 @@ const classOf = <Message>(config: ButtonConfig<Message>): string =>
   );
 
 export const button = <Message>(h: HtmlBuilder<Message>, config: ButtonConfig<Message>): Html => {
+  const toView = (attributes: Button.ButtonAttributes<Message>): Html =>
+    h.button(
+      [
+        ...attributes.button,
+        h.Class(classOf(config)),
+        ...(config.isBusy === undefined ? [] : [h.AriaBusy(config.isBusy)]),
+      ],
+      config.label,
+    );
+
+  const type = config.isSubmit === true ? "submit" : "button";
   const isDisabled = config.isDisabled === true;
 
-  const attributes: ReadonlyArray<Attribute<Message>> = [
-    h.Type(config.isSubmit === true ? "submit" : "button"),
-    h.Class(classOf(config)),
-    ...(isDisabled ? [h.AriaDisabled(true)] : []),
-    ...(isDisabled || config.onClick === undefined ? [] : [h.OnClick(config.onClick)]),
-    ...(config.isBusy === undefined ? [] : [h.AriaBusy(config.isBusy)]),
-  ];
-
-  return h.button(attributes, config.label);
+  if (config.onClick === undefined) {
+    return Button.view({ toView, type, isDisabled }, h);
+  } else {
+    return Button.view({ toView, type, isDisabled, onClick: config.onClick }, h);
+  }
 };
 
-export interface RecordButtonConfig<Message> {
-  readonly isRecording: boolean;
-  readonly isBusy: boolean;
-  readonly isDisabled: boolean;
-  readonly onPress: Message;
+export interface BlockButtonConfig<Message> {
+  readonly onClick: Message;
+  readonly className: string;
+  readonly children: ReadonlyArray<Content>;
 }
 
-export const recordButton = <Message>(
+export const blockButton = <Message>(
   h: HtmlBuilder<Message>,
-  config: RecordButtonConfig<Message>,
+  config: BlockButtonConfig<Message>,
 ): Html =>
-  button(h, {
-    label: [
-      h.span([h.Class("pb-record-button-icon"), h.AriaHidden(true)]),
-      config.isRecording ? "Stop recording" : "Start recording",
-    ],
-    onClick: config.onPress,
-    size: "lg",
-    isFullWidth: true,
-    isDisabled: config.isDisabled,
-    isBusy: config.isBusy,
-    className: config.isRecording
-      ? "pb-record-button pb-record-button-recording"
-      : "pb-record-button",
-  });
+  Button.view(
+    {
+      onClick: config.onClick,
+      toView: (attributes) =>
+        h.button([...attributes.button, h.Class(config.className)], config.children),
+    },
+    h,
+  );

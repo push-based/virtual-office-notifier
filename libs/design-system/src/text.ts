@@ -28,6 +28,11 @@ export const description = <Message>(
   children: ReadonlyArray<Content>,
 ): Html => h.p([h.Class("text-body-sm pb-description")], children);
 
+export const descriptionItem = <Message>(
+  h: HtmlBuilder<Message>,
+  children: ReadonlyArray<Content>,
+): Html => h.li([h.Class("text-body-sm pb-description")], children);
+
 export const heading = <Message>(h: HtmlBuilder<Message>, text: string): Html =>
   h.h2([h.Class("text-section-title pb-heading")], [text]);
 

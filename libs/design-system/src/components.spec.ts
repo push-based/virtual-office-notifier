@@ -1,11 +1,25 @@
 import { Array } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
-import { click, expect, given, label, role, scene, selector, text, type } from "foldkit/scene";
+import {
+  change,
+  click,
+  expect,
+  given,
+  keydown,
+  label,
+  role,
+  scene,
+  selector,
+  text,
+  type,
+} from "foldkit/scene";
 import { describe, expect as expectValue, it } from "vite-plus/test";
 
 import { barList, barShare } from "./bar-list.ts";
-import { button, recordButton } from "./button.ts";
-import { selectField, textField } from "./fields.ts";
+import { blockButton, button } from "./button.ts";
+import { checkbox } from "./checkbox.ts";
+import { disclosure } from "./disclosure.ts";
+import { inlineSelect, selectField, textField } from "./fields.ts";
 import { heatOf, heatmap } from "./heatmap.ts";
 import { initials } from "./initials.ts";
 import { notice, noticeRegion } from "./notice.ts";
@@ -39,19 +53,119 @@ describe("button", () => {
     );
   });
 
-  it("says what pressing the record button does", () => {
+  it("submits its form when it's a submit button", () => {
+    scene(
+      counting((h) => button(h, { label: ["Refuse"], isSubmit: true })),
+      given<Clicks>([]),
+      expect(role("button", { name: "Refuse" })).toHaveAttr("type", "submit"),
+    );
+  });
+
+  it("says when it's busy", () => {
+    scene(
+      counting((h) => button(h, { label: ["Saving…"], onClick: "saved", isBusy: true })),
+      given<Clicks>([]),
+      expect(role("button", { name: "Saving…" })).toHaveAttr("aria-busy", "true"),
+    );
+  });
+});
+
+describe("blockButton", () => {
+  it("makes a whole block one button with the page's class", () => {
     scene(
       counting((h) =>
-        recordButton(h, {
-          isRecording: true,
-          isBusy: false,
-          isDisabled: false,
-          onPress: "pressed",
+        blockButton(h, {
+          className: "row",
+          onClick: "opened",
+          children: [h.span([], ["Deploy retro"]), h.span([], ["Done"])],
         }),
       ),
       given<Clicks>([]),
-      click(role("button", { name: "Stop recording" })),
-      expect(role("status")).toHaveText("pressed"),
+      expect(role("button", { name: /Deploy retro/ })).toHaveClass("row"),
+      click(role("button", { name: /Deploy retro/ })),
+      expect(role("status")).toHaveText("opened"),
+    );
+  });
+});
+
+describe("checkbox", () => {
+  const ticks = (isChecked: boolean, isDisabled = false) =>
+    counting((h) =>
+      checkbox(h, {
+        id: "item-4",
+        label: "write up the checklist",
+        isChecked,
+        isDisabled,
+        onToggle: (next) => (next ? "ticked" : "unticked"),
+      }),
+    );
+
+  it("is a native checkbox named by its label", () => {
+    scene(
+      ticks(true),
+      given<Clicks>([]),
+      expect(role("checkbox", { name: "write up the checklist" })).toBeChecked(),
+      expect(role("checkbox", { name: "write up the checklist" })).toHaveAttr("type", "checkbox"),
+    );
+  });
+
+  it("asks for the opposite state when it's clicked", () => {
+    scene(
+      ticks(false),
+      given<Clicks>([]),
+      click(role("checkbox", { name: "write up the checklist" })),
+      expect(role("status")).toHaveText("ticked"),
+    );
+  });
+
+  it("can't be toggled while it's disabled", () => {
+    scene(
+      ticks(false, true),
+      given<Clicks>([]),
+      expect(role("checkbox", { name: "write up the checklist" })).toBeDisabled(),
+    );
+  });
+});
+
+describe("disclosure", () => {
+  const plan = {
+    update: (_isOpen: boolean, next: boolean) => ({ model: next }),
+    view: (isOpen: boolean, h: HtmlBuilder<boolean>) =>
+      disclosure(h, {
+        id: "plan",
+        label: "Add a title and agenda",
+        isOpen,
+        onToggle: (next) => next,
+        children: [h.p([], ["The plan"])],
+      }),
+  };
+
+  it("keeps its content in the page but hidden until it's opened", () => {
+    scene(
+      plan,
+      given(false),
+      expect(role("button", { name: "Add a title and agenda" })).toHaveAttr(
+        "aria-expanded",
+        "false",
+      ),
+      expect(selector("#plan-panel")).toHaveAttr("hidden", "true"),
+      click(role("button", { name: "Add a title and agenda" })),
+      expect(role("button", { name: "Add a title and agenda" })).toHaveAttr(
+        "aria-expanded",
+        "true",
+      ),
+      expect(text("The plan")).toExist(),
+    );
+  });
+
+  it("opens and closes with Enter and Space", () => {
+    scene(
+      plan,
+      given(false),
+      keydown(role("button", { name: "Add a title and agenda" }), "Enter"),
+      expect(selector("#plan-panel")).toHaveAttr("hidden", "false"),
+      keydown(role("button", { name: "Add a title and agenda" }), " "),
+      expect(selector("#plan-panel")).toHaveAttr("hidden", "true"),
     );
   });
 });
@@ -204,6 +318,82 @@ describe("fields", () => {
       form,
       given("detailed"),
       expect(role("option", { name: "Detailed" })).toHaveAttr("selected", "true"),
+    );
+  });
+
+  const reason = {
+    update: (_value: string, next: string) => ({ model: next }),
+    view: (value: string, h: HtmlBuilder<string>) =>
+      textField(h, {
+        id: "reason",
+        label: "Why it has to be kept",
+        value,
+        isMultiline: true,
+        rows: 4,
+        maxLength: 1000,
+        isRequired: true,
+        isCountHidden: true,
+        isLabelStrong: true,
+        onInput: (next) => next,
+      }),
+  };
+
+  it("can be a required textarea with its own height and no counter", () => {
+    scene(
+      reason,
+      given(""),
+      type(label("Why it has to be kept"), "A court order"),
+      expect(label("Why it has to be kept")).toHaveValue("A court order"),
+      expect(label("Why it has to be kept")).toHaveAttr("rows", "4"),
+      expect(label("Why it has to be kept")).toHaveAttr("required", "true"),
+      expect(label("Why it has to be kept")).toHaveAttr("maxLength", "1000"),
+      expect(text("13/1000")).toBeAbsent(),
+      expect(text("Why it has to be kept")).toHaveClass("label"),
+    );
+  });
+
+  it("stops taking input while it's disabled", () => {
+    scene(
+      {
+        update: (_value: string, next: string) => ({ model: next }),
+        view: (value: string, h: HtmlBuilder<string>) =>
+          textField(h, {
+            id: "title",
+            label: "Title",
+            value,
+            isDisabled: true,
+            onInput: (next) => next,
+          }),
+      },
+      given(""),
+      expect(label("Title")).toBeDisabled(),
+    );
+  });
+});
+
+describe("inlineSelect", () => {
+  it("is a select named for screen readers that reports the chosen option", () => {
+    scene(
+      {
+        update: (_value: string, next: string) => ({ model: next }),
+        view: (value: string, h: HtmlBuilder<string>) =>
+          inlineSelect(h, {
+            id: "owner-5",
+            label: "Owner of ask IT about the VPN",
+            value,
+            options: [
+              { value: "", label: "Unassigned" },
+              { value: "u1", label: "Anna" },
+            ],
+            onChange: (next) => next,
+          }),
+      },
+      given(""),
+      expect(role("combobox", { name: "Owner of ask IT about the VPN" })).toContainText(
+        "Unassigned",
+      ),
+      change(role("combobox", { name: "Owner of ask IT about the VPN" }), "u1"),
+      expect(role("option", { name: "Anna" })).toHaveAttr("selected", "true"),
     );
   });
 });

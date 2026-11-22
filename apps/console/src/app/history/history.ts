@@ -1,5 +1,13 @@
 import { Array, Duration, Effect, Option, Schema, Stream } from "effect";
-import { button, card, description, eyebrow, notice, noticeRegion } from "design-system";
+import {
+  button,
+  card,
+  description,
+  descriptionItem,
+  eyebrow,
+  notice,
+  noticeRegion,
+} from "design-system";
 import { Command, Submodel, Subscription, Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
@@ -433,7 +441,7 @@ const listView = (model: Model, now: number, h: HtmlBuilder<Message>): Html =>
     h.ul(
       [h.Class("recordings")],
       model.list.recordings.length === 0 && model.isLoaded
-        ? [h.li([h.Class("text-body-sm pb-description")], ["Nothing has been recorded yet."])]
+        ? [descriptionItem(h, ["Nothing has been recorded yet."])]
         : Array.map(model.list.recordings, (recording) =>
             h.keyed("li")(
               recording.id,

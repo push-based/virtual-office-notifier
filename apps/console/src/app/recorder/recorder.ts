@@ -2,13 +2,13 @@ import { Array, Duration, Effect, Option, Schema, Stream } from "effect";
 import {
   button,
   card,
+  disclosure,
   divider,
   eyebrow,
   notice,
   noticeRegion,
   people,
   type Person,
-  recordButton,
   statusHeading,
 } from "design-system";
 import { Command, Submodel, Subscription, Update } from "foldkit";
@@ -34,6 +34,7 @@ import {
 import { describePhase, type OfficePhase } from "./describe-phase.ts";
 import { describePresence, Presence, samePresence } from "./describe-presence.ts";
 import { outcomeNotice, unreachableNotice } from "./notices.ts";
+import { recordButton } from "./record-button.ts";
 
 export const STATE_POLL = Duration.seconds(3);
 
@@ -55,6 +56,7 @@ export const ShownNotice = Schema.Struct({ id: Schema.Finite, notice: Notice });
 export const Model = Schema.Struct({
   connection: Connection,
   draft: Draft,
+  isPlanOpen: Schema.Boolean,
   isSubmitting: Schema.Boolean,
   notice: Schema.Option(ShownNotice),
   noticeCount: Schema.Finite,
@@ -69,6 +71,7 @@ export type Model = typeof Model.Type;
 export const init = (): Model => ({
   connection: Connection.SigningIn(),
   draft: EMPTY_DRAFT,
+  isPlanOpen: false,
   isSubmitting: false,
   notice: Option.none(),
   noticeCount: 0,
@@ -113,6 +116,7 @@ export const Message = defineMessageUnion({
   SucceededFetchStatus: { request: Schema.Finite, status: RecordingStatus },
   FailedFetchStatus: { request: Schema.Finite, reason: Schema.String },
   CompletedShowPresence: {},
+  ToggledPlan: { isOpen: Schema.Boolean },
   UpdatedDraftTitle: { value: Schema.String },
   UpdatedDraftAgenda: { value: Schema.String },
   UpdatedDraftSummaryStyle: { value: Schema.String },
@@ -227,6 +231,7 @@ const withStatus = (model: Model, status: RecordingStatus): UpdateReturn => {
   const nextModel = modifyFields(model, {
     connection: () => Connection.Loaded({ status }),
     editor: (editor) => (isSameRecording ? editor : RecordingEditor.init()),
+    isPlanOpen: (isOpen) => isOpen && status.recording === null,
   });
 
   if (Option.isSome(model.presence) && samePresence(model.presence.value, presence)) {
@@ -268,6 +273,8 @@ export const update = (model: Model, message: Message) =>
           ),
 
     CompletedShowPresence: () => ({ model }),
+
+    ToggledPlan: ({ isOpen }) => ({ model: modifyFields(model, { isPlanOpen: () => isOpen }) }),
 
     UpdatedDraftTitle: ({ value }) => ({
       model: modifyFields(model, { draft: (draft) => modifyFields(draft, { title: () => value }) }),
@@ -367,10 +374,12 @@ const peopleOf = (status: RecordingStatus | null): ReadonlyArray<Person> =>
   }));
 
 const planView = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.details(
-    [h.Class("plan")],
-    [
-      h.summary([h.Class("text-body-sm")], ["Add a title and agenda"]),
+  disclosure(h, {
+    id: "plan",
+    label: "Add a title and agenda",
+    isOpen: model.isPlanOpen,
+    onToggle: (isOpen) => Message.ToggledPlan({ isOpen }),
+    children: [
       planFields(h, {
         idPrefix: "plan",
         draft: model.draft,
@@ -380,7 +389,7 @@ const planView = (model: Model, h: HtmlBuilder<Message>): Html =>
         onSummaryStyle: (value) => Message.UpdatedDraftSummaryStyle({ value }),
       }),
     ],
-  );
+  });
 
 const editorView = (model: Model, running: RunningRecording, h: HtmlBuilder<Message>): Html =>
   h.submodel({

@@ -1,8 +1,9 @@
 import { Array, Option, pipe } from "effect";
-import { type Bar, formatDuration, type HeatmapRow, type Tab } from "design-system";
+import { type Bar, type HeatmapRow, type Tabs } from "design-system";
 import type { BusyHour, OfficeStats, PersonDays, StatsRange } from "office-domain/OfficeStats";
+import { formatDuration } from "../time/duration.ts";
 
-export interface RangeTab extends Tab {
+export interface RangeTab extends Tabs.Tab {
   readonly id: StatsRange;
 }
 

@@ -4,6 +4,7 @@ import {
   badge,
   button,
   description,
+  descriptionItem,
   divider,
   eyebrow,
   heading,
@@ -143,7 +144,7 @@ const transcriptView = <Message>(h: HtmlBuilder<Message>, recording: RecordingDe
       h.ol(
         [h.Class("transcript")],
         turns.length === 0
-          ? [h.li([h.Class("text-body-sm pb-description")], ["Nothing transcribed yet."])]
+          ? [descriptionItem(h, ["Nothing transcribed yet."])]
           : Array.map(turns, (turn) => turnView(h, turn)),
       ),
       isLive(recording.state) ? description(h, ["More on the way…"]) : h.empty,

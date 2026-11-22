@@ -1,4 +1,5 @@
 import { Array, DateTime, identity } from "effect";
+import { Tabs } from "design-system";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
@@ -40,7 +41,7 @@ describe("the office stats", () => {
       scene,
       Scene.given({ ...init(), stats: StatsData.Success({ data: stats }) }),
       Scene.expect(Scene.role("tab", { name: "This week" })).toHaveAttr("aria-selected", "true"),
-      Scene.expect(Scene.role("tabpanel")).toHaveId("range-panel-week"),
+      Scene.expect(Scene.role("tabpanel", { name: "This week" })).toExist(),
       Scene.expect(Scene.text("Recordings")).toExist(),
       Scene.expect(Scene.text("1h 30m")).toExist(),
       Scene.expect(Scene.role("list", { name: "Top emoji" })).toContainText(":tada:"),
@@ -53,6 +54,7 @@ describe("the office stats", () => {
       scene,
       Scene.given({ ...init(), stats: StatsData.Success({ data: stats }) }),
       Scene.click(Scene.role("tab", { name: "All time" })),
+      Scene.Command.resolve(Tabs.FocusTab, Tabs.Message.CompletedFocusTab()),
       Scene.expect(Scene.text("Counting…")).toExist(),
       Scene.Command.expectExact(FetchStats({ range: "all" })),
       Scene.Command.resolve(FetchStats, Message.SucceededFetchStats({ range: "week", stats })),
@@ -64,7 +66,12 @@ describe("the office stats", () => {
     Story.story(
       update,
       Story.given({ ...init(), stats: StatsData.Success({ data: stats }) }),
-      Story.message(Message.ClickedRange({ range: "week" })),
+      Story.message(
+        Message.GotRangeTabsMessage({
+          message: Tabs.Message.SelectedTab({ index: 0, value: "week" }),
+        }),
+      ),
+      Story.Command.resolve(Tabs.FocusTab, Tabs.Message.CompletedFocusTab()),
       Story.Command.expectNone(),
     );
   });

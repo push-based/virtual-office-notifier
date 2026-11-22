@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   barList,
   button,
@@ -8,11 +8,9 @@ import {
   heatmap,
   notice,
   stat,
-  tabId,
-  tabPanelId,
-  tabs,
+  Tabs,
 } from "design-system";
-import { AsyncData, Command, Submodel, type Update } from "foldkit";
+import { AsyncData, Command, Submodel, Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
@@ -26,15 +24,20 @@ export const StatsData = AsyncData.Schema(OfficeStats, Schema.String);
 
 export const Model = Schema.Struct({
   range: StatsRange,
+  rangeTabs: Tabs.Model,
   stats: StatsData.schema,
 });
 
 export type Model = typeof Model.Type;
 
-export const init = (): Model => ({ range: "week", stats: StatsData.Idle() });
+export const init = (): Model => ({
+  range: "week",
+  rangeTabs: Tabs.init("range"),
+  stats: StatsData.Idle(),
+});
 
 export const Message = defineMessageUnion({
-  ClickedRange: { range: Schema.String },
+  GotRangeTabsMessage: { message: Tabs.Message },
   ClickedRetry: {},
   SucceededFetchStats: { range: StatsRange, stats: OfficeStats },
   FailedFetchStats: { range: StatsRange, reason: Schema.String },
@@ -62,12 +65,29 @@ export const open = (model: Model): UpdateReturn => ({
   commands: [FetchStats({ range: model.range })],
 });
 
+const toRangeTabsMessage = (message: Tabs.Message) => Message.GotRangeTabsMessage({ message });
+
+const selectRange = (model: Model, range: StatsRange): UpdateReturn =>
+  range === model.range ? { model } : open(modifyFields(model, { range: () => range }));
+
+const foldRangeTabsOutMessage = Tabs.OutMessage.match<Update.Step<Model, Message, Resources>>({
+  Selected:
+    ({ value }) =>
+    (stepModel) =>
+      selectRange(stepModel, rangeOf(value)),
+});
+
+const foldRangeTabs = Update.foldChild({
+  update: Tabs.update,
+  read: (model: Model) => Option.some(model.rangeTabs),
+  write: (model, nextRangeTabs) => modifyFields(model, { rangeTabs: () => nextRangeTabs }),
+  toParentMessage: toRangeTabsMessage,
+  foldOutMessage: foldRangeTabsOutMessage,
+});
+
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
-    ClickedRange: ({ range }) =>
-      rangeOf(range) === model.range
-        ? { model }
-        : open(modifyFields(model, { range: () => rangeOf(range) })),
+    GotRangeTabsMessage: ({ message: rangeTabsMessage }) => foldRangeTabs(model, rangeTabsMessage),
 
     ClickedRetry: () => open(model),
 
@@ -123,25 +143,17 @@ const statsView = (h: HtmlBuilder<Message>, view: StatsView): ReadonlyArray<Html
 
 const counting = (h: HtmlBuilder<Message>): ReadonlyArray<Html> => [description(h, ["Counting…"])];
 
-export const view = Submodel.defineView<Model, Message>((model, h) =>
+const rangeView = (
+  model: Model,
+  h: HtmlBuilder<Message>,
+  { tablist, panel }: Tabs.Layout<StatsRange, Message>,
+): Html =>
   card(h, "lg", [
     eyebrow(h, { text: "Office stats" }),
-    tabs(h, {
-      name: "range",
-      label: "Range",
-      appearance: "pills",
-      tabs: RANGES,
-      selected: model.range,
-      onSelect: (range) => Message.ClickedRange({ range }),
-    }),
-    h.div(
-      [
-        h.Class("stats-panel"),
-        h.Role("tabpanel"),
-        h.Id(tabPanelId("range", model.range)),
-        h.AriaLabelledBy(tabId("range", model.range)),
-        h.AriaBusy(AsyncData.isPending(model.stats)),
-      ],
+    tablist,
+    panel(
+      model.range,
+      [h.Class("stats-panel"), h.AriaBusy(AsyncData.isPending(model.stats))],
       AsyncData.match(model.stats, {
         onIdle: () => counting(h),
         onLoading: () => counting(h),
@@ -159,5 +171,17 @@ export const view = Submodel.defineView<Model, Message>((model, h) =>
         ],
       }),
     ),
-  ]),
+  ]);
+
+export const view = Submodel.defineView<Model, Message>((model, h) =>
+  Tabs.view(h, {
+    slotId: "range-tabs",
+    model: model.rangeTabs,
+    label: "Range",
+    appearance: "pills",
+    tabs: RANGES,
+    selected: model.range,
+    toParentMessage: toRangeTabsMessage,
+    toView: (layout) => rangeView(model, h, layout),
+  }),
 );

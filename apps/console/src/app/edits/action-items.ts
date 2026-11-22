@@ -1,5 +1,15 @@
 import { Array, Effect, Option, Schema } from "effect";
-import { avatar, description, eyebrow, notice, noticeRegion } from "design-system";
+import {
+  avatar,
+  checkbox,
+  description,
+  descriptionItem,
+  eyebrow,
+  inlineSelect,
+  notice,
+  noticeRegion,
+  type SelectOption,
+} from "design-system";
 import { Command, Submodel, type Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
@@ -37,6 +47,17 @@ export const ownerChoices = (
   owner === null || Array.some(members, ({ userId }) => userId === owner.userId)
     ? members
     : [owner, ...members];
+
+const ownerOptions = (
+  members: ReadonlyArray<OfficeMember>,
+  owner: OfficeMember | null,
+): ReadonlyArray<SelectOption> => [
+  { value: "", label: UNASSIGNED },
+  ...Array.map(ownerChoices(members, owner), (member) => ({
+    value: member.userId,
+    label: member.name,
+  })),
+];
 
 export const Model = Schema.Struct({
   isSaving: Schema.Boolean,
@@ -134,14 +155,13 @@ const itemView = (
     String(item.id),
     [h.Class(item.done ? "action-item action-item-done" : "action-item")],
     [
-      h.input([
-        h.Type("checkbox"),
-        h.Class("action-item-tick"),
-        h.Checked(item.done),
-        h.Disabled(model.isSaving),
-        h.AriaLabel(item.text),
-        h.OnChange(() => Message.ToggledItem({ recordingId: inputs.recordingId, item })),
-      ]),
+      checkbox(h, {
+        id: `action-item-${item.id}`,
+        label: item.text,
+        isChecked: item.done,
+        isDisabled: model.isSaving,
+        onToggle: () => Message.ToggledItem({ recordingId: inputs.recordingId, item }),
+      }),
       h.div(
         [h.Class("action-item-body")],
         [
@@ -152,26 +172,15 @@ const itemView = (
               item.owner === null
                 ? h.empty
                 : avatar(h, { name: item.owner.name, src: item.owner.avatarUrl, size: "sm" }),
-              h.select(
-                [
-                  h.Class("text-body-sm action-item-choice"),
-                  h.AriaLabel(`Owner of ${item.text}`),
-                  h.Disabled(model.isSaving),
-                  h.OnChange((chosen) =>
-                    Message.ChoseOwner({ recordingId: inputs.recordingId, item, chosen }),
-                  ),
-                ],
-                [
-                  h.option([h.Value(""), h.Selected(item.owner === null)], [UNASSIGNED]),
-                  ...Array.map(ownerChoices(inputs.members, item.owner), (member) =>
-                    h.keyed("option")(
-                      member.userId,
-                      [h.Value(member.userId), h.Selected(member.userId === item.owner?.userId)],
-                      [member.name],
-                    ),
-                  ),
-                ],
-              ),
+              inlineSelect(h, {
+                id: `action-item-${item.id}-owner`,
+                label: `Owner of ${item.text}`,
+                options: ownerOptions(inputs.members, item.owner),
+                value: item.owner?.userId ?? "",
+                isDisabled: model.isSaving,
+                onChange: (chosen) =>
+                  Message.ChoseOwner({ recordingId: inputs.recordingId, item, chosen }),
+              }),
             ],
           ),
         ],
@@ -186,10 +195,7 @@ const itemsView = (
   h: HtmlBuilder<Message>,
 ): Html =>
   items.length === 0
-    ? h.ul(
-        [h.Class("action-items")],
-        [h.li([h.Class("text-body-sm pb-description")], [NONE_TAKEN_ON])],
-      )
+    ? h.ul([h.Class("action-items")], [descriptionItem(h, [NONE_TAKEN_ON])])
     : h.ul(
         [h.Class("action-items")],
         Array.map(items, (item) => itemView(model, inputs, item, h)),
