@@ -1,5 +1,3 @@
-/* PushBased — generated from tokens.json */
-
 :root {
   --color-primary-25: #fbfaff;
   --color-primary-50: #f5f3ff;
@@ -92,6 +90,7 @@
   --color-brand-navy: #2d0064;
   --color-brand-red: var(--color-secondary-600);
   --color-focus: #9e77ed3d;
+  --color-focus-neutral: #98a2b324;
 
   --space-px: 1px;
   --space-0: 0;
@@ -144,28 +143,11 @@
   --shadow-lg:
     0 0 0.5px 0 rgba(15, 20, 25, 0.18), 0 3px 8px 0 rgba(15, 20, 25, 0.1),
     0 1px 3px 0 rgba(15, 20, 25, 0.1);
-  --shadow-focus: 0 0 0 4px #9e77ed3d;
+  --shadow-focus: 0 0 0 4px var(--color-focus);
+  --shadow-focus-neutral: 0 0 0 4px var(--color-focus-neutral);
 
   --font-sans: Geist, "Geist Fallback", system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
-}
-.text-display-5xl {
-  font-family: var(--font-sans);
-  font-size: 3rem;
-  line-height: 1;
-  font-weight: 600;
-}
-.text-hero-title {
-  font-family: var(--font-sans);
-  font-size: 2.25rem;
-  line-height: 2.5rem;
-  font-weight: 600;
-}
-.text-section-title-lg {
-  font-family: var(--font-sans);
-  font-size: 2rem;
-  line-height: 3rem;
-  font-weight: 600;
 }
 .text-section-title {
   font-family: var(--font-sans);
@@ -177,18 +159,6 @@
   font-family: var(--font-sans);
   font-size: 1.25rem;
   line-height: 1.75rem;
-  font-weight: 500;
-}
-.text-lead {
-  font-family: var(--font-sans);
-  font-size: 1.125rem;
-  line-height: 1.75rem;
-  font-weight: 400;
-}
-.text-card-title {
-  font-family: var(--font-sans);
-  font-size: 1rem;
-  line-height: 1.5rem;
   font-weight: 500;
 }
 .text-body {
@@ -210,23 +180,10 @@
   line-height: 1rem;
   font-weight: 400;
 }
-.text-button {
-  font-family: var(--font-sans);
-  font-size: 1rem;
-  line-height: 1.5rem;
-  font-weight: 500;
-}
 .text-subtitle {
   font-family: var(--font-mono);
   font-size: 0.875rem;
   line-height: 1.25rem;
   font-weight: 600;
-  text-transform: uppercase;
-}
-.text-link-mono {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  line-height: 1;
-  font-weight: 500;
   text-transform: uppercase;
 }

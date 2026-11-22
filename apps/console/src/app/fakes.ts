@@ -89,5 +89,3 @@ export const fakeDiscord = () => ({
       .mockResolvedValue({ opened: true }),
   },
 });
-
-export type FakeDiscord = ReturnType<typeof fakeDiscord>;

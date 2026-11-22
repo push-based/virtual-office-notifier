@@ -33,7 +33,7 @@ const signedInWithFakeSession = Layer.succeed(
   }),
 );
 
-export const fakeSignIn = HttpApiBuilder.group(RecordingApi, "signIn", (handlers) =>
+const fakeSignIn = HttpApiBuilder.group(RecordingApi, "signIn", (handlers) =>
   handlers
     .handle("config", () => Effect.succeed({ clientId: "client-1" }))
     .handle("token", () =>
@@ -55,7 +55,7 @@ type GroupName =
   | "consent"
   | "erasureAdmin";
 
-export type FakeGroups = {
+type FakeGroups = {
   readonly [Name in GroupName]?: Layer.Layer<
     HttpApiGroup.Service<"console", Name>,
     never,

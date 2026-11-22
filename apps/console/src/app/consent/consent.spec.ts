@@ -309,7 +309,7 @@ describe("the deletion requests", () => {
       ),
       Scene.Command.resolve(
         ErasureAdmin.DecideErasure,
-        ErasureAdmin.Message.FailedDecideErasure({ isAlreadyDecided: true }),
+        ErasureAdmin.Message.FailedDecideErasure({ why: "already_decided" }),
       ),
       Scene.expect(Scene.text(ErasureAdmin.ALREADY_DECIDED.text)).toExist(),
       Scene.Command.resolve(

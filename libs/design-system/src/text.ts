@@ -33,7 +33,11 @@ export const descriptionItem = <Message>(
   children: ReadonlyArray<Content>,
 ): Html => h.li([h.Class("text-body-sm pb-description")], children);
 
-export const heading = <Message>(h: HtmlBuilder<Message>, text: string): Html =>
-  h.h2([h.Class("text-section-title pb-heading")], [text]);
+export interface HeadingConfig {
+  readonly text: string;
+}
+
+export const heading = <Message>(h: HtmlBuilder<Message>, config: HeadingConfig): Html =>
+  h.h2([h.Class("text-section-title pb-heading")], [config.text]);
 
 export const divider = <Message>(h: HtmlBuilder<Message>): Html => h.hr([h.Class("pb-divider")]);
