@@ -1,4 +1,4 @@
-import { Option, Schema } from "effect";
+import { Array, Option, Schema } from "effect";
 import { Update } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
@@ -28,7 +28,7 @@ const VIEWS: ReadonlyArray<Tabs.Tab<View>> = [
   { id: "history", label: "History" },
 ];
 
-const viewOf = (value: string): View => (Schema.is(View)(value) ? value : "now");
+const ViewTabs = Tabs.create(VIEWS);
 
 const Model = Schema.Struct({ tabs: Tabs.Model, selected: View });
 
@@ -40,14 +40,17 @@ type Message = typeof Message.Type;
 
 const toTabsMessage = (message: Tabs.Message) => Message.GotTabsMessage({ message });
 
-const foldTabsOutMessage = Tabs.OutMessage.match<Update.Step<Model, Message>>({
+const foldTabsOutMessage = Tabs.OutMessage.match<
+  Update.Step<Model, Message>,
+  Tabs.OutMessage<View>
+>({
   Selected:
     ({ value }) =>
-    (stepModel) => ({ model: modifyFields(stepModel, { selected: () => viewOf(value) }) }),
+    (stepModel) => ({ model: modifyFields(stepModel, { selected: () => value }) }),
 });
 
 const foldTabs = Update.foldChild({
-  update: Tabs.update,
+  update: ViewTabs.update,
   read: (model: Model) => Option.some(model.tabs),
   write: (model, nextTabs) => modifyFields(model, { tabs: () => nextTabs }),
   toParentMessage: toTabsMessage,
@@ -59,18 +62,26 @@ const update = (model: Model, message: Message) =>
     GotTabsMessage: ({ message: tabsMessage }) => foldTabs(model, tabsMessage),
   });
 
-const view = (model: Model, h: HtmlBuilder<Message>) =>
-  Tabs.view(h, {
-    slotId: "views",
+const viewIn = (appearance: Tabs.Appearance) => (model: Model, h: HtmlBuilder<Message>) =>
+  ViewTabs.view(h, {
     model: model.tabs,
     label: "Views",
-    tabs: VIEWS,
     selected: model.selected,
-    appearance: "underline",
+    appearance,
     toParentMessage: toTabsMessage,
     toView: ({ tablist, panel }) =>
-      h.div([], [tablist, panel(model.selected, [h.Class("panel")], [`${model.selected} panel`])]),
+      h.div(
+        [],
+        [
+          tablist,
+          ...Array.map(VIEWS, ({ id }) =>
+            panel(id, id === model.selected ? [h.Class("panel")] : [], [`${id} panel`]),
+          ),
+        ],
+      ),
   });
+
+const view = viewIn("underline");
 
 const start = (selected: View): Model => ({ tabs: Tabs.init("view"), selected });
 
@@ -98,6 +109,19 @@ describe("Tabs", () => {
       expect(role("tabpanel", { name: "Stats" })).toHaveText("stats panel"),
       expect(role("tabpanel", { name: "Stats" })).toHaveClass("panel"),
       expect(selector(".panel")).toHaveAttr("tabIndex", "-1"),
+    );
+  });
+
+  it("points every tab at a panel that's in the page, and hides the ones not selected", () => {
+    scene(
+      { update, view },
+      given(start("stats")),
+      expect(tab("Now")).toHaveAttr("aria-controls", "view-panel-0"),
+      expect(selector("#view-panel-0")).toExist(),
+      expect(selector("#view-panel-0")).toHaveAttr("hidden", "true"),
+      expect(tab("History")).toHaveAttr("aria-controls", "view-panel-2"),
+      expect(selector("#view-panel-2")).toHaveAttr("hidden", "true"),
+      expect(selector("#view-panel-1")).toHaveAttr("hidden", "false"),
     );
   });
 
@@ -146,6 +170,18 @@ describe("Tabs", () => {
       keydown(tab("Now"), "a"),
       expectIgnored(),
       expect(tab("Now")).toHaveAttr("aria-selected", "true"),
+    );
+  });
+
+  it("draws the tab list as pills when asked, with the same keyboard behaviour", () => {
+    scene(
+      { update, view: viewIn("pills") },
+      given(start("now")),
+      expect(role("tablist", { name: "Views" })).toHaveClass("pb-tabs-pills"),
+      keydown(tab("Now"), "ArrowRight"),
+      focused,
+      expect(tab("Stats")).toHaveAttr("aria-selected", "true"),
+      expect(role("tabpanel", { name: "Stats" })).toHaveText("stats panel"),
     );
   });
 });

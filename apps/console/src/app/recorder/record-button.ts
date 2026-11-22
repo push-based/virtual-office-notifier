@@ -1,7 +1,7 @@
 import { button } from "design-system";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
-export interface RecordButtonConfig<Message> {
+interface RecordButtonConfig<Message> {
   readonly isRecording: boolean;
   readonly isBusy: boolean;
   readonly isDisabled: boolean;

@@ -4,7 +4,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { AGENDA_MAX_LENGTH, TITLE_MAX_LENGTH } from "office-domain/wire";
 import { type Draft, STYLE_OPTIONS } from "./plan.ts";
 
-export interface PlanFieldsConfig<Message> {
+interface PlanFieldsConfig<Message> {
   readonly idPrefix: string;
   readonly draft: Draft;
   readonly isDisabled: boolean;

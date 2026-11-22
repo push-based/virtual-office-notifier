@@ -13,11 +13,12 @@ import type {
 } from "office-domain/RecordingRequest";
 
 import type { DiscordClient } from "../session/session.ts";
+import { anna, listedRecording, recordingDetail } from "../history/fixtures.ts";
 import { fakeResources, fakeWorker } from "./fake-worker.ts";
 
-export const SCENARIOS = ["idle", "recording", "paused", "away", "admin"] as const;
+const SCENARIOS = ["idle", "recording", "paused", "away", "admin"] as const;
 
-export type Scenario = (typeof SCENARIOS)[number];
+type Scenario = (typeof SCENARIOS)[number];
 
 export const scenarioOf = (search: string): Scenario =>
   Option.getOrElse(
@@ -29,8 +30,6 @@ export const scenarioOf = (search: string): Scenario =>
   );
 
 const at = (iso: string) => DateTime.makeUnsafe(iso);
-
-const anna: OfficeMember = { userId: "u1", name: "Anna", avatarUrl: null };
 
 const ben: OfficeMember = { userId: "u2", name: "Ben", avatarUrl: null };
 
@@ -76,55 +75,48 @@ const statusFor = (scenario: Scenario, now: DateTime.Utc): RecordingStatus => {
 };
 
 const LISTED: ReadonlyArray<ListedRecording> = [
-  {
+  listedRecording({
     id: "0b6e5b0e-1d7a-4c62-9f1e-3c1f8a2d4b51",
-    state: "finished",
     startedAt: at("2026-11-20T09:30:00.000Z"),
     stoppedAt: at("2026-11-20T10:12:00.000Z"),
-    startedBy: anna,
     speakers: [anna, ben, chloe],
     title: "Sprint planning",
-  },
-  {
+  }),
+  listedRecording({
     id: "4f3c2a1b-9e8d-4c7b-a6f5-e4d3c2b1a098",
-    state: "finished",
     startedAt: at("2026-11-18T14:00:00.000Z"),
     stoppedAt: at("2026-11-18T14:31:00.000Z"),
     startedBy: ben,
     speakers: [ben, chloe],
-    title: null,
-  },
+  }),
 ];
 
-const detailOf = (listed: ListedRecording): RecordingDetail => ({
-  ...listed,
-  agenda: listed.title === null ? null : "Goals for the sprint\nWho takes what",
-  stopReason: "requested",
-  stoppedBy: listed.startedBy,
-  summary: "• The deploy checklist gets a rollback step\n• Chloé pairs with Ben on the VPN",
-  summaryModel: "a fake model",
-  summaryStyle: "brief",
-  summaryWrittenStyle: "brief",
-  rewriting: false,
-  slackPermalink: "https://example.slack.com/archives/C0/p1",
-  clips: [
-    {
-      speaker: anna,
-      startedAt: DateTime.add(listed.startedAt, { minutes: 1 }),
-      text: "Morning all",
-    },
-    {
-      speaker: ben,
-      startedAt: DateTime.add(listed.startedAt, { minutes: 2 }),
-      text: "Let's start with the deploy",
-    },
-  ],
-  actionItems: [
-    { id: 1, text: "add a rollback step to the deploy checklist", owner: anna, done: false },
-    { id: 2, text: "pair on the VPN", owner: chloe, done: true },
-  ],
-  members: [anna, ben, chloe],
-});
+const detailOf = (listed: ListedRecording): RecordingDetail =>
+  recordingDetail({
+    ...listed,
+    agenda: listed.title === null ? null : "Goals for the sprint\nWho takes what",
+    stoppedBy: listed.startedBy,
+    summary: "• The deploy checklist gets a rollback step\n• Chloé pairs with Ben on the VPN",
+    summaryModel: "a fake model",
+    slackPermalink: "https://example.slack.com/archives/C0/p1",
+    clips: [
+      {
+        speaker: anna,
+        startedAt: DateTime.add(listed.startedAt, { minutes: 1 }),
+        text: "Morning all",
+      },
+      {
+        speaker: ben,
+        startedAt: DateTime.add(listed.startedAt, { minutes: 2 }),
+        text: "Let's start with the deploy",
+      },
+    ],
+    actionItems: [
+      { id: 1, text: "add a rollback step to the deploy checklist", owner: anna, done: false },
+      { id: 2, text: "pair on the VPN", owner: chloe, done: true },
+    ],
+    members: [anna, ben, chloe],
+  });
 
 const statsFor = (range: OfficeStats["range"], now: DateTime.Utc): OfficeStats => ({
   range,

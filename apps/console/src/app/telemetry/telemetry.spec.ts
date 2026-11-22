@@ -61,7 +61,7 @@ describe("the telemetry", () => {
       const errors: Array<string | undefined> = [];
 
       Sentry.init({
-        ...sentryOptionsFor(telemetry),
+        ...sentryOptionsFor(Sentry, telemetry),
         transport: (options) =>
           Sentry.createTransport(options, () => {
             sentTo.push(options.url);
@@ -75,7 +75,7 @@ describe("the telemetry", () => {
         },
       });
 
-      reportCrash(new Error("The page caught fire"));
+      yield* Effect.promise(() => reportCrash(new Error("The page caught fire")));
       yield* Effect.promise(() => Sentry.flush(2000));
 
       expect(errors).toEqual(["The page caught fire"]);
@@ -84,6 +84,6 @@ describe("the telemetry", () => {
   );
 
   it("leaves the release out when the Worker has none", () => {
-    expect(sentryOptionsFor({ ...telemetry, release: null }).release).toBeUndefined();
+    expect(sentryOptionsFor(Sentry, { ...telemetry, release: null }).release).toBeUndefined();
   });
 });
