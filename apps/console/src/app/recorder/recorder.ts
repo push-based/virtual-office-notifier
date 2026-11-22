@@ -270,16 +270,18 @@ export const update = (model: Model, message: Message) =>
     CompletedShowPresence: () => ({ model }),
 
     UpdatedDraftTitle: ({ value }) => ({
-      model: modifyFields(model, { draft: (draft) => ({ ...draft, title: value }) }),
+      model: modifyFields(model, { draft: (draft) => modifyFields(draft, { title: () => value }) }),
     }),
 
     UpdatedDraftAgenda: ({ value }) => ({
-      model: modifyFields(model, { draft: (draft) => ({ ...draft, agenda: value }) }),
+      model: modifyFields(model, {
+        draft: (draft) => modifyFields(draft, { agenda: () => value }),
+      }),
     }),
 
     UpdatedDraftSummaryStyle: ({ value }) => ({
       model: modifyFields(model, {
-        draft: (draft) => ({ ...draft, summaryStyle: summaryStyleOf(value) }),
+        draft: (draft) => modifyFields(draft, { summaryStyle: () => summaryStyleOf(value) }),
       }),
     }),
 

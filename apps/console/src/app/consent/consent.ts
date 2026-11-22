@@ -205,19 +205,22 @@ const foldAdmin = Update.foldChild({
   toParentMessage: (message) => Message.GotAdminMessage({ message }),
 });
 
+const stepAdmin = Update.foldChild({
+  update: (
+    admin: ErasureAdmin.Model,
+    step: Update.Step<ErasureAdmin.Model, ErasureAdmin.Message, Resources>,
+  ) => step(admin),
+  read: (model: Model) => Option.some(model.admin),
+  write: (model, nextAdmin) => modifyFields(model, { admin: () => nextAdmin }),
+  toParentMessage: (message) => Message.GotAdminMessage({ message }),
+});
+
 const withAdminCases = (model: Model, status: ConsentStatus): UpdateReturn => {
   if (!status.admin || !AsyncData.isIdle(model.admin.cases)) {
     return { model };
   }
 
-  const adminOpen = ErasureAdmin.open(model.admin);
-
-  return {
-    model: modifyFields(model, { admin: () => adminOpen.model }),
-    commands: Command.mapMessages(adminOpen.commands, (message) =>
-      Message.GotAdminMessage({ message }),
-    ),
-  };
+  return stepAdmin(model, ErasureAdmin.open);
 };
 
 export const update = (model: Model, message: Message) =>

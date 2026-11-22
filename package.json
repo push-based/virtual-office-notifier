@@ -11,6 +11,7 @@
   },
   "devDependencies": {
     "@effect/tsgo": "0.63.0",
+    "@foldkit/oxlint-plugin": "0.15.4",
     "@types/node": "26.6.5",
     "effect": "catalog:",
     "typescript": "7.0.2",

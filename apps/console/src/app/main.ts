@@ -136,27 +136,43 @@ const foldConsent = Update.foldChild({
   toParentMessage: toConsentMessage,
 });
 
+const stepRecorder = Update.foldChild({
+  update: (
+    recorder: Recorder.Model,
+    step: Update.Step<Recorder.Model, Recorder.Message, Resources>,
+  ) => step(recorder),
+  read: (model: Model) => Option.some(model.recorder),
+  write: (model, nextRecorder) => modifyFields(model, { recorder: () => nextRecorder }),
+  toParentMessage: toRecorderMessage,
+});
+
+const stepStats = Update.foldChild({
+  update: (stats: Stats.Model, step: Update.Step<Stats.Model, Stats.Message, Resources>) =>
+    step(stats),
+  read: (model: Model) => Option.some(model.stats),
+  write: (model, nextStats) => modifyFields(model, { stats: () => nextStats }),
+  toParentMessage: toStatsMessage,
+});
+
+const stepConsent = Update.foldChild({
+  update: (consent: Consent.Model, step: Update.Step<Consent.Model, Consent.Message, Resources>) =>
+    step(consent),
+  read: (model: Model) => Option.some(model.consent),
+  write: (model, nextConsent) => modifyFields(model, { consent: () => nextConsent }),
+  toParentMessage: toConsentMessage,
+});
+
 const openView = (model: Model): UpdateReturn => {
   if (!isSignedIn(model)) {
     return { model };
   }
 
   if (model.view === "stats") {
-    const statsOpen = Stats.open(model.stats);
-
-    return {
-      model: modifyFields(model, { stats: () => statsOpen.model }),
-      commands: Command.mapMessages(statsOpen.commands, toStatsMessage),
-    };
+    return stepStats(model, Stats.open);
   }
 
   if (model.view === "privacy") {
-    const consentOpen = Consent.open(model.consent);
-
-    return {
-      model: modifyFields(model, { consent: () => consentOpen.model }),
-      commands: Command.mapMessages(consentOpen.commands, toConsentMessage),
-    };
+    return stepConsent(model, Consent.open);
   }
 
   return { model };
@@ -169,27 +185,17 @@ export const update = (model: Model, message: Message) =>
         ? { model }
         : openView(modifyFields(model, { view: () => viewOf(view) })),
 
-    SucceededSignIn: () => {
-      const recorderSignedIn = Recorder.signedIn(model.recorder);
+    SucceededSignIn: () =>
+      Update.combine(modifyFields(model, { signIn: () => SignIn.SignedIn() }), [
+        stepRecorder(Recorder.signedIn),
+        openView,
+      ]),
 
-      return openView(
-        modifyFields(model, {
-          signIn: () => SignIn.SignedIn(),
-          recorder: () => recorderSignedIn.model,
-        }),
-      );
-    },
-
-    FailedSignIn: ({ reason }) => {
-      const recorderFailed = Recorder.failedSignIn(model.recorder, reason);
-
-      return {
-        model: modifyFields(model, {
-          signIn: () => SignIn.FailedSignIn({ reason }),
-          recorder: () => recorderFailed.model,
-        }),
-      };
-    },
+    FailedSignIn: ({ reason }) =>
+      stepRecorder(
+        modifyFields(model, { signIn: () => SignIn.FailedSignIn({ reason }) }),
+        (recorder) => Recorder.failedSignIn(recorder, reason),
+      ),
 
     CompletedStartTelemetry: () => ({ model }),
 
