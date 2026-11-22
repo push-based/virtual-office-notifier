@@ -29,12 +29,10 @@ const scene = {
 
 describe("the office stats", () => {
   it("loads this week's stats once it's opened, and shows them", () => {
-    Story.story(
-      update,
-      Story.given(open(init()).model),
-      Story.model((model) => expect(model.stats).toEqual(StatsData.Loading())),
-    );
-    expect(Array.map(open(init()).commands ?? [], ({ name, args }) => ({ name, args }))).toEqual([
+    const opened = open(init());
+
+    expect(opened.model.stats).toEqual(StatsData.Loading());
+    expect(Array.map(opened.commands ?? [], ({ name, args }) => ({ name, args }))).toEqual([
       { name: FetchStats.name, args: { range: "week", request: 1 } },
     ]);
     Scene.scene(

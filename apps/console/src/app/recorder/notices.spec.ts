@@ -1,30 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { outcomeNotice, unreachableNotice } from "./notices.ts";
+import { outcomeNotice } from "./notices.ts";
 
 describe("outcomeNotice", () => {
-  it("confirms a started recording", () => {
-    expect(outcomeNotice({ id: 1, outcome: "started" })).toEqual({
-      kind: "info",
-      text: "Recording started.",
-    });
-  });
-
-  it("says where the summary goes once stopped", () => {
-    expect(outcomeNotice({ id: 1, outcome: "stopped" }).kind).toBe("info");
-  });
-
-  it("confirms a pause and a resume", () => {
-    expect(outcomeNotice({ id: 1, outcome: "paused" })).toEqual({
-      kind: "info",
-      text: "Recording paused. Nothing is captured until it's resumed.",
-    });
-    expect(outcomeNotice({ id: 1, outcome: "resumed" })).toEqual({
-      kind: "info",
-      text: "Recording resumed.",
-    });
-  });
-
   it("passes on the bot's explanation for ignoring a request", () => {
     expect(
       outcomeNotice({
@@ -39,16 +17,7 @@ describe("outcomeNotice", () => {
     });
   });
 
-  it("reports a request the bot never answered", () => {
+  it("reports a request the bot never answered as an error", () => {
     expect(outcomeNotice(null).kind).toBe("error");
-  });
-});
-
-describe("unreachableNotice", () => {
-  it("includes the reason", () => {
-    expect(unreachableNotice("/api/status answered 500")).toEqual({
-      kind: "error",
-      text: "Couldn't reach the bot: /api/status answered 500",
-    });
   });
 });

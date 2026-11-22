@@ -155,7 +155,7 @@ const leave = (overrides: Partial<VoiceStateUpdate> = {}) =>
   update({ oldChannelId: OFFICE, newChannelId: null, ...overrides });
 
 describe("program", () => {
-  it.effect("1. announces the first join from outside voice with name and join link", () =>
+  it.effect("announces the first join from outside voice with name and join link", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([update({ oldChannelId: null })]);
 
@@ -179,7 +179,7 @@ describe("program", () => {
     }),
   );
 
-  it.effect("2. announces the office opening on a move in from another voice channel", () =>
+  it.effect("announces the office opening on a move in from another voice channel", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([update({ oldChannelId: "lobby" })]);
 
@@ -187,7 +187,7 @@ describe("program", () => {
     }),
   );
 
-  it.effect("3. ignores mute, deafen and video changes inside the office", () =>
+  it.effect("ignores mute, deafen and video changes inside the office", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram(
         [update({ oldChannelId: OFFICE, newChannelId: OFFICE })],
@@ -199,7 +199,7 @@ describe("program", () => {
     }),
   );
 
-  it.effect("4. ignores bots joining and leaving the office", () =>
+  it.effect("ignores bots joining and leaving the office", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([update({ isBot: true }), leave({ isBot: true })]);
 
@@ -207,7 +207,7 @@ describe("program", () => {
     }),
   );
 
-  it.effect("5. ignores other voice channels", () =>
+  it.effect("ignores other voice channels", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([
         update({ newChannelId: "lobby" }),
@@ -218,7 +218,7 @@ describe("program", () => {
     }),
   );
 
-  it.effect("6. shows a display name with <, > and & literally without pinging", () =>
+  it.effect("shows a display name with <, > and & literally without pinging", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([update({ displayName: "<!channel> & <@U1>" })]);
 
@@ -227,7 +227,7 @@ describe("program", () => {
     }),
   );
 
-  it.effect("7. only announces the office opening and emptying, not everyone in between", () =>
+  it.effect("only announces the office opening and emptying, not everyone in between", () =>
     Effect.gen(function* () {
       const { posted } = yield* runProgram([
         update({ userId: "u1", displayName: "Ada" }),
@@ -242,7 +242,7 @@ describe("program", () => {
     }),
   );
 
-  it.effect("8. logs revoked Slack access as an error and keeps handling events", () =>
+  it.effect("logs revoked Slack access as an error and keeps handling events", () =>
     Effect.gen(function* () {
       const { posted, logs } = yield* runProgram(
         [update(), leave()],

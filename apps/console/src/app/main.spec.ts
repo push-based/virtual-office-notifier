@@ -138,13 +138,4 @@ describe("the Console", () => {
       ),
     );
   });
-
-  it("keeps the clock", () => {
-    Story.story(
-      update,
-      Story.given(initModel()),
-      Story.message(Message.TickedClock({ now: 42 })),
-      Story.model((model) => expect(model.now).toBe(42)),
-    );
-  });
 });

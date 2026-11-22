@@ -1,11 +1,12 @@
-import { DateTime, identity, Option } from "effect";
+import { identity, Option } from "effect";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { modifyFields } from "foldkit/struct";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { RecordingStatus, RunningRecording } from "office-domain/RecordingRequest";
+import type { RecordingStatus } from "office-domain/RecordingRequest";
 import { SignIn } from "../session/sign-in.ts";
+import { idle, paused, recording } from "./fixtures.ts";
 import {
   Connection,
   FetchStatus,
@@ -19,34 +20,6 @@ import {
   view,
   WaitBeforeDismissal,
 } from "./recorder.ts";
-
-const idle: RecordingStatus = {
-  botInOffice: true,
-  occupants: [{ userId: "u2", displayName: "Ben", avatarUrl: null, speaking: false }],
-  recording: null,
-  updatedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
-};
-
-const chris: RunningRecording = {
-  id: "r1",
-  startedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
-  startedByName: "Chris",
-  endsAt: DateTime.makeUnsafe("2026-10-27T16:00:00Z"),
-  pause: null,
-  title: "Deploy retro",
-  agenda: null,
-  summaryStyle: "brief",
-};
-
-const recording: RecordingStatus = { ...idle, recording: chris };
-
-const paused: RecordingStatus = {
-  ...idle,
-  recording: {
-    ...chris,
-    pause: { since: DateTime.makeUnsafe("2026-10-27T12:20:00Z"), byName: "Ben" },
-  },
-};
 
 const loaded = (status: RecordingStatus): Model =>
   modifyFields(init(), {

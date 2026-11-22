@@ -16,11 +16,9 @@ const STATUS = {
   updatedAt: "2026-10-27T12:00:00.000Z",
 };
 
-const reported: Array<string> = [];
-
-const gaveUpWith: Array<GatewayFailure> = [];
-
 const answering = (...answers: ReadonlyArray<ReturnType<FakeRoutes>>) => {
+  const reported: Array<string> = [];
+  const gaveUpWith: Array<GatewayFailure> = [];
   let next = 0;
 
   const server = fakeServer(() => {
@@ -49,7 +47,7 @@ const answering = (...answers: ReadonlyArray<ReturnType<FakeRoutes>>) => {
     }),
   );
 
-  return { server, layer };
+  return { server, layer, reported, gaveUpWith };
 };
 
 const status = ConsoleApi.use((api) => api.recording.status());
@@ -106,8 +104,7 @@ describe("the API", () => {
   });
 
   it.effect("gives up on an attempt that hangs, and asks again", () => {
-    reported.length = 0;
-    const { server, layer } = answering("hangs", { body: STATUS });
+    const { server, layer, reported } = answering("hangs", { body: STATUS });
 
     return Effect.gen(function* () {
       const fiber = yield* Effect.forkChild(status);
@@ -132,9 +129,7 @@ describe("the API", () => {
   it.effect(
     "asks again when Discord's proxy briefly answers 503, and reports only the retry",
     () => {
-      reported.length = 0;
-
-      const { server, layer } = answering(unavailable, { body: STATUS });
+      const { server, layer, reported } = answering(unavailable, { body: STATUS });
 
       return Effect.gen(function* () {
         const fiber = yield* Effect.forkChild(status);
@@ -150,8 +145,7 @@ describe("the API", () => {
   );
 
   it.effect("gives up with the last failure once the retries are used up, and reports it", () => {
-    reported.length = 0;
-    const { server, layer } = answering(unavailable);
+    const { server, layer, reported } = answering(unavailable);
 
     return Effect.gen(function* () {
       const fiber = yield* Effect.forkChild(reasonFor(status));
@@ -170,9 +164,7 @@ describe("the API", () => {
 
   it.effect("says in words when the Worker itself says the bot's records are out of reach", () =>
     Effect.gen(function* () {
-      reported.length = 0;
-
-      const { layer } = answering({
+      const { layer, reported } = answering({
         status: 503,
         body: yield* encodeError(HttpApiError.ServiceUnavailable.make({})),
       });
@@ -186,9 +178,7 @@ describe("the API", () => {
 
   it.effect("doesn't ask again or report when the Worker itself refused", () =>
     Effect.gen(function* () {
-      reported.length = 0;
-
-      const { server, layer } = answering({
+      const { server, layer, reported } = answering({
         status: 401,
         body: yield* encodeError(Unauthorized.make()),
       });
@@ -204,9 +194,7 @@ describe("the API", () => {
   it.effect(
     "never sends a request that changes something twice, but reports the proxy's answer",
     () => {
-      reported.length = 0;
-
-      const { server, layer } = answering(unavailable);
+      const { server, layer, reported } = answering(unavailable);
 
       return Effect.gen(function* () {
         expect(yield* reasonFor(stop)).toBe("/api/requests answered 503");
@@ -218,8 +206,7 @@ describe("the API", () => {
   );
 
   it.effect("keeps what says who answered a gateway failure", () => {
-    gaveUpWith.length = 0;
-    const { layer } = answering({ ...unavailable, body: "upstream connect error" });
+    const { layer, gaveUpWith } = answering({ ...unavailable, body: "upstream connect error" });
 
     return Effect.gen(function* () {
       yield* Effect.flip(stop);

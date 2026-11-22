@@ -27,17 +27,20 @@ const feed = (partial: PartialClip, fills: ReadonlyArray<number>, now = at) =>
   });
 
 describe("ClipCutter", () => {
-  it("collects packets into one clip until it's flushed", () => {
+  it("collects packets into one clip until it's flushed, then starts empty again", () => {
     const fed = feed(startClip("u1", at), [1, 2, 3]);
 
     assert.deepStrictEqual(fed.finished, []);
     assert.strictEqual(fed.partial.startedAt, at);
     assert.strictEqual(Duration.toMillis(fed.partial.duration), 60);
 
+    const cut = flush(fed.partial);
+
     assert.deepStrictEqual(
-      flush(fed.partial).finished,
+      cut.finished,
       Option.some({ userId: "u1", startedAt: at, packets: [packet(1), packet(2), packet(3)] }),
     );
+    assert.deepStrictEqual(flush(cut.partial).finished, Option.none());
   });
 
   it("cuts a clip once it reaches the longest a clip can be, and starts the next one then", () => {
@@ -76,16 +79,5 @@ describe("ClipCutter", () => {
 
     assert.deepStrictEqual(cut.finished, Option.none());
     assert.strictEqual(cut.partial.startedAt, at);
-  });
-
-  it("finishes the partial clip when flushed, and starts empty again", () => {
-    const fed = feed(startClip("u1", at), [1, 2]);
-    const cut = flush(fed.partial);
-
-    assert.deepStrictEqual(
-      cut.finished,
-      Option.some({ userId: "u1", startedAt: at, packets: [packet(1), packet(2)] }),
-    );
-    assert.deepStrictEqual(flush(cut.partial).finished, Option.none());
   });
 });

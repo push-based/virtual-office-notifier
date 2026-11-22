@@ -117,20 +117,12 @@ describe("checkbox", () => {
       ),
     );
 
-  it("is a native checkbox named by its label", () => {
+  it("is a native checkbox named by its visible label", () => {
     scene(
       ticks(true),
       given<Clicks>([]),
       expect(role("checkbox", { name: "write up the checklist" })).toBeChecked(),
       expect(role("checkbox", { name: "write up the checklist" })).toHaveAttr("type", "checkbox"),
-    );
-  });
-
-  it("is named by the visible text, which is its label", () => {
-    scene(
-      ticks(false),
-      given<Clicks>([]),
-      expect(role("checkbox", { name: "write up the checklist" })).toExist(),
       expect(selector(".sr-only")).toBeAbsent(),
     );
   });

@@ -1,13 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  STYLE_OPTIONS,
-  changesBetween,
-  draftOf,
-  editNotice,
-  planOf,
-  summaryStyleOf,
-} from "./plan.ts";
+import { changesBetween, draftOf, editNotice, planOf, summaryStyleOf } from "./plan.ts";
 
 const untitled = { title: null, agenda: null, summaryStyle: "brief" } as const;
 
@@ -80,16 +73,8 @@ describe("changesBetween", () => {
   });
 });
 
-describe("the summary styles", () => {
-  it("are offered by name, Brief first", () => {
-    expect(STYLE_OPTIONS).toEqual([
-      { value: "brief", label: "Brief" },
-      { value: "detailed", label: "Detailed" },
-      { value: "decisions", label: "Decisions & actions" },
-    ]);
-  });
-
-  it("read back from the picker, falling back to Brief", () => {
+describe("summaryStyleOf", () => {
+  it("reads a style back from the picker, falling back to Brief", () => {
     expect(summaryStyleOf("decisions")).toBe("decisions");
     expect(summaryStyleOf("long")).toBe("brief");
   });

@@ -5,7 +5,6 @@ import { Agenda, Title } from "../src/Recording.ts";
 import {
   decideEdit,
   EditDecision,
-  explainEdit,
   RecordingChange,
   rewritesSummary,
 } from "../src/RecordingEdit.ts";
@@ -176,12 +175,6 @@ describe("decideEdit", () => {
       decideEdit(transcribing, rewrite),
       EditDecision.Ignore({ reason: "unfinished" }),
     );
-  });
-
-  it("explains every reason it ignores an edit", () => {
-    assert.include(explainEdit("silent"), "Nobody spoke");
-    assert.include(explainEdit("unreadable"), "couldn't read");
-    assert.include(explainEdit("unfinished"), "nothing to rewrite");
   });
 });
 

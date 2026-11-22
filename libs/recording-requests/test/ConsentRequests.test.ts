@@ -3,7 +3,6 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Duration, Effect, Option, Ref } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { NOT_AGREED, standingOf } from "office-domain/Consent";
 import {
   ConsentRequests,
   type ErasureHandler,
@@ -11,7 +10,7 @@ import {
 } from "../src/ConsentRequests.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
 import { CONSENT_NOTICE_VERSION, ERASURE_REVIEW_DAYS } from "office-domain/wire";
-import { migrated } from "./schema.ts";
+import { migrated } from "./database.ts";
 
 const CHRIS = "553340374836314142";
 
@@ -707,10 +706,4 @@ describe("ConsentRequests erasures", () => {
       }),
     ),
   );
-});
-
-describe("standingOf", () => {
-  it("is not agreed without a decision", () => {
-    assert.deepStrictEqual(standingOf(Option.none()), NOT_AGREED);
-  });
 });

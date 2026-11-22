@@ -18,19 +18,14 @@ import { TestClock } from "effect/testing";
 import { connectedTo, QUERY_TIMEOUT } from "../src/Query.ts";
 import { RecordingRequests, type RequestHandler } from "../src/RecordingRequests.ts";
 import { columnNaming } from "../src/SqlNaming.ts";
-import { migrated } from "./schema.ts";
-
-class ConnectionRefused extends Schema.TaggedError<
-  ConnectionRefused,
-  { readonly brand: unique symbol }
->()("ConnectionRefused", { message: Schema.String }) {}
-
-interface Connections {
-  opened: number;
-  closed: number;
-}
-
-const ada = { id: "u1", name: "Ada" };
+import {
+  ada,
+  type Connections,
+  countedConnection,
+  migratedWithAda,
+  stallingBeforeCommit,
+  unreachable,
+} from "./database.ts";
 
 const emptyOffice: RequestHandler<never, never> = {
   situation: Effect.succeed({ occupants: new Set<string>(), active: Option.none() }),
@@ -63,48 +58,6 @@ const adaStarting = (
     ),
 });
 
-const stallingBeforeCommit = (
-  sql: SqlClient.SqlClient,
-  stalled: Deferred.Deferred<void>,
-): SqlClient.SqlClient =>
-  Object.assign(sql.bind(undefined), sql, {
-    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      sql.withTransaction(
-        effect.pipe(
-          Effect.andThen(Deferred.succeed(stalled, undefined)),
-          Effect.andThen(Effect.never),
-        ),
-      ),
-  });
-
-const createTables = Effect.gen(function* () {
-  const sql = yield* SqlClient.SqlClient;
-
-  yield* migrated;
-  yield* sql`
-    INSERT INTO office.members (user_id, display_name, first_seen_at, last_seen_at)
-    VALUES (${ada.id}, ${ada.name}, now(), now())
-  `;
-
-  return sql;
-});
-
-const countedConnection = (sql: SqlClient.SqlClient, connections: Connections) =>
-  Layer.effect(
-    SqlClient.SqlClient,
-    Effect.acquireRelease(
-      Effect.sync(() => {
-        connections.opened += 1;
-
-        return sql;
-      }),
-      () =>
-        Effect.sync(() => {
-          connections.closed += 1;
-        }),
-    ),
-  );
-
 const recordSpans = () => {
   const names: Array<string> = [];
 
@@ -125,7 +78,7 @@ const requestsOver = <E extends Error>(connection: Layer.Layer<SqlClient.SqlClie
 describe("RecordingRequests.layerPerCall", () => {
   it.effect("opens a connection for each call and closes it afterwards", () =>
     Effect.gen(function* () {
-      const sql = yield* createTables;
+      const sql = yield* migratedWithAda;
       const connections: Connections = { opened: 0, closed: 0 };
       const requests = yield* requestsOver(countedConnection(sql, connections));
 
@@ -147,12 +100,7 @@ describe("RecordingRequests.layerPerCall", () => {
 
   it.effect("answers every method as unavailable when it can't connect", () =>
     Effect.gen(function* () {
-      const requests = yield* requestsOver(
-        Layer.effect(
-          SqlClient.SqlClient,
-          Effect.fail(ConnectionRefused.make({ message: "Connection refused" })),
-        ),
-      );
+      const requests = yield* requestsOver(unreachable);
 
       const failures = yield* Effect.all([
         requests.submit(ada, "start").pipe(Effect.flip),
@@ -175,7 +123,7 @@ describe("RecordingRequests.layerPerCall", () => {
 describe("RecordingRequests.handlePending", () => {
   it.effect("traces nothing while no request is waiting, and traces the requests it handles", () =>
     Effect.gen(function* () {
-      yield* createTables;
+      yield* migratedWithAda;
       const requests = yield* RecordingRequests.make(Effect.void);
       const spans = recordSpans();
 
@@ -192,7 +140,7 @@ describe("RecordingRequests.handlePending", () => {
 
   it.effect("reports a request it can't read as an error, not as the database being down", () =>
     Effect.gen(function* () {
-      const sql = yield* createTables;
+      const sql = yield* migratedWithAda;
       const requests = yield* RecordingRequests.make(Effect.void);
 
       yield* sql`ALTER TABLE office.recording_requests DROP CONSTRAINT recording_requests_action_check`;
@@ -211,12 +159,7 @@ describe("RecordingRequests.handlePending", () => {
 
   it.effect("reports a database it can't reach as a warning", () =>
     Effect.gen(function* () {
-      const requests = yield* requestsOver(
-        Layer.effect(
-          SqlClient.SqlClient,
-          Effect.fail(ConnectionRefused.make({ message: "Connection refused" })),
-        ),
-      );
+      const requests = yield* requestsOver(unreachable);
 
       const failure = yield* requests.handlePending(emptyOffice).pipe(Effect.flip);
 
@@ -227,7 +170,7 @@ describe("RecordingRequests.handlePending", () => {
 
   it.effect("gives up on a transaction that doesn't commit in time and rolls it back", () =>
     Effect.gen(function* () {
-      const sql = yield* createTables;
+      const sql = yield* migratedWithAda;
       const stalled = yield* Deferred.make<void>();
       const committed = yield* Ref.make(false);
 
@@ -259,7 +202,7 @@ describe("RecordingRequests.handlePending", () => {
 
   it.effect("passes the handler's own error through and leaves the request waiting", () =>
     Effect.gen(function* () {
-      yield* createTables;
+      yield* migratedWithAda;
       const requests = yield* RecordingRequests.make(Effect.void);
 
       const broken: RequestHandler<CameraBroken, never> = {

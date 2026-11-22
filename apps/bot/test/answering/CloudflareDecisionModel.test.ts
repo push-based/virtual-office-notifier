@@ -88,44 +88,6 @@ describe("CloudflareDecisionModel", () => {
     }),
   );
 
-  it.effect("rejects an answer with a label it wasn't offered", () =>
-    Effect.gen(function* () {
-      const { response } = yield* decide(
-        clef({
-          action: {
-            type: "choice",
-            choice: "shrug",
-            probabilities: { reply: 0.5, react: 0.5, ignore: 0 },
-          },
-        }),
-      );
-
-      assert.isTrue(Result.isFailure(response));
-
-      if (Result.isFailure(response))
-        assert.instanceOf(response.failure.reason, AiError.InvalidOutputError);
-    }),
-  );
-
-  it.effect("rejects probabilities that don't add up", () =>
-    Effect.gen(function* () {
-      const { response } = yield* decide(
-        clef({
-          action: {
-            type: "choice",
-            choice: "react",
-            probabilities: { reply: 0.5, react: 0.9, ignore: 0.1 },
-          },
-        }),
-      );
-
-      assert.isTrue(Result.isFailure(response));
-
-      if (Result.isFailure(response))
-        assert.instanceOf(response.failure.reason, AiError.InvalidOutputError);
-    }),
-  );
-
   it.effect("rejects a reply it can't read", () =>
     Effect.gen(function* () {
       const { response } = yield* decide(

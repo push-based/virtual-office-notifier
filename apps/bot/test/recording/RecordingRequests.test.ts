@@ -1,10 +1,10 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Array, DateTime, Effect, Layer, Option, pipe, Redacted, Schema, String } from "effect";
-import { HttpClientRequest, HttpServer } from "effect/http";
-import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
+import { Array, DateTime, Effect, Layer, Option, pipe, String } from "effect";
+import { HttpServer } from "effect/http";
+import { HttpApiTest } from "effect/http-api";
 import { SqlClient } from "effect/sql";
-import { CurrentRequester, RecordingApi, SignedIn, Unauthorized } from "office-domain/RecordingApi";
+import { RecordingApi } from "office-domain/RecordingApi";
 import { EditHandlers, RecordingHandlers } from "recording-requests/RecordingHandlers";
 import { explainEdit } from "office-domain/RecordingEdit";
 import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEdits";
@@ -13,6 +13,7 @@ import { RecordingRequests, type RequestHandler } from "recording-requests/Recor
 
 import { columnNaming, Database } from "../../src/database/Database.ts";
 import { RecordingStore, StoreUnavailable } from "../../src/recording/RecordingStore.ts";
+import { signedInAs, VALID_SESSION, withSession } from "../fakes.ts";
 
 const ada = { id: "u1", name: "Ada" };
 
@@ -768,20 +769,7 @@ describe("RecordingEdits", () => {
   );
 });
 
-const SignedInTest = Layer.succeed(
-  SignedIn,
-  SignedIn.of({
-    session: (httpEffect, { credential }) =>
-      Redacted.value(credential) === "ada-session"
-        ? Effect.provideService(httpEffect, CurrentRequester, ada)
-        : Effect.fail(Unauthorized.make()),
-  }),
-);
-
-const withSession = (session: string) =>
-  HttpApiMiddleware.layerClient(SignedIn, ({ next, request }) =>
-    next(HttpClientRequest.bearerToken(request, session)),
-  );
+const SignedInTest = signedInAs(ada);
 
 const HttpLayer = Layer.mergeAll(
   RecordingHandlers.pipe(Layer.provide(TestLayer), Layer.provideMerge(SignedInTest)),
@@ -810,7 +798,7 @@ describe("the Console's HTTP API", () => {
         .pipe(Effect.flip);
 
       assert.strictEqual(missing._tag, "RequestNotFound");
-    }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), HttpLayer))),
+    }).pipe(Effect.provide(Layer.mergeAll(withSession(VALID_SESSION), HttpLayer))),
   );
 
   it.effect("starts with a title and agenda, tidied up, and treats blank ones as none", () =>
@@ -844,7 +832,7 @@ describe("the Console's HTTP API", () => {
       `;
 
       assert.deepStrictEqual(styled, { summaryStyle: "decisions" });
-    }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), EditHttpLayer))),
+    }).pipe(Effect.provide(Layer.mergeAll(withSession(VALID_SESSION), EditHttpLayer))),
   );
 
   it.effect(
@@ -879,17 +867,7 @@ describe("the Console's HTTP API", () => {
           .pipe(Effect.flip);
 
         assert.strictEqual(missingRecording._tag, "RecordingNotFound");
-      }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), EditHttpLayer))),
-  );
-
-  it.effect("sends the recording status with times as ISO strings", () =>
-    Effect.gen(function* () {
-      const client = yield* HttpApiTest.groups(RecordingApi, ["recording"]);
-
-      const status = yield* client.recording.status();
-      assert.isFalse(status.botInOffice);
-      assert.isTrue(Schema.is(Schema.DateTimeUtc)(status.updatedAt));
-    }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), HttpLayer))),
+      }).pipe(Effect.provide(Layer.mergeAll(withSession(VALID_SESSION), EditHttpLayer))),
   );
 
   it.effect("turns away anyone without a valid session", () =>

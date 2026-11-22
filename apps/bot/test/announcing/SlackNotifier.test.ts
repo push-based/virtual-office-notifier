@@ -42,6 +42,18 @@ const makeSlack = Effect.fnUntraced(function* (
   return { notifier, requests: fake.requests, recordedPosts: fake.recordedPosts };
 });
 
+const generated = Layer.succeed(
+  HeadlineWriter,
+  HeadlineWriter.of({
+    write: () =>
+      Effect.succeedSome({
+        template: "🛋️ {name} saved you a seat!",
+        button: "🪑 Grab a seat",
+        model: "test/model",
+      }),
+  }),
+);
+
 describe("SlackNotifier", () => {
   it.effect("posts the formatted message to the office channel", () =>
     Effect.gen(function* () {
@@ -81,18 +93,6 @@ describe("SlackNotifier", () => {
 
   it.effect("posts a generated headline when the office opens", () =>
     Effect.gen(function* () {
-      const generated = Layer.succeed(
-        HeadlineWriter,
-        HeadlineWriter.of({
-          write: () =>
-            Effect.succeedSome({
-              template: "🛋️ {name} saved you a seat!",
-              button: "🪑 Grab a seat",
-              model: "test/model",
-            }),
-        }),
-      );
-
       const slack = yield* makeSlack([ok], generated);
 
       yield* slack.notifier.notify(opened);
@@ -105,18 +105,6 @@ describe("SlackNotifier", () => {
 
   it.effect("records each post with what it was and the model that wrote it", () =>
     Effect.gen(function* () {
-      const generated = Layer.succeed(
-        HeadlineWriter,
-        HeadlineWriter.of({
-          write: () =>
-            Effect.succeedSome({
-              template: "🛋️ {name} saved you a seat!",
-              button: "🪑 Grab a seat",
-              model: "test/model",
-            }),
-        }),
-      );
-
       const slack = yield* makeSlack(
         [slackOk({ channel: "C-OFFICE", ts: "1700000000.000200" })],
         generated,

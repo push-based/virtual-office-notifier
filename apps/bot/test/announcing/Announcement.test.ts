@@ -226,8 +226,10 @@ describe("formatMessage", () => {
     expect(texts[count]).toBe(texts[0]);
   });
 
-  it("copes with a negative variant", () => {
-    expect(announce(OfficeEvent.Opened(member), -1).text).toBeTypeOf("string");
+  it("reads a negative variant as its positive", () => {
+    expect(announce(OfficeEvent.Opened(member), -1).text).toBe(
+      announce(OfficeEvent.Opened(member), 1).text,
+    );
   });
 
   it("escapes the display name in every phrasing", () => {

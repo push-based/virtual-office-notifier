@@ -8,7 +8,7 @@ describe("escapeSlackText", () => {
     expect(escapeSlackText("<!channel> & <@U123>")).toBe("&lt;!channel&gt; &amp; &lt;@U123&gt;");
   });
 
-  it("does not double-escape an existing entity", () => {
+  it("escapes the ampersand of an existing entity too", () => {
     expect(escapeSlackText("&lt;")).toBe("&amp;lt;");
   });
 });

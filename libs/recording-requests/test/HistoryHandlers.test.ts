@@ -1,26 +1,15 @@
-import { DiscordOAuth } from "activity-sign-in/DiscordOAuth";
-import { Sessions } from "activity-sign-in/Sessions";
-import { SignedInSession } from "office-domain/SignInApi";
-import { SignInSettings } from "activity-sign-in/SignInSettings";
 import { afterAll, assert, describe, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option, pipe, Redacted, Ref, Schema, String } from "effect";
-import { HttpRouter, HttpServer } from "effect/http";
-import { HttpApiBuilder } from "effect/http-api";
-
-import { ConsentHandlers, ErasureAdminHandlers } from "../src/ConsentHandlers.ts";
-import { ConsentRequests } from "../src/ConsentRequests.ts";
-import { OfficeStatsReader } from "../src/OfficeStats.ts";
+import { DateTime, Effect, Layer, Option, pipe, Ref, Schema, String } from "effect";
 import type { ListedRecording, RecordingDetail } from "office-domain/Recording";
 import type { RecordingChange } from "office-domain/RecordingEdit";
-import { RecordingApi } from "office-domain/RecordingApi";
-import { EditHandlers, HistoryHandlers, RecordingHandlers } from "../src/RecordingHandlers.ts";
+import { SignedInSession } from "office-domain/SignInApi";
+import type * as Wire from "office-domain/wire";
+
+import { ConsentRequests } from "../src/ConsentRequests.ts";
 import { RecordingEdits } from "../src/RecordingEdits.ts";
 import { RecordingHistory } from "../src/RecordingHistory.ts";
-import { recordingUnavailable, RecordingRequests } from "../src/RecordingRequests.ts";
-import { SignedInLayer, SignInHandlers } from "../src/SignInHandlers.ts";
-import { StatsHandlers } from "../src/StatsHandlers.ts";
-import { TelemetryHandlers } from "../src/TelemetryHandlers.ts";
-import type * as Wire from "office-domain/wire";
+import { recordingUnavailable } from "../src/RecordingRequests.ts";
+import { bodyOf, serveApi } from "./api.ts";
 
 const RECORDING = "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10";
 
@@ -113,49 +102,9 @@ const AdminConsent = Layer.effect(
   }),
 ).pipe(Layer.provide(ConsentRequests.layerDisabled));
 
-const Discord = Layer.succeed(
-  DiscordOAuth,
-  DiscordOAuth.of({
-    exchange: () =>
-      Effect.succeed({ accessToken: "t0k3n", user: { id: "u1", name: "Ada", avatarUrl: null } }),
-  }),
-);
+const { send, dispose } = serveApi({ history: History, edits: Edits, admins: AdminConsent });
 
-const Settings = Layer.succeed(
-  SignInSettings,
-  SignInSettings.of({
-    clientId: "client-id",
-    clientSecret: Redacted.make("client-secret"),
-    sessionSecret: Redacted.make("session-secret"),
-  }),
-);
-
-const app = HttpRouter.toWebHandler(
-  HttpApiBuilder.layer(RecordingApi).pipe(
-    Layer.provide([
-      SignInHandlers.pipe(Layer.provide(Discord)),
-      RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerDisabled)),
-      HistoryHandlers.pipe(Layer.provide(History)),
-      TelemetryHandlers(Option.none()),
-      StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerDisabled)),
-      EditHandlers.pipe(Layer.provide(Edits)),
-      ConsentHandlers.pipe(Layer.provide(ConsentRequests.layerDisabled)),
-      ErasureAdminHandlers.pipe(Layer.provide(AdminConsent)),
-    ]),
-    Layer.provideMerge(SignedInLayer),
-    Layer.provide(Sessions.layer),
-    Layer.provide(Settings),
-    Layer.provide(HttpServer.layerServices),
-  ),
-  { disableLogger: true },
-);
-
-afterAll(() => app.dispose());
-
-const send = (path: string, init?: RequestInit) =>
-  Effect.promise(() => app.handler(new Request(`http://recorder.test${path}`, init)));
-
-const bodyOf = (response: Response) => Effect.promise(() => response.text());
+afterAll(dispose);
 
 const decodeSignedIn = Schema.decodeEffect(Schema.fromJsonString(SignedInSession));
 

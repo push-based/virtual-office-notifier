@@ -8,6 +8,7 @@ import {
   Layer,
   Option,
   pipe,
+  Predicate,
   Queue,
   Ref,
   Stream,
@@ -565,7 +566,7 @@ describe("ConsentDesk", () => {
             Notice.DECLINED,
             Notice.AGREED("Grace"),
           ]);
-          assert.strictEqual(opened?._tag === "Opened" ? opened.userId : null, "u2");
+          assert.isTrue(Predicate.isTagged(opened, "Opened") && opened.userId === "u2");
         }),
       );
     }),

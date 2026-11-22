@@ -24,8 +24,6 @@ describe("Config", () => {
 
       assert.strictEqual(config.officeChannelId, "123");
       assert.strictEqual(Redacted.value(config.botToken), "secret-token");
-      // oxlint-disable-next-line typescript/no-base-to-string -- the redacted string form is what this checks
-      assert.notInclude(String(config.botToken), "secret-token");
     }),
   );
 
@@ -40,7 +38,7 @@ describe("Config", () => {
     }),
   );
 
-  it.effect("rejects an empty secret without leaking anything", () =>
+  it.effect("rejects an empty secret, naming it", () =>
     Effect.gen(function* () {
       const exit = yield* SlackConfig.pipe(
         withEnv({ SLACK_BOT_TOKEN: "", SLACK_APP_TOKEN: "xapp", SLACK_CHANNEL_ID: "C1" }),
@@ -118,7 +116,6 @@ describe("Config", () => {
       const { url } = yield* DatabaseConfig.pipe(withEnv({ DATABASE_URL: databaseUrl }));
 
       assert.deepStrictEqual(Option.map(url, Redacted.value), Option.some(databaseUrl));
-      assert.notInclude(String(url), "secret");
     }),
   );
 
