@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import type { Telemetry } from "office-domain/Telemetry";
 
-import { RetryTiming, SessionToken } from "../api/api.ts";
+import { RetryTiming } from "../api/api.ts";
+import { fakeApi } from "../dev/fake-worker.ts";
 import { type FakeAnswer, fakeServer } from "../fakes.ts";
 import { reportCrash, sentryOptionsFor, startTelemetry } from "./telemetry.ts";
 
@@ -15,14 +16,11 @@ const telemetry: Telemetry = {
 
 const serving = (answer: FakeAnswer) =>
   Layer.mergeAll(
-    fakeServer(() => answer).layer,
-    SessionToken.layer,
-    Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero }),
+    fakeApi(fakeServer(() => answer).layer),
+    Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero, timeout: Duration.seconds(1) }),
   );
 
-afterEach(async () => {
-  await Sentry.close();
-});
+afterEach(() => Sentry.close());
 
 describe("the telemetry", () => {
   it.effect("sends nothing when the Worker has no DSN", () =>
@@ -57,33 +55,35 @@ describe("the telemetry", () => {
     }).pipe(Effect.provide(serving({ body: telemetry }))),
   );
 
-  it("reports a crash through the Worker", async () => {
-    const sentTo: Array<string> = [];
-    const errors: Array<string | undefined> = [];
+  it.effect("reports a crash through the Worker", () =>
+    Effect.gen(function* () {
+      const sentTo: Array<string> = [];
+      const errors: Array<string | undefined> = [];
 
-    Sentry.init({
-      ...sentryOptionsFor(telemetry),
-      transport: (options) =>
-        Sentry.createTransport(options, () => {
-          sentTo.push(options.url);
+      Sentry.init({
+        ...sentryOptionsFor(Sentry, telemetry),
+        transport: (options) =>
+          Sentry.createTransport(options, () => {
+            sentTo.push(options.url);
 
-          return Promise.resolve({});
-        }),
-      beforeSend: (event) => {
-        errors.push(event.exception?.values?.[0]?.value);
+            return Promise.resolve({});
+          }),
+        beforeSend: (event) => {
+          errors.push(event.exception?.values?.[0]?.value);
 
-        return event;
-      },
-    });
+          return event;
+        },
+      });
 
-    reportCrash(new Error("The page caught fire"));
-    await Sentry.flush(2000);
+      yield* Effect.promise(() => reportCrash(new Error("The page caught fire")));
+      yield* Effect.promise(() => Sentry.flush(2000));
 
-    expect(errors).toEqual(["The page caught fire"]);
-    expect(new Set(sentTo)).toEqual(new Set(["/api/sentry"]));
-  });
+      expect(errors).toEqual(["The page caught fire"]);
+      expect(new Set(sentTo)).toEqual(new Set(["/api/sentry"]));
+    }),
+  );
 
   it("leaves the release out when the Worker has none", () => {
-    expect(sentryOptionsFor({ ...telemetry, release: null }).release).toBeUndefined();
+    expect(sentryOptionsFor(Sentry, { ...telemetry, release: null }).release).toBeUndefined();
   });
 });

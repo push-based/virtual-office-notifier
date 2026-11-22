@@ -1,9 +1,9 @@
-import { identity, Option } from "effect";
+import { DateTime, identity, Option } from "effect";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { ConsentStatus, ErasureCase } from "../wire.ts";
+import type { ConsentStatus, ErasureCase } from "office-domain/Consent";
 import {
   CANCELLED,
   CancelErasure,
@@ -25,7 +25,7 @@ import * as ErasureAdmin from "./erasure-admin.ts";
 
 const agreed: ConsentStatus = {
   standing: "agreed",
-  since: "2026-11-06T08:42:00.000Z",
+  since: DateTime.makeUnsafe("2026-11-06T08:42:00.000Z"),
   pendingWithdrawal: null,
   pendingErasure: null,
   refusedErasure: null,
@@ -36,8 +36,8 @@ const erasure: ErasureCase = {
   id: 12,
   userId: "u-ada",
   displayName: "Ada",
-  requestedAt: "2026-11-08T12:00:00.000Z",
-  dueAt: "2026-12-08T12:00:00.000Z",
+  requestedAt: DateTime.makeUnsafe("2026-11-08T12:00:00.000Z"),
+  dueAt: DateTime.makeUnsafe("2026-12-08T12:00:00.000Z"),
   decision: null,
   decidedBy: null,
   decidedByName: null,
@@ -150,8 +150,8 @@ describe("the privacy panel", () => {
       standing: "withdrawn",
       pendingErasure: {
         id: 12,
-        requestedAt: "2026-11-08T12:00:00.000Z",
-        dueAt: "2026-12-08T12:00:00.000Z",
+        requestedAt: DateTime.makeUnsafe("2026-11-08T12:00:00.000Z"),
+        dueAt: DateTime.makeUnsafe("2026-12-08T12:00:00.000Z"),
         decision: null,
       },
     };
@@ -180,7 +180,7 @@ describe("the privacy panel", () => {
           standing: "withdrawn",
           refusedErasure: {
             id: 12,
-            refusedAt: "2026-11-09T09:00:00.000Z",
+            refusedAt: DateTime.makeUnsafe("2026-11-09T09:00:00.000Z"),
             ground: "legal_claim",
             reason: "There's an open dispute.",
           },
@@ -309,7 +309,7 @@ describe("the deletion requests", () => {
       ),
       Scene.Command.resolve(
         ErasureAdmin.DecideErasure,
-        ErasureAdmin.Message.FailedDecideErasure({ isAlreadyDecided: true }),
+        ErasureAdmin.Message.FailedDecideErasure({ why: "already_decided" }),
       ),
       Scene.expect(Scene.text(ErasureAdmin.ALREADY_DECIDED.text)).toExist(),
       Scene.Command.resolve(

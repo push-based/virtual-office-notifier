@@ -1030,6 +1030,28 @@ describe("ConsentDesk", () => {
     }),
   );
 
+  it.effect("joins the office once someone who was already in at startup agrees", () =>
+    Effect.gen(function* () {
+      const desk = yield* makeDesk();
+
+      yield* withDesk(
+        desk,
+        (gateway) =>
+          Effect.gen(function* () {
+            yield* desk.fake.press(yield* desk.fake.nextAsk(1), "agree");
+            yield* pollUntil(gateway.isAdmitted("u1"), (admitted) => admitted);
+            yield* Queue.offer(desk.updates, leave());
+
+            const presence = yield* gateway.botPresence.pipe(Stream.take(3), Stream.runCollect);
+
+            assert.deepStrictEqual(presence, ["Away", "InOffice", "Away"]);
+          }),
+        [],
+        [join({ alreadyThere: true })],
+      );
+    }),
+  );
+
   it.effect("answers a press on a question that has lapsed", () =>
     Effect.gen(function* () {
       const desk = yield* makeDesk();

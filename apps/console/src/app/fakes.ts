@@ -7,8 +7,8 @@ import {
 } from "effect/http";
 import { vi } from "vite-plus/test";
 
-import { SessionToken } from "./api/api.ts";
-import { type DiscordClient, DiscordClients, Session } from "./session/session.ts";
+import { decodeJson, type SentRequest } from "./dev/fake-worker.ts";
+import type { DiscordClient } from "./session/session.ts";
 
 export interface FakeAnswer {
   readonly status?: number;
@@ -16,56 +16,49 @@ export interface FakeAnswer {
   readonly headers?: Readonly<Record<string, string>>;
 }
 
-export interface SentRequest {
-  readonly method: string;
-  readonly path: string;
-  readonly query: string;
-  readonly authorization: string | undefined;
-  readonly body: Schema.Json;
-}
+export type FakeRoutes = (request: SentRequest) => FakeAnswer | "unanswered" | "hangs";
 
-export type FakeRoutes = (request: SentRequest) => FakeAnswer | "unanswered";
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
-const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
-
-const bodyOf = (request: HttpClientRequest.HttpClientRequest): Schema.Json =>
+const bodyOf = (request: HttpClientRequest.HttpClientRequest): Effect.Effect<Schema.Json> =>
   Predicate.isTagged(request.body, "Uint8Array")
     ? decodeJson(new TextDecoder().decode(request.body.body))
-    : null;
+    : Effect.succeed(null);
+
+const responseBodyOf = (answer: FakeAnswer): Effect.Effect<string | null> =>
+  answer.body === undefined ? Effect.succeed(null) : encodeJson(answer.body).pipe(Effect.orDie);
 
 export const fakeServer = (routes: FakeRoutes) => {
   const sent: Array<SentRequest> = [];
 
   const client = HttpClient.make((request, url) =>
-    Effect.suspend(() => {
+    Effect.gen(function* () {
       const seen: SentRequest = {
         method: request.method,
         path: url.pathname,
         query: url.search,
         authorization: request.headers["authorization"],
-        body: bodyOf(request),
+        body: yield* bodyOf(request),
       };
 
       sent.push(seen);
 
       const answer = routes(seen);
 
+      if (answer === "hangs") return yield* Effect.never;
+
       if (answer === "unanswered") {
-        return Effect.fail(
-          new HttpClientError.HttpClientError({
-            reason: new HttpClientError.TransportError({ request, description: "unreachable" }),
-          }),
-        );
+        return yield* new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({ request, description: "unreachable" }),
+        });
       }
 
-      return Effect.succeed(
-        HttpClientResponse.fromWeb(
-          request,
-          new Response(answer.body === undefined ? null : JSON.stringify(answer.body), {
-            status: answer.status ?? 200,
-            headers: answer.headers ?? {},
-          }),
-        ),
+      return HttpClientResponse.fromWeb(
+        request,
+        new Response(yield* responseBodyOf(answer), {
+          status: answer.status ?? 200,
+          headers: answer.headers ?? {},
+        }),
       );
     }),
   );
@@ -96,11 +89,3 @@ export const fakeDiscord = () => ({
       .mockResolvedValue({ opened: true }),
   },
 });
-
-export type FakeDiscord = ReturnType<typeof fakeDiscord>;
-
-export const fakeResources = (server: ReturnType<typeof fakeServer>, discord: DiscordClient) =>
-  Session.layer.pipe(
-    Layer.provideMerge(Layer.mergeAll(server.layer, SessionToken.layer)),
-    Layer.provide(Layer.succeed(DiscordClients, () => discord)),
-  );

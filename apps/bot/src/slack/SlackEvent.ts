@@ -71,12 +71,14 @@ const InteractionPayload = Schema.Union([BlockActions, ViewSubmission]);
 
 export type InteractionPayload = typeof InteractionPayload.Type;
 
-const WithEvent = Schema.Struct({ event: Schema.optional(Schema.Json) });
+const WithEvent = Schema.Struct({
+  event_id: Schema.optional(Schema.String),
+  event: Schema.optional(Schema.Json),
+});
 
 const RawEnvelope = Schema.Struct({
   type: Schema.String,
   envelope_id: Schema.optional(Schema.String),
-  retry_attempt: Schema.optional(Schema.Int),
   payload: Schema.optional(Schema.Json),
 });
 
@@ -91,7 +93,7 @@ const decodeInteraction = Schema.decodeUnknownOption(InteractionPayload);
 export interface Envelope {
   readonly type: string;
   readonly envelopeId: Option.Option<string>;
-  readonly retryAttempt: number;
+  readonly eventId: Option.Option<string>;
   readonly event: Option.Option<SlackEventPayload>;
   readonly interaction: Option.Option<InteractionPayload>;
 }
@@ -99,13 +101,13 @@ export interface Envelope {
 export const decodeEnvelope = (text: string): Option.Option<Envelope> =>
   Option.map(decodeRawEnvelope(text), (raw): Envelope => {
     const payload = Option.fromUndefinedOr(raw.payload);
+    const withEvent = Option.flatMap(payload, decodeWithEvent);
 
     return {
       type: raw.type,
       envelopeId: Option.fromUndefinedOr(raw.envelope_id),
-      retryAttempt: raw.retry_attempt ?? 0,
-      event: payload.pipe(
-        Option.flatMap(decodeWithEvent),
+      eventId: Option.flatMap(withEvent, (found) => Option.fromUndefinedOr(found.event_id)),
+      event: withEvent.pipe(
         Option.flatMap((found) => Option.fromUndefinedOr(found.event)),
         Option.flatMap(decodeEvent),
       ),

@@ -1,14 +1,14 @@
-import * as Sentry from "@sentry/browser";
-import { Effect, Schema } from "effect";
-import { Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
+import type { BrowserOptions } from "@sentry/browser";
+import { Array, Effect } from "effect";
+import { type Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
 
-import * as Api from "../api/api.ts";
+import { ConsoleApi } from "../api/api.ts";
+import { loadSentry, type SentryModule } from "./sentry.ts";
 
-export const sentryOptionsFor = ({
-  dsn,
-  environment,
-  release,
-}: Telemetry): Sentry.BrowserOptions => ({
+export const sentryOptionsFor = (
+  Sentry: SentryModule,
+  { dsn, environment, release }: Telemetry,
+): BrowserOptions => ({
   dsn,
   environment,
   release: release ?? undefined,
@@ -16,19 +16,24 @@ export const sentryOptionsFor = ({
   tracesSampleRate: 1,
   dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [] },
   integrations: (defaults) => [
-    ...defaults.filter(({ name }) => name !== "Console"),
+    ...Array.filter(defaults, ({ name }) => name !== "Console"),
     Sentry.breadcrumbsIntegration({ dom: false }),
     Sentry.browserTracingIntegration(),
   ],
 });
 
-export const startTelemetry = Api.get("/api/telemetry", Schema.NullOr(Telemetry)).pipe(
+export const startTelemetry = ConsoleApi.use((api) => api.telemetry.config()).pipe(
   Effect.flatMap((telemetry) =>
-    telemetry === null ? Effect.void : Effect.sync(() => Sentry.init(sentryOptionsFor(telemetry))),
+    telemetry === null
+      ? Effect.void
+      : Effect.promise(loadSentry).pipe(
+          Effect.map((Sentry) => Sentry.init(sentryOptionsFor(Sentry, telemetry))),
+        ),
   ),
   Effect.ignore,
 );
 
-export const reportCrash = (error: Error): void => {
-  Sentry.captureException(error);
-};
+export const reportCrash = (error: Error): Promise<void> =>
+  loadSentry().then((Sentry) => {
+    Sentry.captureException(error);
+  });

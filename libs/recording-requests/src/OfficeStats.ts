@@ -10,11 +10,10 @@ import {
   EmojiReactions,
   RecordingTotals,
   OfficeStats,
+  OFFICE_TIME_ZONE,
 } from "office-domain/OfficeStats";
 
 import { type Connected, connectedPerCall, connectedTo, guardQuery } from "./Query.ts";
-
-export const OFFICE_TIME_ZONE = DateTime.zoneMakeOffset(2 * 60 * 60 * 1000);
 
 export const LEADERBOARD_SIZE = 10;
 

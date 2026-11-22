@@ -1,11 +1,9 @@
-import { type Bar, formatDuration, type HeatmapRow, type Tab } from "design-system";
-import type { BusyHour, OfficeStats, PersonDays, StatsRange } from "../wire.ts";
+import { Array, Option, pipe } from "effect";
+import { type Bar, type HeatmapRow, type Tabs } from "design-system";
+import type { BusyHour, OfficeStats, PersonDays, StatsRange } from "office-domain/OfficeStats";
+import { formatDuration } from "../time/duration.ts";
 
-export interface RangeTab extends Tab {
-  readonly id: StatsRange;
-}
-
-export const RANGES: ReadonlyArray<RangeTab> = [
+export const RANGES: ReadonlyArray<Tabs.Tab<StatsRange>> = [
   { id: "week", label: "This week" },
   { id: "month", label: "This month" },
   { id: "all", label: "All time" },
@@ -13,7 +11,7 @@ export const RANGES: ReadonlyArray<RangeTab> = [
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export interface BusiestGrid {
+interface BusiestGrid {
   readonly columns: ReadonlyArray<string>;
   readonly rows: ReadonlyArray<HeatmapRow>;
 }
@@ -30,9 +28,6 @@ export interface StatsView {
   readonly reactions: ReadonlyArray<Bar>;
 }
 
-export const rangeOf = (id: string): StatsRange =>
-  RANGES.find((range) => range.id === id)?.id ?? "week";
-
 export const emojiLabel = (emoji: string): string =>
   /^[\w-]+$/.test(emoji) ? `:${emoji}:` : emoji;
 
@@ -48,20 +43,24 @@ const peopleIn = (people: number | null): string => {
 };
 
 export const busiestGrid = (hours: ReadonlyArray<BusyHour>): BusiestGrid => {
-  const busy = hours.flatMap((hour) => (hour.people > 0 ? [hour.hour] : []));
+  const busy = Array.flatMap(hours, (hour) => (hour.people > 0 ? [hour.hour] : []));
 
   if (busy.length === 0) return { columns: [], rows: [] };
 
   const first = Math.min(...busy);
-  const shown = Array.from({ length: Math.max(...busy) - first + 1 }, (_, index) => first + index);
+  const shown = Array.range(first, Math.max(...busy));
 
   return {
-    columns: shown.map(String),
-    rows: WEEKDAYS.map((weekday, index) => ({
+    columns: Array.map(shown, String),
+    rows: Array.map(WEEKDAYS, (weekday, index) => ({
       label: weekday,
-      cells: shown.map((hour) => {
-        const people =
-          hours.find((busy) => busy.weekday === index + 1 && busy.hour === hour)?.people ?? null;
+      cells: Array.map(shown, (hour) => {
+        const people = pipe(
+          hours,
+          Array.findFirst((busy) => busy.weekday === index + 1 && busy.hour === hour),
+          Option.map((busy) => busy.people),
+          Option.getOrNull,
+        );
 
         return { value: people, description: `${weekday} ${hour}:00, ${peopleIn(people)}` };
       }),
@@ -70,7 +69,7 @@ export const busiestGrid = (hours: ReadonlyArray<BusyHour>): BusiestGrid => {
 };
 
 const dayBars = (people: ReadonlyArray<PersonDays>): ReadonlyArray<Bar> =>
-  people.map((person) => ({
+  Array.map(people, (person) => ({
     id: person.userId,
     label: person.name,
     value: person.days,
@@ -80,7 +79,7 @@ const dayBars = (people: ReadonlyArray<PersonDays>): ReadonlyArray<Bar> =>
 export const describeStats = (stats: OfficeStats): StatsView => ({
   recordings: String(stats.recordings.count),
   recorded: formatDuration(stats.recordings.seconds),
-  timeInOffice: stats.timeInOffice.map((person) => ({
+  timeInOffice: Array.map(stats.timeInOffice, (person) => ({
     id: person.userId,
     label: person.name,
     value: person.seconds,
@@ -89,19 +88,19 @@ export const describeStats = (stats: OfficeStats): StatsView => ({
   firstIn: dayBars(stats.firstIn),
   lastOut: dayBars(stats.lastOut),
   busiest: busiestGrid(stats.busiestHours),
-  sounds: stats.sounds.map((sound) => ({
+  sounds: Array.map(stats.sounds, (sound) => ({
     id: sound.sound,
     label: sound.sound,
     value: sound.plays,
     display: String(sound.plays),
   })),
-  players: stats.players.map((player) => ({
+  players: Array.map(stats.players, (player) => ({
     id: player.userId,
     label: player.name,
     value: player.plays,
     display: String(player.plays),
   })),
-  reactions: stats.reactions.map((reaction) => ({
+  reactions: Array.map(stats.reactions, (reaction) => ({
     id: reaction.emoji,
     label: emojiLabel(reaction.emoji),
     value: reaction.reactions,

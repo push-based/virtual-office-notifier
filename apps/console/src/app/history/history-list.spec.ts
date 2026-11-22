@@ -1,3 +1,4 @@
+import { Array, DateTime } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { listedRecording } from "./fixtures.ts";
@@ -7,11 +8,11 @@ const recordingAt = (minute: number, state: "running" | "finished" = "finished")
   listedRecording({
     id: `r${minute}`,
     state,
-    startedAt: new Date(Date.UTC(2026, 9, 29, 12, minute)).toISOString(),
+    startedAt: DateTime.makeUnsafe(Date.UTC(2026, 9, 29, 12, minute)),
   });
 
 const ids = (list: { readonly recordings: ReadonlyArray<{ readonly id: string }> }) =>
-  list.recordings.map(({ id }) => id);
+  Array.map(list.recordings, ({ id }) => id);
 
 describe("the history list", () => {
   it("starts from the newest page and offers what's older", () => {
@@ -21,7 +22,7 @@ describe("the history list", () => {
     });
 
     expect(ids(list)).toEqual(["r3", "r2"]);
-    expect(list.older).toBe(recordingAt(2).startedAt);
+    expect(list.older).toEqual(recordingAt(2).startedAt);
   });
 
   it("adds older pages below and stops offering more at the end", () => {
