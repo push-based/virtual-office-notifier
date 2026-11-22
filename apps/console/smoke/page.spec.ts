@@ -199,6 +199,32 @@ describe("the built page", () => {
     await page.close();
   });
 
+  it("still starts when the page arrives without its rendered first screen", async () => {
+    const rendered = await readFile(join(CLIENT, "index.html"), "utf8");
+    const unrendered = rendered.replace(/<main[\s\S]*<\/main>/, '<div id="root"></div>');
+    const page = await browser.newPage();
+    const errors: Array<string> = [];
+
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("**/api/**", (route) => {
+      const answer = API.get(new URL(route.request().url()).pathname);
+
+      return answer === undefined
+        ? route.fulfill({ status: 404 })
+        : route.fulfill({ status: 200, json: answer });
+    });
+    await page.route(/\/$/, (route) =>
+      route.fulfill({ status: 200, contentType: "text/html", body: unrendered }),
+    );
+    await page.goto(`http://127.0.0.1:${portOf(server)}/`);
+
+    expect(unrendered).not.toContain("data-foldkit-app");
+    await expect.poll(() => page.getByRole("heading", { name: "Couldn't start" }).count()).toBe(1);
+    expect(errors).toEqual([]);
+
+    await page.close();
+  });
+
   it("is styled, and moves between the tabs with the arrow keys", async () => {
     const { page } = await openPage();
 
