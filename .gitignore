@@ -37,6 +37,9 @@ coverage/
 *.swp
 *.swo
 
+# Reference source fetched for coding agents (pnpm foldkit:vendor)
+repos/
+
 # Claude Code (local, per-user settings)
 .claude/settings.local.json
 .claude/worktrees

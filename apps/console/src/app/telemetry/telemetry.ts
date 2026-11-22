@@ -1,50 +1,39 @@
-import { HttpClient } from "@angular/common/http";
-import {
-  type EnvironmentProviders,
-  ErrorHandler,
-  inject,
-  makeEnvironmentProviders,
-  provideAppInitializer,
-} from "@angular/core";
-import * as Sentry from "@sentry/angular";
+import type { BrowserOptions } from "@sentry/browser";
+import { Array, Effect } from "effect";
+import { type Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
 
-export interface Telemetry {
-  readonly dsn: string;
-  readonly environment: string;
-  readonly release: string | null;
-}
+import { ConsoleApi } from "../api/api.ts";
+import { loadSentry, type SentryModule } from "./sentry.ts";
 
-export const TUNNEL = "/api/sentry";
-
-export const sentryOptionsFor = ({
-  dsn,
-  environment,
-  release,
-}: Telemetry): Sentry.BrowserOptions => ({
+export const sentryOptionsFor = (
+  Sentry: SentryModule,
+  { dsn, environment, release }: Telemetry,
+): BrowserOptions => ({
   dsn,
   environment,
   release: release ?? undefined,
-  tunnel: TUNNEL,
+  tunnel: TUNNEL_PATH,
   tracesSampleRate: 1,
   dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [] },
   integrations: (defaults) => [
-    ...defaults.filter(({ name }) => name !== "Console"),
+    ...Array.filter(defaults, ({ name }) => name !== "Console"),
     Sentry.breadcrumbsIntegration({ dom: false }),
     Sentry.browserTracingIntegration(),
   ],
 });
 
-export const provideTelemetry = (): EnvironmentProviders =>
-  makeEnvironmentProviders([
-    { provide: ErrorHandler, useValue: Sentry.createErrorHandler() },
-    provideAppInitializer(() => {
-      inject(HttpClient)
-        .get<Telemetry | null>("/api/telemetry")
-        .subscribe({
-          next: (telemetry) => {
-            if (telemetry !== null) Sentry.init(sentryOptionsFor(telemetry));
-          },
-          error: () => undefined,
-        });
-    }),
-  ]);
+export const startTelemetry = ConsoleApi.use((api) => api.telemetry.config()).pipe(
+  Effect.flatMap((telemetry) =>
+    telemetry === null
+      ? Effect.void
+      : Effect.promise(loadSentry).pipe(
+          Effect.map((Sentry) => Sentry.init(sentryOptionsFor(Sentry, telemetry))),
+        ),
+  ),
+  Effect.ignore,
+);
+
+export const reportCrash = (error: Error): Promise<void> =>
+  loadSentry().then((Sentry) => {
+    Sentry.captureException(error);
+  });

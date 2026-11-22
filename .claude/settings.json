@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "foldkit": {
+      "source": { "source": "github", "repo": "foldkit/foldkit" }
+    }
+  },
+  "enabledPlugins": {
+    "foldkit-skills@foldkit": true
+  }
+}

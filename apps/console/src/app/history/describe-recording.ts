@@ -1,45 +1,49 @@
+import { DateTime, pipe, String } from "effect";
 import type { BadgeTone } from "design-system";
+import { OFFICE_TIME_ZONE } from "office-domain/OfficeStats";
 
-import {
-  type OfficeMember,
-  type RecordingDetail,
-  type RecordingState,
-  SUMMARY_STYLE_LABELS,
-  type TranscribedClip,
-} from "./models";
-
-const OFFICE_OFFSET_MS = 2 * 60 * 60 * 1000;
+import type {
+  OfficeMember,
+  RecordingDetail,
+  RecordingState,
+  TranscribedClip,
+} from "office-domain/Recording";
+import { SUMMARY_STYLE_LABELS } from "office-domain/wire";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const pad = (value: number): string => String(value).padStart(2, "0");
+const pad = (value: number): string => pipe(`${value}`, String.padStart(2, "0"));
 
-const inOffice = (iso: string): Date => new Date(Date.parse(iso) + OFFICE_OFFSET_MS);
+const inOffice = (at: DateTime.Utc) => DateTime.toParts(DateTime.setZone(at, OFFICE_TIME_ZONE));
 
-export const formatClock = (iso: string): string => {
-  const at = inOffice(iso);
+export const formatClock = (at: DateTime.Utc): string => {
+  const { hour, minute } = inOffice(at);
 
-  return `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}`;
+  return `${pad(hour)}:${pad(minute)}`;
 };
 
-export const formatOfficeTime = (iso: string): string => {
-  const at = inOffice(iso);
+export const formatOfficeTime = (at: DateTime.Utc): string => {
+  const { weekDay, day, month } = inOffice(at);
 
-  return `${DAYS[at.getUTCDay()]} ${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}, ${formatClock(iso)}`;
+  return `${DAYS[weekDay]} ${day} ${MONTHS[month - 1]}, ${formatClock(at)}`;
 };
 
-export const formatRunTime = (startedAt: string, stoppedAt: string | null, now: number): string => {
-  const end = stoppedAt === null ? now : Date.parse(stoppedAt);
-  const minutes = Math.floor(Math.max(0, end - Date.parse(startedAt)) / 60_000);
+export const formatRunTime = (
+  startedAt: DateTime.Utc,
+  stoppedAt: DateTime.Utc | null,
+  now: number,
+): string => {
+  const end = stoppedAt === null ? now : DateTime.toEpochMillis(stoppedAt);
+  const minutes = Math.floor(Math.max(0, end - DateTime.toEpochMillis(startedAt)) / 60_000);
 
   if (minutes < 1) return "under a minute";
 
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 };
 
-export interface StateBadge {
+interface StateBadge {
   readonly label: string;
   readonly tone: BadgeTone;
 }
@@ -90,7 +94,7 @@ export const NO_SUMMARY =
 
 export interface TranscriptTurn {
   readonly speaker: OfficeMember;
-  readonly startedAt: string;
+  readonly startedAt: DateTime.Utc;
   readonly lines: ReadonlyArray<string>;
 }
 

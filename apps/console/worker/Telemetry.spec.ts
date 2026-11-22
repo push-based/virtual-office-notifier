@@ -9,8 +9,9 @@ import {
 } from "effect/http";
 import { assert, describe, it } from "vite-plus/test";
 
-import type { Telemetry } from "./Observability.ts";
-import { TelemetryRoutes } from "./Telemetry.ts";
+import type { Telemetry } from "office-domain/Telemetry";
+
+import { SentryTunnel } from "./Telemetry.ts";
 
 const DSN = "https://public@o1.ingest.us.sentry.io/42";
 
@@ -39,7 +40,7 @@ const consoleWith = (
   forwarded: Array<Forwarded> = [],
 ) =>
   HttpRouter.toWebHandler(
-    TelemetryRoutes(settings).pipe(
+    SentryTunnel(settings).pipe(
       Layer.provide(
         Layer.succeed(
           HttpClient.HttpClient,
@@ -74,31 +75,6 @@ const tunnel = (app: ReturnType<typeof consoleWith>, envelope: string) =>
   send(app, "/api/sentry", { method: "POST", body: envelope });
 
 const accepted = () => Option.some(new Response('{"id":"1"}', { status: 200 }));
-
-describe("the telemetry routes", () => {
-  it("tell the page where to send its telemetry", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const response = yield* send(
-          consoleWith(Option.some(telemetry), accepted()),
-          "/api/telemetry",
-        );
-
-        assert.strictEqual(response.status, 200);
-        assert.deepStrictEqual(yield* Effect.promise(() => response.json()), telemetry);
-      }),
-    ));
-
-  it("tell the page there's nowhere to send it without a DSN", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const response = yield* send(consoleWith(Option.none(), accepted()), "/api/telemetry");
-
-        assert.strictEqual(response.status, 200);
-        assert.isNull(yield* Effect.promise(() => response.json()));
-      }),
-    ));
-});
 
 describe("the Sentry tunnel", () => {
   it("forwards an envelope for the Console's DSN to its project", () =>

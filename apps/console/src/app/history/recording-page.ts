@@ -1,18 +1,18 @@
-import { Component, computed, input, output } from "@angular/core";
+import { Array, DateTime } from "effect";
 import {
-  PbAvatar,
-  PbBadge,
-  PbButton,
-  PbDescription,
-  PbDivider,
-  PbEyebrow,
-  PbHeading,
-  PbPeople,
+  avatar,
+  badge,
+  button,
+  description,
+  descriptionItem,
+  divider,
+  eyebrow,
+  heading,
+  people,
 } from "design-system";
+import type { Html, HtmlBuilder } from "foldkit/html";
 
-import { ActionItems } from "../edits/action-items";
-import { RecordingEditor } from "../edits/recording-editor";
-import { SummaryRewrite } from "../edits/summary-rewrite";
+import type { RecordingDetail } from "office-domain/Recording";
 import {
   describeStop,
   formatClock,
@@ -22,228 +22,157 @@ import {
   NO_SUMMARY,
   stateBadge,
   summaryCredit,
+  type TranscriptTurn,
   transcriptTurns,
-} from "./describe-recording";
-import type { RecordingDetail } from "./models";
-import { personOf } from "./recording-row";
+} from "./describe-recording.ts";
+import { personOf } from "./recording-row.ts";
 
-@Component({
-  selector: "app-recording-page",
-  imports: [
-    ActionItems,
-    PbAvatar,
-    PbBadge,
-    PbButton,
-    PbDescription,
-    PbDivider,
-    PbEyebrow,
-    PbHeading,
-    PbPeople,
-    RecordingEditor,
-    SummaryRewrite,
-  ],
-  template: `
-    <button pbButton variant="tertiary" type="button" class="back" (click)="back.emit()">
-      ← Back
-    </button>
-    <header>
-      <div class="top">
-        <h2 pbHeading>{{ recording().title ?? startedAt() }}</h2>
-        <pb-badge [tone]="badge().tone">{{ badge().label }}</pb-badge>
-      </div>
-      <p pbDescription>{{ facts() }}</p>
-      @if (speakers().length > 0) {
-        <pb-people [people]="speakers()" label="Who spoke" />
-      }
-      @if (recording().agenda; as agenda) {
-        <section class="agenda" aria-labelledby="agenda-heading">
-          <p pbEyebrow tone="muted" id="agenda-heading">Agenda</p>
-          <p class="text-body agenda-text">{{ agenda }}</p>
-        </section>
-      }
-      <app-recording-editor
-        [recordingId]="recording().id"
-        [currentTitle]="recording().title"
-        [currentAgenda]="recording().agenda"
-        [currentSummaryStyle]="recording().summaryStyle"
-        (saved)="edited.emit()"
-      />
-    </header>
-    @if (recording().state === "finished") {
-      <hr pbDivider />
-      <section aria-labelledby="summary-heading">
-        <p pbEyebrow tone="muted" id="summary-heading">Summary</p>
-        <p class="text-body summary">{{ recording().summary ?? noSummary }}</p>
-        @if (recording().rewriting) {
-          <p class="text-caption footer" role="status">Rewriting…</p>
-        } @else if (credit(); as credit) {
-          <p class="text-caption footer">{{ credit }}</p>
-        }
-        <app-summary-rewrite
-          [recordingId]="recording().id"
-          [rewriting]="recording().rewriting"
-          (saved)="edited.emit()"
-        />
-      </section>
-      <app-action-items
-        [recordingId]="recording().id"
-        [items]="recording().actionItems"
-        [members]="recording().members"
-        (saved)="edited.emit()"
-      />
-    }
-    @if (recording().slackPermalink; as link) {
-      <button pbButton variant="ghost" type="button" (click)="openInSlack.emit(link)">
-        Open in Slack
-      </button>
-    }
-    <hr pbDivider />
-    <section aria-labelledby="transcript-heading">
-      <p pbEyebrow tone="muted" id="transcript-heading">Transcript</p>
-      <ol class="transcript">
-        @for (turn of turns(); track turn.startedAt + turn.speaker.userId) {
-          <li class="turn">
-            <pb-avatar [name]="turn.speaker.name" [src]="turn.speaker.avatarUrl" />
-            <div class="said">
-              <p class="text-body-sm who">
-                <span class="name">{{ turn.speaker.name }}</span>
-                <span class="text-caption time">{{ clock(turn.startedAt) }}</span>
-              </p>
-              @for (line of turn.lines; track $index) {
-                <p class="text-body line">{{ line }}</p>
-              }
-            </div>
-          </li>
-        } @empty {
-          <li pbDescription>Nothing transcribed yet.</li>
-        }
-      </ol>
-      @if (live()) {
-        <p pbDescription class="more">More on the way…</p>
-      }
-    </section>
-  `,
-  styles: `
-    :host {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-4);
-    }
-
-    .back {
-      align-self: flex-start;
-    }
-
-    header,
-    section {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-2);
-    }
-
-    .top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-2);
-    }
-
-    .summary,
-    .line,
-    .agenda-text {
-      margin: 0;
-      white-space: pre-line;
-    }
-
-    h2 {
-      overflow-wrap: anywhere;
-    }
-
-    .footer {
-      margin: 0;
-      color: var(--color-text-muted);
-    }
-
-    .transcript {
-      list-style: none;
-      margin: 0;
-      padding: 0;
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-4);
-    }
-
-    .turn {
-      display: flex;
-      gap: var(--space-3);
-      align-items: flex-start;
-    }
-
-    pb-avatar {
-      flex: none;
-    }
-
-    .said {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-1);
-      min-width: 0;
-    }
-
-    .who {
-      margin: 0;
-      display: flex;
-      gap: var(--space-2);
-      align-items: baseline;
-    }
-
-    .name {
-      font-weight: 600;
-      color: var(--color-text-heading);
-    }
-
-    .time {
-      color: var(--color-text-muted);
-    }
-  `,
-})
-export class RecordingPage {
-  readonly recording = input.required<RecordingDetail>();
-
-  readonly now = input.required<number>();
-
-  readonly back = output();
-
-  readonly openInSlack = output<string>();
-
-  readonly edited = output();
-
-  protected readonly noSummary = NO_SUMMARY;
-
-  protected readonly clock = formatClock;
-
-  protected readonly badge = computed(() => stateBadge(this.recording().state));
-
-  protected readonly live = computed(() => isLive(this.recording().state));
-
-  protected readonly credit = computed(() => summaryCredit(this.recording()));
-
-  protected readonly startedAt = computed(() => formatOfficeTime(this.recording().startedAt));
-
-  protected readonly facts = computed(() => {
-    const recording = this.recording();
-
-    return [
-      ...(recording.title === null ? [] : [this.startedAt()]),
-      formatRunTime(recording.startedAt, recording.stoppedAt, this.now()),
-      `Started by ${recording.startedBy.name}`,
-      describeStop(recording),
-    ]
-      .filter((fact) => fact !== null)
-      .join(" · ");
-  });
-
-  protected readonly speakers = computed(() => this.recording().speakers.map(personOf));
-
-  protected readonly turns = computed(() => transcriptTurns(this.recording().clips));
+interface RecordingPageConfig<Message> {
+  readonly recording: RecordingDetail;
+  readonly now: number;
+  readonly back: Html;
+  readonly editor: Html;
+  readonly rewrite: Html;
+  readonly actionItems: Html;
+  readonly onOpenInSlack: (url: string) => Message;
 }
+
+const pageFacts = (recording: RecordingDetail, now: number): string =>
+  Array.join(
+    [
+      ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
+      formatRunTime(recording.startedAt, recording.stoppedAt, now),
+      `Started by ${recording.startedBy.name}`,
+      ...Array.flatMap([describeStop(recording)], (stop) => (stop === null ? [] : [stop])),
+    ],
+    " · ",
+  );
+
+const headerView = <Message>(
+  h: HtmlBuilder<Message>,
+  config: RecordingPageConfig<Message>,
+): Html => {
+  const { recording } = config;
+  const state = stateBadge(recording.state);
+  const speakers = Array.map(recording.speakers, personOf);
+
+  return h.header(
+    [h.Class("stack-2")],
+    [
+      h.div(
+        [h.Class("recording-page-top")],
+        [
+          heading(h, { text: recording.title ?? formatOfficeTime(recording.startedAt) }),
+          badge(h, { tone: state.tone, label: state.label }),
+        ],
+      ),
+      description(h, [pageFacts(recording, config.now)]),
+      speakers.length === 0
+        ? h.empty
+        : people(h, { id: "who-spoke", people: speakers, label: "Who spoke" }),
+      recording.agenda === null
+        ? h.empty
+        : h.section(
+            [h.Class("stack-2"), h.AriaLabelledBy("agenda-heading")],
+            [
+              eyebrow(h, { text: "Agenda", tone: "muted", id: "agenda-heading" }),
+              h.p([h.Class("text-body preserved-lines")], [recording.agenda]),
+            ],
+          ),
+      config.editor,
+    ],
+  );
+};
+
+const summaryView = <Message>(
+  h: HtmlBuilder<Message>,
+  config: RecordingPageConfig<Message>,
+): ReadonlyArray<Html> => {
+  const { recording } = config;
+  const credit = summaryCredit(recording);
+
+  if (recording.state !== "finished") return [];
+
+  return [
+    divider(h),
+    h.section(
+      [h.Class("stack-2"), h.AriaLabelledBy("summary-heading")],
+      [
+        eyebrow(h, { text: "Summary", tone: "muted", id: "summary-heading" }),
+        h.p([h.Class("text-body preserved-lines")], [recording.summary ?? NO_SUMMARY]),
+        recording.rewriting
+          ? h.p([h.Class("text-caption recording-page-footer"), h.Role("status")], ["Rewriting…"])
+          : credit === null
+            ? h.empty
+            : h.p([h.Class("text-caption recording-page-footer")], [credit]),
+        config.rewrite,
+      ],
+    ),
+    config.actionItems,
+  ];
+};
+
+const turnView = <Message>(h: HtmlBuilder<Message>, turn: TranscriptTurn): Html =>
+  h.keyed("li")(
+    `${DateTime.toEpochMillis(turn.startedAt)}${turn.speaker.userId}`,
+    [h.Class("transcript-turn")],
+    [
+      avatar(h, { name: turn.speaker.name, avatarUrl: turn.speaker.avatarUrl }),
+      h.div(
+        [h.Class("transcript-said")],
+        [
+          h.p(
+            [h.Class("text-body-sm transcript-who")],
+            [
+              h.span([h.Class("transcript-name")], [turn.speaker.name]),
+              h.span([h.Class("text-caption transcript-time")], [formatClock(turn.startedAt)]),
+            ],
+          ),
+          ...Array.map(turn.lines, (line) => h.p([h.Class("text-body preserved-lines")], [line])),
+        ],
+      ),
+    ],
+  );
+
+const transcriptView = <Message>(h: HtmlBuilder<Message>, recording: RecordingDetail): Html => {
+  const turns = transcriptTurns(recording.clips);
+
+  return h.section(
+    [h.Class("stack-2"), h.AriaLabelledBy("transcript-heading")],
+    [
+      eyebrow(h, { text: "Transcript", tone: "muted", id: "transcript-heading" }),
+      h.ol(
+        [h.Class("transcript")],
+        turns.length === 0
+          ? [descriptionItem(h, ["Nothing transcribed yet."])]
+          : Array.map(turns, (turn) => turnView(h, turn)),
+      ),
+      isLive(recording.state) ? description(h, ["More on the way…"]) : h.empty,
+    ],
+  );
+};
+
+export const recordingPage = <Message>(
+  h: HtmlBuilder<Message>,
+  config: RecordingPageConfig<Message>,
+): Html => {
+  const { recording } = config;
+
+  return h.article(
+    [h.Class("recording-page")],
+    [
+      config.back,
+      headerView(h, config),
+      ...summaryView(h, config),
+      recording.slackPermalink === null
+        ? h.empty
+        : button(h, {
+            label: ["Open in Slack"],
+            variant: "ghost",
+            onClick: config.onOpenInSlack(recording.slackPermalink),
+          }),
+      divider(h),
+      transcriptView(h, recording),
+    ],
+  );
+};

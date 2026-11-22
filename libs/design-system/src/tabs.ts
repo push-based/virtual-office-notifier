@@ -1,172 +1,121 @@
-import { Component, ElementRef, inject, input, model } from "@angular/core";
+import { Tabs } from "@foldkit/ui";
+import { Array, Function, Option } from "effect";
+import { Update } from "foldkit";
+import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
 
-export interface Tab {
-  readonly id: string;
+import type { Content } from "./content.ts";
+
+export interface Tab<Id extends string> {
+  readonly id: Id;
   readonly label: string;
 }
 
-export type TabsAppearance = "underline" | "pills";
+export type Appearance = "underline" | "pills";
 
-export const tabId = (name: string, id: string): string => `${name}-tab-${id}`;
+export const Model = Tabs.Model;
 
-export const tabPanelId = (name: string, id: string): string => `${name}-panel-${id}`;
+export type Model = Tabs.Model;
 
-const MOVES = new Map<string, (index: number, count: number) => number>([
-  ["ArrowRight", (index, count) => (index + 1) % count],
-  ["ArrowLeft", (index, count) => (index - 1 + count) % count],
-  ["Home", () => 0],
-  ["End", (_, count) => count - 1],
-]);
+export const Message = Tabs.Message;
 
-@Component({
-  selector: "pb-tabs",
-  template: `
-    @for (tab of tabs(); track tab.id) {
-      <button
-        type="button"
-        role="tab"
-        class="text-body-sm"
-        [id]="idOf(tab)"
-        [attr.aria-controls]="panelOf(tab)"
-        [attr.aria-selected]="tab.id === selected()"
-        [tabIndex]="tab.id === selected() ? 0 : -1"
-        (click)="selected.set(tab.id)"
-        (keydown)="move($event, tab)"
-      >
-        {{ tab.label }}
-      </button>
-    }
-  `,
-  styles: `
-    :host {
-      display: flex;
-      gap: var(--space-1);
-    }
+export type Message = Tabs.Message;
 
-    button {
-      appearance: none;
-      cursor: pointer;
-      border: none;
-      background: transparent;
-      color: var(--color-text-muted);
-      font-weight: 500;
-      padding: var(--space-2) var(--space-3);
-      transition:
-        color 0.2s ease-out,
-        background-color 0.2s ease-out,
-        border-color 0.2s ease-out;
-    }
+export const OutMessage = Tabs.OutMessage;
 
-    button:hover {
-      color: var(--color-text-heading);
-    }
+export type OutMessage<Id extends string = string> = Tabs.OutMessage<Id>;
 
-    button:focus-visible {
-      outline: none;
-      box-shadow: var(--shadow-focus);
-    }
+export const FocusTab = Tabs.FocusTab;
 
-    :host(.underline) {
-      gap: var(--space-6);
-      border-bottom: 1px solid var(--color-neutral-200);
-    }
+const tabsBundle = Tabs.create();
 
-    :host(.underline) button {
-      position: relative;
-      padding: var(--space-3) 0;
-      font-size: 0.9375rem;
-    }
+export const init = (name: string): Model => Tabs.init({ id: name });
 
-    :host(.underline) button::after {
-      content: "";
-      position: absolute;
-      inset: auto 0 -1px;
-      height: 2px;
-      border-radius: var(--radius-full);
-      background: transparent;
-      transition: background-color 0.2s ease-out;
-    }
-
-    :host(.underline) button:hover {
-      color: var(--color-text);
-    }
-
-    :host(.underline) button:hover::after {
-      background: var(--color-neutral-300);
-    }
-
-    :host(.underline) button[aria-selected="true"] {
-      color: var(--color-text-heading);
-    }
-
-    :host(.underline) button[aria-selected="true"]::after {
-      background: var(--color-brand);
-    }
-
-    :host(.underline) button:focus-visible {
-      box-shadow: none;
-      border-radius: var(--radius-md);
-      outline: 2px solid var(--color-primary-300);
-      outline-offset: 2px;
-    }
-
-    :host(.pills) {
-      align-self: flex-start;
-      padding: var(--space-1);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-lg);
-      background: var(--color-surface);
-    }
-
-    :host(.pills) button {
-      border-radius: var(--radius-md);
-      padding: var(--space-1) var(--space-3);
-    }
-
-    :host(.pills) button[aria-selected="true"] {
-      color: var(--color-primary-700);
-      background: var(--color-primary-50);
-    }
-  `,
-  host: {
-    role: "tablist",
-    "[attr.aria-label]": "label()",
-    "[class.underline]": "appearance() === 'underline'",
-    "[class.pills]": "appearance() === 'pills'",
-  },
-})
-export class PbTabs {
-  readonly name = input.required<string>();
-
-  readonly label = input.required<string>();
-
-  readonly tabs = input.required<ReadonlyArray<Tab>>();
-
-  readonly appearance = input<TabsAppearance>("underline");
-
-  readonly selected = model.required<string>();
-
-  private readonly element: HTMLElement = inject(ElementRef).nativeElement;
-
-  protected idOf(tab: Tab): string {
-    return tabId(this.name(), tab.id);
-  }
-
-  protected panelOf(tab: Tab): string {
-    return tabPanelId(this.name(), tab.id);
-  }
-
-  protected move(event: KeyboardEvent, from: Tab): void {
-    const tabs = this.tabs();
-    const index = tabs.indexOf(from);
-
-    const moveTo = MOVES.get(event.key);
-    const target = moveTo === undefined ? undefined : tabs[moveTo(index, tabs.length)];
-
-    if (target === undefined) return;
-
-    event.preventDefault();
-    this.selected.set(target.id);
-    this.element.querySelector<HTMLElement>(`#${CSS.escape(this.idOf(target))}`)?.focus();
-  }
+export interface Layout<Id extends string, ParentMessage> {
+  readonly tablist: Html;
+  readonly panel: (
+    id: Id,
+    attributes: ReadonlyArray<Attribute<ParentMessage>>,
+    children: ReadonlyArray<Content>,
+  ) => Html;
 }
+
+export interface ViewConfig<Id extends string, ParentMessage> {
+  readonly model: Model;
+  readonly label: string;
+  readonly selected: Id;
+  readonly appearance: Appearance;
+  readonly toParentMessage: (message: Message) => ParentMessage;
+  readonly toView: (layout: Layout<Id, ParentMessage>) => Html;
+}
+
+export interface Bundle<Id extends string> {
+  readonly update: (
+    model: Model,
+    message: Message,
+  ) => Update.ReturnWithOutMessage<Model, Message, OutMessage<Id>>;
+  readonly view: <ParentMessage>(
+    h: HtmlBuilder<ParentMessage>,
+    config: ViewConfig<Id, ParentMessage>,
+  ) => Html;
+}
+
+const layoutOf = <Id extends string, ParentMessage>(
+  h: HtmlBuilder<ParentMessage>,
+  tabs: ReadonlyArray<Tab<Id>>,
+  config: ViewConfig<Id, ParentMessage>,
+  render: Tabs.RenderInfo,
+): Layout<Id, ParentMessage> => ({
+  tablist: h.div(
+    [...render.tablist, h.Class(`pb-tabs pb-tabs-${config.appearance}`)],
+    Array.map(Array.zip(tabs, render.tabs), ([tab, info]) =>
+      h.keyed("button")(tab.id, [...info.tab, h.Class("text-body-sm")], [tab.label]),
+    ),
+  ),
+  panel: (id, attributes, children) =>
+    Option.match(
+      Array.findFirst(render.tabs, (info) => info.value === id),
+      {
+        onNone: () => h.div(attributes, children),
+        onSome: (info) =>
+          h.div([...info.panel, h.Tabindex(-1), h.Hidden(!info.isActive), ...attributes], children),
+      },
+    ),
+});
+
+const foldSelectedAmong = <Id extends string>(tabs: ReadonlyArray<Tab<Id>>) =>
+  Tabs.OutMessage.match<Update.StepWithOutMessage<Model, Message, OutMessage<Id>>>({
+    Selected: (selected) => (stepModel) =>
+      Update.withOutMessage(
+        { model: stepModel },
+        Option.getOrUndefined(
+          Option.map(
+            Array.findFirst(tabs, (tab) => tab.id === selected.value),
+            (tab) => ({ ...selected, value: tab.id }),
+          ),
+        ),
+      ),
+  });
+
+export const create = <Id extends string>(tabs: ReadonlyArray<Tab<Id>>): Bundle<Id> => ({
+  update: Update.foldChild({
+    update: tabsBundle.update,
+    read: (model: Model) => Option.some(model),
+    write: (_model, nextModel) => nextModel,
+    toParentMessage: Function.identity<Message>,
+    foldOutMessage: foldSelectedAmong(tabs),
+  }),
+  view: (h, config) =>
+    h.submodel({
+      slotId: config.model.id,
+      model: config.model,
+      view: tabsBundle.view,
+      viewInputs: {
+        tabs: Array.map(tabs, (tab) => tab.id),
+        selectedValue: config.selected,
+        ariaLabel: config.label,
+        panelMount: "All",
+        toView: (render) => config.toView(layoutOf(h, tabs, config, render)),
+      },
+      toParentMessage: config.toParentMessage,
+    }),
+});

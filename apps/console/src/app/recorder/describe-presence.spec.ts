@@ -1,20 +1,21 @@
+import { DateTime } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
-import { describePresence, samePresence } from "./describe-presence";
-import type { RecordingStatus, RunningRecording } from "./models";
+import { describePresence, samePresence } from "./describe-presence.ts";
+import type { RecordingStatus, RunningRecording } from "office-domain/RecordingRequest";
 
 const idle: RecordingStatus = {
   botInOffice: true,
   occupants: [],
   recording: null,
-  updatedAt: "2026-10-27T12:00:00Z",
+  updatedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
 };
 
 const anna: RunningRecording = {
   id: "1",
-  startedAt: "2026-10-27T12:00:00Z",
+  startedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
   startedByName: "Anna",
-  endsAt: "2026-10-27T16:00:00Z",
+  endsAt: DateTime.makeUnsafe("2026-10-27T16:00:00Z"),
   pause: null,
   title: null,
   agenda: null,
@@ -36,7 +37,10 @@ describe("describePresence", () => {
     expect(
       describePresence({
         ...idle,
-        recording: { ...anna, pause: { since: "2026-10-27T12:20:00Z", byName: "Ben" } },
+        recording: {
+          ...anna,
+          pause: { since: DateTime.makeUnsafe("2026-10-27T12:20:00Z"), byName: "Ben" },
+        },
       }),
     ).toEqual({
       details: "Recording paused",
@@ -67,7 +71,7 @@ describe("samePresence", () => {
     const later: RecordingStatus = {
       ...recording,
       occupants: [{ userId: "2", displayName: "Ben", avatarUrl: null, speaking: true }],
-      updatedAt: "2026-10-27T12:00:03Z",
+      updatedAt: DateTime.makeUnsafe("2026-10-27T12:00:03Z"),
     };
 
     expect(samePresence(describePresence(recording), describePresence(later))).toBe(true);
@@ -89,7 +93,10 @@ describe("samePresence", () => {
   it("tells a pause apart from the recording running", () => {
     const paused: RecordingStatus = {
       ...recording,
-      recording: { ...anna, pause: { since: "2026-10-27T12:20:00Z", byName: "Anna" } },
+      recording: {
+        ...anna,
+        pause: { since: DateTime.makeUnsafe("2026-10-27T12:20:00Z"), byName: "Anna" },
+      },
     };
 
     expect(samePresence(describePresence(recording), describePresence(paused))).toBe(false);

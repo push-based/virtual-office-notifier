@@ -16,9 +16,9 @@ import {
   Schema,
 } from "effect";
 import { SecureRandom } from "effect/crypto";
-import { QUERY_TIMEOUT, TIMED_OUT } from "recording-requests/Query";
+import { QUERY_TIMEOUT } from "recording-requests/Query";
 
-import { ActivityLog, ActivityLogError, Outage } from "./ActivityLog.ts";
+import { ActivityLog, type ActivityLogError, Outage, withinQueryTimeout } from "./ActivityLog.ts";
 import {
   Database,
   DatabaseUnavailable,
@@ -193,16 +193,7 @@ export class ActivityRecorder extends Context.Service<
         );
 
       const write = (entry: Entry) =>
-        persist(entry).pipe(
-          Effect.timeoutOrElse({
-            duration: QUERY_TIMEOUT,
-            orElse: () =>
-              Effect.fail(
-                ActivityLogError.make({
-                  reason: Outage.make({ message: TIMED_OUT }),
-                }),
-              ),
-          }),
+        withinQueryTimeout(persist(entry)).pipe(
           Effect.retry(outageRetry),
           Effect.catchTag("ActivityLogError", (error) => setAside(entry, error)),
         );

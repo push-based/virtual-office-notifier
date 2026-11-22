@@ -1,0 +1,21 @@
+{
+  "name": "office-domain",
+  "private": true,
+  "description": "The office's shared types: the schemas the bot, the Console's Worker and its page agree on, the Console's HttpApi contract and the constants they share",
+  "type": "module",
+  "exports": {
+    "./wire": "./src/Wire.ts",
+    "./*": "./src/*.ts"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "effect": "catalog:",
+    "typescript": "7.0.2",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:"
+  }
+}

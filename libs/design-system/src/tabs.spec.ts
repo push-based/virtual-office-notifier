@@ -1,82 +1,187 @@
-import { Component, signal } from "@angular/core";
-import { TestBed } from "@angular/core/testing";
-import { describe, expect, it } from "vite-plus/test";
+import { Array, Option, Schema } from "effect";
+import { Update } from "foldkit";
+import type { HtmlBuilder } from "foldkit/html";
+import { defineMessageUnion } from "foldkit/message";
+import {
+  Command,
+  click,
+  expect,
+  expectIgnored,
+  given,
+  keydown,
+  role,
+  scene,
+  selector,
+} from "foldkit/scene";
+import { modifyFields } from "foldkit/struct";
+import { describe, it } from "vite-plus/test";
 
-import { PbTabs, type Tab } from "./tabs";
+import * as Tabs from "./tabs.ts";
 
-@Component({
-  imports: [PbTabs],
-  template: `<pb-tabs name="view" label="Views" [tabs]="tabs" [(selected)]="selected" />`,
-})
-class Host {
-  readonly tabs: ReadonlyArray<Tab> = [
-    { id: "now", label: "Now" },
-    { id: "stats", label: "Stats" },
-    { id: "history", label: "History" },
-  ];
+const View = Schema.Literals(["now", "stats", "history"]);
 
-  readonly selected = signal("now");
-}
+type View = typeof View.Type;
 
-const render = async () => {
-  const fixture = TestBed.createComponent(Host);
-  await fixture.whenStable();
-  const element: HTMLElement = fixture.nativeElement;
-  const buttons = [...element.querySelectorAll<HTMLButtonElement>("button")];
+const VIEWS: ReadonlyArray<Tabs.Tab<View>> = [
+  { id: "now", label: "Now" },
+  { id: "stats", label: "Stats" },
+  { id: "history", label: "History" },
+];
 
-  return { fixture, host: fixture.componentInstance, element, buttons };
-};
+const ViewTabs = Tabs.create(VIEWS);
 
-const press = (button: HTMLButtonElement, key: string) =>
-  button.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+const Model = Schema.Struct({ tabs: Tabs.Model, selected: View });
 
-describe("PbTabs", () => {
-  it("is a labelled tab list with only the selected tab selected and focusable", async () => {
-    const { element, buttons } = await render();
+type Model = typeof Model.Type;
 
-    expect(element.querySelector("pb-tabs")?.getAttribute("role")).toBe("tablist");
-    expect(element.querySelector("pb-tabs")?.getAttribute("aria-label")).toBe("Views");
-    expect(buttons.map((button) => button.getAttribute("aria-selected"))).toEqual([
-      "true",
-      "false",
-      "false",
-    ]);
-    expect(buttons.map((button) => button.tabIndex)).toEqual([0, -1, -1]);
-    expect(buttons[1]?.id).toBe("view-tab-stats");
-    expect(buttons[1]?.getAttribute("aria-controls")).toBe("view-panel-stats");
+const Message = defineMessageUnion({ GotTabsMessage: { message: Tabs.Message } });
+
+type Message = typeof Message.Type;
+
+const toTabsMessage = (message: Tabs.Message) => Message.GotTabsMessage({ message });
+
+const foldTabsOutMessage = Tabs.OutMessage.match<
+  Update.Step<Model, Message>,
+  Tabs.OutMessage<View>
+>({
+  Selected:
+    ({ value }) =>
+    (stepModel) => ({ model: modifyFields(stepModel, { selected: () => value }) }),
+});
+
+const foldTabs = Update.foldChild({
+  update: ViewTabs.update,
+  read: (model: Model) => Option.some(model.tabs),
+  write: (model, nextTabs) => modifyFields(model, { tabs: () => nextTabs }),
+  toParentMessage: toTabsMessage,
+  foldOutMessage: foldTabsOutMessage,
+});
+
+const update = (model: Model, message: Message) =>
+  Message.match<Update.Return<Model, Message>>(message, {
+    GotTabsMessage: ({ message: tabsMessage }) => foldTabs(model, tabsMessage),
   });
 
-  it("selects a tab when it's clicked", async () => {
-    const { fixture, host, buttons } = await render();
-
-    buttons[1]?.click();
-    await fixture.whenStable();
-
-    expect(host.selected()).toBe("stats");
-    expect(buttons[1]?.getAttribute("aria-selected")).toBe("true");
+const viewIn = (appearance: Tabs.Appearance) => (model: Model, h: HtmlBuilder<Message>) =>
+  ViewTabs.view(h, {
+    model: model.tabs,
+    label: "Views",
+    selected: model.selected,
+    appearance,
+    toParentMessage: toTabsMessage,
+    toView: ({ tablist, panel }) =>
+      h.div(
+        [],
+        [
+          tablist,
+          ...Array.map(VIEWS, ({ id }) =>
+            panel(id, id === model.selected ? [h.Class("panel")] : [], [`${id} panel`]),
+          ),
+        ],
+      ),
   });
 
-  it("moves between tabs with the arrow keys, wrapping around, and Home and End", async () => {
-    const { fixture, host, buttons } = await render();
-    const [first, second, third] = buttons;
+const view = viewIn("underline");
 
-    if (first === undefined || second === undefined || third === undefined) throw new Error();
+const start = (selected: View): Model => ({ tabs: Tabs.init("view"), selected });
 
-    press(first, "ArrowLeft");
-    await fixture.whenStable();
-    expect(host.selected()).toBe("history");
-    expect(document.activeElement).toBe(third);
+const tab = (name: string) => role("tab", { name });
 
-    press(third, "ArrowRight");
-    expect(host.selected()).toBe("now");
+const focused = Command.resolve(Tabs.FocusTab, Tabs.Message.CompletedFocusTab());
 
-    press(first, "End");
-    expect(host.selected()).toBe("history");
+describe("Tabs", () => {
+  it("is a labelled tab list where only the selected tab is selected and focusable", () => {
+    scene(
+      { update, view },
+      given(start("now")),
+      expect(role("tablist", { name: "Views" })).toExist(),
+      expect(tab("Now")).toHaveAttr("aria-selected", "true"),
+      expect(tab("Now")).toHaveAttr("tabIndex", "0"),
+      expect(tab("Stats")).toHaveAttr("aria-selected", "false"),
+      expect(tab("Stats")).toHaveAttr("tabIndex", "-1"),
+    );
+  });
 
-    press(third, "Home");
-    expect(host.selected()).toBe("now");
+  it("labels the panel with its tab and keeps it out of the tab order", () => {
+    scene(
+      { update, view },
+      given(start("stats")),
+      expect(role("tabpanel", { name: "Stats" })).toHaveText("stats panel"),
+      expect(role("tabpanel", { name: "Stats" })).toHaveClass("panel"),
+      expect(selector(".panel")).toHaveAttr("tabIndex", "-1"),
+    );
+  });
 
-    press(first, "Enter");
-    expect(host.selected()).toBe("now");
+  it("points every tab at a panel that's in the page, and hides the ones not selected", () => {
+    scene(
+      { update, view },
+      given(start("stats")),
+      expect(tab("Now")).toHaveAttr("aria-controls", "view-panel-0"),
+      expect(selector("#view-panel-0")).toExist(),
+      expect(selector("#view-panel-0")).toHaveAttr("hidden", "true"),
+      expect(tab("History")).toHaveAttr("aria-controls", "view-panel-2"),
+      expect(selector("#view-panel-2")).toHaveAttr("hidden", "true"),
+      expect(selector("#view-panel-1")).toHaveAttr("hidden", "false"),
+    );
+  });
+
+  it("selects a tab when it's clicked", () => {
+    scene(
+      { update, view },
+      given(start("now")),
+      click(tab("Stats")),
+      focused,
+      expect(tab("Stats")).toHaveAttr("aria-selected", "true"),
+      expect(tab("Now")).toHaveAttr("aria-selected", "false"),
+      expect(role("tabpanel", { name: "Stats" })).toExist(),
+    );
+  });
+
+  it("selects the next tab with the arrow keys, wrapping around", () => {
+    scene(
+      { update, view },
+      given(start("now")),
+      keydown(tab("Now"), "ArrowLeft"),
+      focused,
+      expect(tab("History")).toHaveAttr("aria-selected", "true"),
+      keydown(tab("History"), "ArrowRight"),
+      focused,
+      expect(tab("Now")).toHaveAttr("aria-selected", "true"),
+    );
+  });
+
+  it("jumps to the ends with Home and End", () => {
+    scene(
+      { update, view },
+      given(start("now")),
+      keydown(tab("Now"), "End"),
+      focused,
+      expect(tab("History")).toHaveAttr("aria-selected", "true"),
+      keydown(tab("History"), "Home"),
+      focused,
+      expect(tab("Now")).toHaveAttr("aria-selected", "true"),
+    );
+  });
+
+  it("ignores any other key", () => {
+    scene(
+      { update, view },
+      given(start("now")),
+      keydown(tab("Now"), "a"),
+      expectIgnored(),
+      expect(tab("Now")).toHaveAttr("aria-selected", "true"),
+    );
+  });
+
+  it("draws the tab list as pills when asked, with the same keyboard behaviour", () => {
+    scene(
+      { update, view: viewIn("pills") },
+      given(start("now")),
+      expect(role("tablist", { name: "Views" })).toHaveClass("pb-tabs-pills"),
+      keydown(tab("Now"), "ArrowRight"),
+      focused,
+      expect(tab("Stats")).toHaveAttr("aria-selected", "true"),
+      expect(role("tabpanel", { name: "Stats" })).toHaveText("stats panel"),
+    );
   });
 });

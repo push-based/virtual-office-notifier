@@ -41,10 +41,10 @@ import {
   type VoiceChannelEffect,
   type VoiceState,
 } from "discord.js";
-import type { Admin } from "recording-requests/Admins";
-import { type ErasureCase, RefusalGround } from "recording-requests/Consent";
+import type { Admin } from "office-domain/Admins";
+import { type ErasureCase, RefusalGround } from "office-domain/Consent";
 import type { ErasureNotice } from "recording-requests/ConsentRequests";
-import type { PersonInOffice } from "recording-requests/RecordingRequest";
+import type { PersonInOffice } from "office-domain/RecordingRequest";
 
 import { Notice } from "../consent/index.ts";
 import type { AdminLine, ErasureAction, ErasureVerdict } from "./AdminLine.ts";
@@ -57,7 +57,7 @@ import {
   type PromptDelivery,
 } from "./ConsentGate.ts";
 
-import { type BotPresence, presenceAfter, presenceAtStartup } from "./BotPresence.ts";
+import { type BotPresence, presenceOf } from "./BotPresence.ts";
 import { DiscordConfig } from "../Config.ts";
 import type { SeatAdapter } from "./OfficeSeat.ts";
 import { type OfficeVoice, officeVoiceIn } from "./OfficeVoice.ts";
@@ -93,6 +93,7 @@ const stamped = <A extends VoiceStateUpdate | VoiceEffect, E, R>(updates: Stream
 interface Followed {
   readonly update: TimedVoiceStateUpdate;
   readonly events: ReadonlyArray<OfficeEvent>;
+  readonly presence: BotPresence;
 }
 
 const REPLAYED_UPDATES = 1000;
@@ -106,7 +107,7 @@ const followOffice =
         (session, update): readonly [OfficeSession, ReadonlyArray<Followed>] => {
           const [next, events] = trackOccupancy(officeChannelId)(session, update);
 
-          return [next, [{ update, events }]];
+          return [next, [{ update, events, presence: presenceOf(next.occupants) }]];
         },
       ),
       Stream.broadcast({ capacity: "unbounded", replay: REPLAYED_UPDATES }),
@@ -115,6 +116,10 @@ const followOffice =
         officeEvents: followed.pipe(
           Stream.map(({ events }) => events),
           Stream.flattenIterable,
+        ),
+        botPresence: Stream.make(presenceOf(occupants)).pipe(
+          Stream.concat(followed.pipe(Stream.map(({ presence }) => presence))),
+          Stream.changes,
         ),
       })),
     );
@@ -142,11 +147,6 @@ const officeEffects =
   (officeChannelId: string) =>
   <E, R>(effects: Stream.Stream<VoiceEffect, E, R>): Stream.Stream<TimedVoiceEffect, E, R> =>
     stamped(effects).pipe(Stream.filterMap(sentInOffice(officeChannelId)));
-
-const botPresence = <E, R>(occupants: Occupants, events: Stream.Stream<OfficeEvent, E, R>) =>
-  Stream.make(presenceAtStartup(occupants)).pipe(
-    Stream.concat(events.pipe(Stream.filterMap(presenceAfter))),
-  );
 
 const detailsOf = (state: VoiceState): VoiceDetails => ({
   selfMute: state.selfMute,
@@ -851,7 +851,7 @@ export class DiscordGateway extends Context.Service<
         ),
         botPresence: Option.match(office, {
           onNone: () => Stream.empty,
-          onSome: () => botPresence(occupants, followed.officeEvents),
+          onSome: () => followed.botPresence,
         }),
         seat: Option.flatMap(office, (channel) =>
           Option.map(voice, (officeVoice): SeatAdapter => ({
@@ -944,7 +944,7 @@ export class DiscordGateway extends Context.Service<
             officeEffects(officeChannelId),
             Stream.filterEffect((effect) => gate.isAdmitted(effect.userId)),
           ),
-          botPresence: botPresence(seated, followed.officeEvents),
+          botPresence: followed.botPresence,
           seat: Option.some({
             join: () =>
               moves === undefined

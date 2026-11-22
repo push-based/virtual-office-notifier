@@ -1,1 +1,232 @@
 @import "design-system/styles.css";
+
+#root {
+  height: 100%;
+}
+
+.console {
+  min-height: 100%;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  padding: 0 var(--space-4) var(--space-8);
+  background: var(--color-surface);
+}
+
+.console-frame {
+  width: 100%;
+  max-width: calc(var(--space-72) * 2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.console-nav {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding-top: var(--space-4);
+  background: var(--color-surface);
+}
+
+.controls,
+.editor-actions,
+.recorder-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.recorder-controls > :first-child {
+  flex: 1;
+}
+
+.record-button {
+  gap: var(--space-2);
+}
+
+.record-button-icon {
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.record-button-recording .record-button-icon {
+  border-radius: var(--radius-sm);
+}
+
+.editor,
+.plan-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.preserved-lines {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.bullets {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--color-text);
+}
+
+.recordings,
+.transcript,
+.action-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.transcript {
+  gap: var(--space-4);
+}
+
+.recording-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.recording-row-top,
+.recording-page-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.recording-row-when {
+  font-weight: 600;
+  color: var(--color-text-heading);
+  overflow-wrap: anywhere;
+}
+
+.recording-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.recording-page h2 {
+  overflow-wrap: anywhere;
+}
+
+.recording-page-footer {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.transcript-turn {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.transcript-said {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.transcript-who {
+  margin: 0;
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.transcript-name {
+  font-weight: 600;
+  color: var(--color-text-heading);
+}
+
+.transcript-time {
+  color: var(--color-text-muted);
+}
+
+.action-item {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.action-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.action-item-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.action-item-done .action-item-text {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+.action-item-owner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stats-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.stats-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--space-48), 1fr));
+  gap: var(--space-4) var(--space-6);
+}
+
+.panels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.consent-section,
+.case {
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.case {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.consent-section p,
+.case p {
+  margin: 0;
+}
+
+blockquote {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text);
+}

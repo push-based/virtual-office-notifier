@@ -4,27 +4,21 @@ packages:
   - infra
 
 catalog:
-  effect: 4.1.0
-  "@effect/ai-openai-compat": 4.1.0
-  "@effect/ai-openrouter": 4.1.0
-  "@effect/platform-node": 4.1.0
-  "@effect/sql-pg": 4.1.0
-  "@effect/sql-pglite": 4.1.0
-  "@effect/vitest": 4.1.0
+  effect: 4.1.5
+  "@effect/ai-openai-compat": 4.1.5
+  "@effect/ai-openrouter": 4.1.5
+  "@effect/platform-browser": 4.1.5
+  "@effect/platform-node": 4.1.5
+  "@effect/sql-pg": 4.1.5
+  "@effect/sql-pglite": 4.1.5
+  "@effect/vitest": 4.1.5
+  foldkit: 0.171.0
+  "@foldkit/ui": 0.171.0
+  "@foldkit/devtools": 0.171.0
+  "@foldkit/vite-plugin": 0.29.1
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vite-plus: 1.4.0
   vitest: 5.0.5
-
-catalogs:
-  angular:
-    "@angular/common": 22.3.0-next.2
-    "@angular/compiler": 22.3.0-next.2
-    "@angular/compiler-cli": 22.3.0-next.2
-    "@angular/core": 22.3.0-next.2
-    "@angular/platform-browser": 22.3.0-next.2
-    "@angular/router": 22.3.0-next.2
-    "@push-based/vite-plugin-ngp": 0.2.0
-    typescript: 6.0.3
 
 overrides:
   vite@*: "catalog:"

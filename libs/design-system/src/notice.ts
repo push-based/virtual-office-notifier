@@ -1,28 +1,31 @@
-import { Component, input } from "@angular/core";
+import { Option, Schema } from "effect";
+import type { Html, HtmlBuilder } from "foldkit/html";
 
-export type NoticeKind = "info" | "error";
+export const NoticeKind = Schema.Literals(["info", "error"]);
 
-@Component({
-  selector: "pb-notice",
-  template: `<ng-content />`,
-  styles: `
-    :host {
-      display: block;
-      padding: var(--space-2-5) var(--space-4);
-      border: 1px solid var(--color-info-200);
-      border-radius: var(--radius-lg);
-      background: var(--color-info-50);
-      color: var(--color-info-800);
-    }
+export type NoticeKind = typeof NoticeKind.Type;
 
-    :host(.error) {
-      border-color: var(--color-error-200);
-      background: var(--color-error-50);
-      color: var(--color-error-800);
-    }
-  `,
-  host: { class: "text-body-sm", "[class.error]": "kind() === 'error'" },
-})
-export class PbNotice {
-  readonly kind = input<NoticeKind>("info");
-}
+export const NoticeContent = Schema.Struct({ kind: NoticeKind, text: Schema.String });
+
+export type NoticeContent = typeof NoticeContent.Type;
+
+export const notice = <Message>(h: HtmlBuilder<Message>, shown: NoticeContent): Html =>
+  h.div(
+    [
+      h.Class(
+        shown.kind === "error"
+          ? "text-body-sm pb-notice pb-notice-error"
+          : "text-body-sm pb-notice",
+      ),
+    ],
+    [shown.text],
+  );
+
+export const noticeRegion = <Message>(
+  h: HtmlBuilder<Message>,
+  maybeNotice: Option.Option<NoticeContent>,
+): Html =>
+  h.div(
+    [h.Class("pb-notice-region"), h.Role("status")],
+    Option.match(maybeNotice, { onNone: () => [], onSome: (shown) => [notice(h, shown)] }),
+  );

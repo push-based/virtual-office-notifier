@@ -3,9 +3,9 @@ import { assert, describe, it } from "@effect/vitest";
 import { Array, DateTime, Effect, Layer, Option, Schema, String } from "effect";
 import { SqlClient } from "effect/sql";
 
-import { stateOf } from "../src/Recording.ts";
+import { stateOf } from "office-domain/Recording";
 import { PAGE_SIZE, RecordingHistory } from "../src/RecordingHistory.ts";
-import { Occupant } from "../src/RecordingRequest.ts";
+import { Occupant } from "office-domain/RecordingRequest";
 import { columnNaming } from "../src/SqlNaming.ts";
 import { migrated } from "./schema.ts";
 

@@ -6,13 +6,9 @@ import { HttpClientRequest, HttpServer } from "effect/http";
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
-import { type BusyHour, OfficeStatsReader } from "recording-requests/OfficeStats";
-import {
-  CurrentRequester,
-  RecordingApi,
-  SignedIn,
-  Unauthorized,
-} from "recording-requests/RecordingApi";
+import type { BusyHour } from "office-domain/OfficeStats";
+import { OfficeStatsReader } from "recording-requests/OfficeStats";
+import { CurrentRequester, RecordingApi, SignedIn, Unauthorized } from "office-domain/RecordingApi";
 import { StatsHandlers } from "recording-requests/StatsHandlers";
 
 import { ActivityLog } from "../../src/activity/ActivityLog.ts";
@@ -142,7 +138,7 @@ const recording = Effect.fnUntraced(function* (
   `;
 });
 
-const peopleAt = (hours: ReadonlyArray<typeof BusyHour.Type>, weekday: number, hour: number) =>
+const peopleAt = (hours: ReadonlyArray<BusyHour>, weekday: number, hour: number) =>
   Option.getOrUndefined(
     Option.map(
       Array.findFirst(hours, (busy) => busy.weekday === weekday && busy.hour === hour),

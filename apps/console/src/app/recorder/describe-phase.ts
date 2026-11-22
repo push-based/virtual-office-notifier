@@ -1,8 +1,20 @@
-import { formatElapsed, formatTimeLeft, formatTimeSince } from "design-system";
+import { formatElapsed, formatTimeLeft, formatTimeSince } from "../time/duration.ts";
 
-import type { OfficePhase } from "./models";
+import type { RecordingPause, RunningRecording } from "office-domain/RecordingRequest";
 
-export interface PhaseDescription {
+export type OfficePhase =
+  | { readonly kind: "failed"; readonly reason: string }
+  | { readonly kind: "connecting" }
+  | { readonly kind: "away" }
+  | { readonly kind: "idle" }
+  | { readonly kind: "recording"; readonly recording: RunningRecording }
+  | {
+      readonly kind: "paused";
+      readonly recording: RunningRecording;
+      readonly pause: RecordingPause;
+    };
+
+interface PhaseDescription {
   readonly heading: string;
   readonly description: string;
   readonly live: boolean;

@@ -1,15 +1,15 @@
-import { ngp } from "@push-based/vite-plugin-ngp";
-import { defineConfig, lazyPlugins } from "vite-plus";
+import { defineConfig } from "vite-plus";
+
+import { typecheck } from "../../tools/vite-task/typecheck.ts";
 
 export default defineConfig({
-  plugins: lazyPlugins(() => [ngp()]),
   test: {
     environment: "jsdom",
     include: ["src/**/*.spec.ts"],
-    setupFiles: ["src/test-setup.ts"],
   },
   run: {
     tasks: {
+      typecheck: typecheck(),
       test: "vp test",
     },
   },

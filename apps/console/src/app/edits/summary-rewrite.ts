@@ -1,54 +1,85 @@
-import { Component, booleanAttribute, computed, inject, input, output } from "@angular/core";
-import { PbButton, PbNotice, PbNoticeRegion } from "design-system";
+import { Effect, Schema } from "effect";
+import { button, NoticeContent, noticeRegion } from "design-system";
+import { Command, Submodel, type Update } from "foldkit";
+import { defineMessageUnion } from "foldkit/message";
+import { modifyFields } from "foldkit/struct";
 
-import { EditSaver } from "./edit-saver";
+import { reasonOf } from "../api/api.ts";
+import type { Resources } from "../resources.ts";
+import { answered, failedSave, isSaving, noticeOf, SaveState, saveChanges } from "./save.ts";
 
-@Component({
-  selector: "app-summary-rewrite",
-  imports: [PbButton, PbNotice, PbNoticeRegion],
-  providers: [EditSaver],
-  template: `
-    <button
-      pbButton
-      type="button"
-      variant="ghost"
-      class="rewrite"
-      [disabled]="busy()"
-      [attr.aria-busy]="busy()"
-      (click)="rewrite()"
-    >
-      {{ busy() ? "Rewriting…" : "Rewrite summary" }}
-    </button>
-    <pb-notice-region>
-      @if (saver.notice(); as notice) {
-        <pb-notice [kind]="notice.kind">{{ notice.text }}</pb-notice>
-      }
-    </pb-notice-region>
-  `,
-  styles: `
-    :host {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-3);
-    }
+export const Model = Schema.Struct({ save: SaveState });
 
-    .rewrite {
-      align-self: flex-start;
-    }
-  `,
-})
-export class SummaryRewrite {
-  protected readonly saver = inject(EditSaver);
+export type Model = typeof Model.Type;
 
-  readonly recordingId = input.required<string>();
+export const init = (): Model => ({ save: SaveState.Idle() });
 
-  readonly rewriting = input(false, { transform: booleanAttribute });
+export const Message = defineMessageUnion({
+  ClickedRewrite: { recordingId: Schema.String },
+  CompletedRewriteSummary: { notice: Schema.Option(NoticeContent) },
+  FailedRewriteSummary: { reason: Schema.String },
+});
 
-  readonly saved = output();
+export type Message = typeof Message.Type;
 
-  protected readonly busy = computed(() => this.saver.saving() || this.rewriting());
+export const OutMessage = defineMessageUnion({
+  SavedEdits: {},
+});
 
-  protected rewrite(): void {
-    this.saver.save(this.recordingId(), [{ kind: "rewrite_summary" }], () => this.saved.emit());
-  }
+export type OutMessage = typeof OutMessage.Type;
+
+export const RewriteSummary = Command.define("RewriteSummary", {
+  args: { recordingId: Schema.String },
+  messages: [Message.CompletedRewriteSummary, Message.FailedRewriteSummary],
+  execute: ({ recordingId }) =>
+    saveChanges(recordingId, [{ kind: "rewrite_summary" }]).pipe(
+      Effect.map((shown) => Message.CompletedRewriteSummary({ notice: shown })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedRewriteSummary({ reason: reasonOf(failure) })),
+      ),
+    ),
+});
+
+export const update = (model: Model, message: Message) =>
+  Message.match<Update.ReturnWithOutMessage<Model, Message, OutMessage, Resources>>(message, {
+    ClickedRewrite: ({ recordingId }) =>
+      isSaving(model.save)
+        ? { model }
+        : {
+            model: modifyFields(model, { save: () => SaveState.Saving() }),
+            commands: [RewriteSummary({ recordingId })],
+          },
+
+    CompletedRewriteSummary: ({ notice: shown }) => ({
+      model: modifyFields(model, { save: () => answered(shown) }),
+      outMessage: OutMessage.SavedEdits(),
+    }),
+
+    FailedRewriteSummary: ({ reason }) => ({
+      model: modifyFields(model, { save: () => failedSave(reason) }),
+    }),
+  });
+
+export interface ViewInputs {
+  readonly recordingId: string;
+  readonly isRewriting: boolean;
 }
+
+export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) => {
+  const isBusy = isSaving(model.save) || inputs.isRewriting;
+
+  return h.div(
+    [h.Class("editor")],
+    [
+      button(h, {
+        label: [isBusy ? "Rewriting…" : "Rewrite summary"],
+        variant: "ghost",
+        onClick: Message.ClickedRewrite({ recordingId: inputs.recordingId }),
+        isDisabled: isBusy,
+        isBusy,
+        className: "align-start",
+      }),
+      noticeRegion(h, noticeOf(model.save)),
+    ],
+  );
+});

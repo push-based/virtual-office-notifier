@@ -1,67 +1,50 @@
-import { NgTemplateOutlet } from "@angular/common";
-import { Component, input } from "@angular/core";
+import type { Html, HtmlBuilder } from "foldkit/html";
 
-import { PbDescription } from "./description";
-import { PbHeading } from "./heading";
-import { PbLiveDot } from "./live-dot";
+import type { Content } from "./content.ts";
+
+import { description } from "./text.ts";
 
 export type HeadingLevel = 1 | 2 | 3;
 
-@Component({
-  selector: "pb-status-heading",
-  imports: [NgTemplateOutlet, PbDescription, PbHeading, PbLiveDot],
-  template: `
-    <ng-template #content>
-      @if (live()) {
-        <pb-live-dot />
-      }
-      {{ heading() }}
-    </ng-template>
-    @switch (level()) {
-      @case (1) {
-        <h1 pbHeading class="text-tabular"><ng-container [ngTemplateOutlet]="content" /></h1>
-      }
-      @case (2) {
-        <h2 pbHeading class="text-tabular"><ng-container [ngTemplateOutlet]="content" /></h2>
-      }
-      @case (3) {
-        <h3 pbHeading class="text-tabular"><ng-container [ngTemplateOutlet]="content" /></h3>
-      }
-    }
-    @if (subheading(); as subheading) {
-      <p class="text-body subheading">{{ subheading }}</p>
-    }
-    @if (description(); as description) {
-      <p pbDescription>{{ description }}</p>
-    }
-  `,
-  styles: `
-    :host {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-2);
-    }
-
-    .subheading {
-      margin: 0;
-      font-weight: 600;
-      color: var(--color-text-heading);
-      overflow-wrap: anywhere;
-    }
-
-    pb-live-dot {
-      margin-right: var(--space-2-5);
-    }
-  `,
-})
-export class PbStatusHeading {
-  readonly heading = input.required<string>();
-
-  readonly subheading = input<string | null>(null);
-
-  readonly description = input<string | null>(null);
-
-  readonly live = input(false);
-
-  readonly level = input<HeadingLevel>(1);
+export interface StatusHeadingConfig {
+  readonly heading: string;
+  readonly subheading: string | null;
+  readonly description: string;
+  readonly isLive?: boolean;
+  readonly level?: HeadingLevel;
 }
+
+const liveDot = <Message>(h: HtmlBuilder<Message>): Html =>
+  h.span([h.Class("pb-live-dot"), h.AriaHidden(true)]);
+
+const headingAt = <Message>(
+  h: HtmlBuilder<Message>,
+  level: HeadingLevel,
+  children: ReadonlyArray<Content>,
+): Html => {
+  const attributes = [h.Class("text-section-title pb-heading text-tabular")];
+
+  if (level === 1) return h.h1(attributes, children);
+
+  if (level === 2) return h.h2(attributes, children);
+
+  return h.h3(attributes, children);
+};
+
+export const statusHeading = <Message>(
+  h: HtmlBuilder<Message>,
+  config: StatusHeadingConfig,
+): Html =>
+  h.div(
+    [h.Class("pb-status-heading")],
+    [
+      headingAt(h, config.level ?? 1, [
+        config.isLive === true ? liveDot(h) : h.empty,
+        config.heading,
+      ]),
+      config.subheading === null
+        ? h.empty
+        : h.p([h.Class("text-body pb-status-heading-subheading")], [config.subheading]),
+      description(h, [config.description]),
+    ],
+  );

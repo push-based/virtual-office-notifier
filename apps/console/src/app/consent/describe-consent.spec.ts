@@ -1,11 +1,12 @@
-import type { ConsentStatus } from "recording-requests/wire";
+import { DateTime } from "effect";
+import type { ConsentStatus } from "office-domain/Consent";
 import { describe, expect, it } from "vite-plus/test";
 
-import { describeConsent } from "./describe-consent";
+import { describeConsent } from "./describe-consent.ts";
 
 const agreed: ConsentStatus = {
   standing: "agreed",
-  since: "2026-11-06T08:42:00.000Z",
+  since: DateTime.makeUnsafe("2026-11-06T08:42:00.000Z"),
   pendingWithdrawal: null,
   pendingErasure: null,
   refusedErasure: null,
@@ -14,8 +15,8 @@ const agreed: ConsentStatus = {
 
 const pending = {
   id: 9,
-  requestedAt: "2026-11-08T12:00:00.000Z",
-  dueAt: "2026-12-08T12:00:00.000Z",
+  requestedAt: DateTime.makeUnsafe("2026-11-08T12:00:00.000Z"),
+  dueAt: DateTime.makeUnsafe("2026-12-08T12:00:00.000Z"),
   decision: null,
 };
 
@@ -74,7 +75,7 @@ describe("describeConsent", () => {
   it("carries a refusal so the person can read why", () => {
     const refusal = {
       id: 9,
-      refusedAt: "2026-11-09T09:00:00.000Z",
+      refusedAt: DateTime.makeUnsafe("2026-11-09T09:00:00.000Z"),
       ground: "legal_claim" as const,
       reason: "Evidence in the supplier dispute.",
     };

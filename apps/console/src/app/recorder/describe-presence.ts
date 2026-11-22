@@ -1,10 +1,14 @@
-import type { RecordingStatus } from "./models";
+import { DateTime, Schema } from "effect";
 
-export interface Presence {
-  readonly details: string;
-  readonly state: string | null;
-  readonly timestamps: { readonly start: number } | null;
-}
+import type { RecordingStatus } from "office-domain/RecordingRequest";
+
+export const Presence = Schema.Struct({
+  details: Schema.String,
+  state: Schema.NullOr(Schema.String),
+  timestamps: Schema.NullOr(Schema.Struct({ start: Schema.Finite })),
+});
+
+export type Presence = typeof Presence.Type;
 
 export const describePresence = (status: RecordingStatus): Presence => {
   const { recording } = status;
@@ -14,12 +18,12 @@ export const describePresence = (status: RecordingStatus): Presence => {
       ? {
           details: "Recording the office",
           state: `Started by ${recording.startedByName}`,
-          timestamps: { start: Date.parse(recording.startedAt) },
+          timestamps: { start: DateTime.toEpochMillis(recording.startedAt) },
         }
       : {
           details: "Recording paused",
           state: `Paused by ${recording.pause.byName}`,
-          timestamps: { start: Date.parse(recording.startedAt) },
+          timestamps: { start: DateTime.toEpochMillis(recording.startedAt) },
         };
 
   return status.botInOffice

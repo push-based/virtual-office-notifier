@@ -7,7 +7,7 @@ import {
   RecordingApi,
   RecordingNotFound,
   RequestNotFound,
-} from "./RecordingApi.ts";
+} from "office-domain/RecordingApi";
 import { RecordingEdits } from "./RecordingEdits.ts";
 import { RecordingHistory } from "./RecordingHistory.ts";
 import { RecordingRequests, type RecordingUnavailable } from "./RecordingRequests.ts";

@@ -1,50 +1,68 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
-import { ngp } from "@push-based/vite-plugin-ngp";
-import { defineConfig, lazyPlugins, type Plugin } from "vite-plus";
+import { foldkit } from "@foldkit/vite-plugin";
+import { defineConfig, lazyPlugins } from "vite-plus";
 
 import { typecheck } from "../../tools/vite-task/typecheck.ts";
-
-const onlyInTheBrowser = (plugin: Plugin): Plugin => ({
-  ...plugin,
-  applyToEnvironment: (environment) => environment.config.consumer === "client",
-});
 
 export default defineConfig(({ mode }) => ({
   define: {
     __SENTRY_RELEASE__: JSON.stringify(process.env["GITHUB_SHA"] ?? ""),
   },
   plugins: lazyPlugins(() => [
-    ngp({ typeChecker: "tsrs" }).map(onlyInTheBrowser),
-    mode === "test" ? [] : cloudflare({ viteEnvironment: { name: "worker" } }),
+    foldkit({ buildId: process.env["GITHUB_SHA"] ?? "local" }),
+    mode === "test" || mode === "prerender" || mode === "fake"
+      ? []
+      : cloudflare({ viteEnvironment: { name: "worker" } }),
   ]),
   test: {
     projects: [
       {
         extends: true,
-        test: {
-          name: "page",
-          environment: "jsdom",
-          include: ["src/**/*.spec.ts"],
-          setupFiles: ["src/test-setup.ts"],
-        },
+        test: { name: "page", environment: "jsdom", include: ["src/**/*.spec.ts"] },
       },
       {
         extends: true,
         test: { name: "worker", environment: "node", include: ["worker/**/*.spec.ts"] },
       },
+      {
+        extends: true,
+        test: {
+          name: "built",
+          environment: "node",
+          include: ["smoke/**/*.spec.ts"],
+          testTimeout: 30_000,
+        },
+      },
     ],
   },
   run: {
     tasks: {
-      typecheck: typecheck("pnpm -w exec tsc --noEmit -p apps/console/worker"),
+      typecheck: typecheck(
+        "pnpm -w exec tsc --noEmit -p apps/console && pnpm -w exec tsc --noEmit -p apps/console/worker && pnpm -w exec tsc --noEmit -p apps/console/tsconfig.node.json",
+      ),
       build: {
-        command: "vp build",
+        command: "vp build && node scripts/render-shell.ts",
         cache: {
-          input: [{ auto: true }, "!node_modules/.vite/**", "!.wrangler/state/**"],
-          output: [{ auto: true }, "!node_modules/.vite/**", "!.wrangler/state/**"],
+          input: [
+            { auto: true },
+            "!node_modules/.vite/**",
+            "!node_modules/.render-shell/**",
+            "!.wrangler/state/**",
+            "!dist/**",
+          ],
+          output: [
+            { auto: true },
+            "!node_modules/.vite/**",
+            "!node_modules/.render-shell/**",
+            "!.wrangler/state/**",
+          ],
         },
       },
-      test: "vp test",
+      test: "vp test --project page --project worker",
+      smoke: {
+        command: "vp test --project built",
+        dependsOn: ["build"],
+      },
     },
   },
 }));

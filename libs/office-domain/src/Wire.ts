@@ -1,0 +1,177 @@
+import type * as Consent from "./Consent.ts";
+import type * as Stats from "./OfficeStats.ts";
+import type * as History from "./Recording.ts";
+import type * as Edits from "./RecordingEdit.ts";
+import type * as Schemas from "./RecordingRequest.ts";
+import type * as SignIn from "./SignInApi.ts";
+
+export type RequestAction = typeof Schemas.RequestAction.Encoded;
+
+export type RequestSubmission = typeof Schemas.RequestSubmission.Encoded;
+
+export type IgnoreReason = typeof Schemas.IgnoreReason.Encoded;
+
+export type Occupant = typeof Schemas.Occupant.Encoded;
+
+export type RecordingPause = typeof Schemas.RecordingPause.Encoded;
+
+export type RunningRecording = typeof Schemas.RunningRecording.Encoded;
+
+export type RecordingStatus = typeof Schemas.RecordingStatus.Encoded;
+
+export type PendingRequest = typeof Schemas.PendingRequest.Encoded;
+
+export type StartedRequest = typeof Schemas.StartedRequest.Encoded;
+
+export type StoppedRequest = typeof Schemas.StoppedRequest.Encoded;
+
+export type PausedRequest = typeof Schemas.PausedRequest.Encoded;
+
+export type ResumedRequest = typeof Schemas.ResumedRequest.Encoded;
+
+export type IgnoredRequest = typeof Schemas.IgnoredRequest.Encoded;
+
+export type HandledRequest =
+  | StartedRequest
+  | StoppedRequest
+  | PausedRequest
+  | ResumedRequest
+  | IgnoredRequest;
+
+export type SubmittedRequest = typeof Schemas.SubmittedRequest.Encoded;
+
+export type StatsRange = typeof Stats.StatsRange.Encoded;
+
+export type OfficeStats = typeof Stats.OfficeStats.Encoded;
+
+export type PersonTime = typeof Stats.PersonTime.Encoded;
+
+export type PersonDays = typeof Stats.PersonDays.Encoded;
+
+export type BusyHour = typeof Stats.BusyHour.Encoded;
+
+export type RecordingState = typeof History.RecordingState.Encoded;
+
+export type StopReason = typeof History.StopReason.Encoded;
+
+export type OfficeMember = typeof History.OfficeMember.Encoded;
+
+export type ListedRecording = typeof History.ListedRecording.Encoded;
+
+export type RecordingPage = typeof History.RecordingPage.Encoded;
+
+export type TranscribedClip = typeof History.TranscribedClip.Encoded;
+
+export type ActionItem = typeof History.ActionItem.Encoded;
+
+export type RecordingDetail = typeof History.RecordingDetail.Encoded;
+
+export type SummaryStyle = typeof History.SummaryStyle.Encoded;
+
+export type RecordingChange = typeof Edits.RecordingChange.Encoded;
+
+export type TitleChange = typeof Edits.TitleChange.Encoded;
+
+export type AgendaChange = typeof Edits.AgendaChange.Encoded;
+
+export type TickChange = typeof Edits.TickChange.Encoded;
+
+export type UntickChange = typeof Edits.UntickChange.Encoded;
+
+export type ReassignChange = typeof Edits.ReassignChange.Encoded;
+
+export type SummaryStyleChange = typeof Edits.SummaryStyleChange.Encoded;
+
+export type RewriteSummaryChange = typeof Edits.RewriteSummaryChange.Encoded;
+
+export type EditIgnoreReason = typeof Edits.EditIgnoreReason.Encoded;
+
+export type PendingEdit = typeof Edits.PendingEdit.Encoded;
+
+export type AppliedEdit = typeof Edits.AppliedEdit.Encoded;
+
+export type IgnoredEdit = typeof Edits.IgnoredEdit.Encoded;
+
+export type HandledEdit = AppliedEdit | IgnoredEdit;
+
+export type SubmittedEdit = typeof Edits.SubmittedEdit.Encoded;
+
+export type SignInConfig = typeof SignIn.SignInConfig.Encoded;
+
+export type SignInCode = typeof SignIn.SignInCode.Encoded;
+
+export type SignedInSession = typeof SignIn.SignedInSession.Encoded;
+
+export type ConsentStanding = typeof Consent.ConsentStanding.Encoded;
+
+export type ConsentStatus = typeof Consent.ConsentStatus.Encoded;
+
+export type WithdrawalOutcome = typeof Consent.WithdrawalOutcome.Encoded;
+
+export type SubmittedWithdrawal = typeof Consent.SubmittedWithdrawal.Encoded;
+
+export type ErasureOutcome = typeof Consent.ErasureOutcome.Encoded;
+
+export type ErasureDecision = typeof Consent.ErasureDecision.Encoded;
+
+export type RefusalGround = typeof Consent.RefusalGround.Encoded;
+
+export type SubmittedErasure = typeof Consent.SubmittedErasure.Encoded;
+
+export type PendingErasure = typeof Consent.PendingErasure.Encoded;
+
+export type Refusal = typeof Consent.Refusal.Encoded;
+
+export type ErasureInventory = typeof Consent.ErasureInventory.Encoded;
+
+export type ErasureCase = typeof Consent.ErasureCase.Encoded;
+
+export type ErasureRefusal = typeof Consent.ErasureRefusal.Encoded;
+
+export const CONSENT_NOTICE_VERSION = 1;
+
+export const CONSENT_ANSWER_MS = 60_000;
+
+export const FORMER_MEMBER_ID = "former_member";
+
+export const FORMER_MEMBER = "a former member";
+
+export const ERASURE_WAIT_MS = 5 * 60_000;
+
+export const ERASURE_REVIEW_DAYS = 30;
+
+export const DATA_PROTECTION_AUTHORITIES_URL =
+  "https://www.edpb.europa.eu/about-edpb/about-edpb/members_en";
+
+export const REFUSAL_GROUNDS: Readonly<Record<RefusalGround, string>> = {
+  legal_obligation: "a legal obligation to keep it",
+  legal_claim: "an ongoing legal claim that needs it",
+};
+
+export const RECORDED_IN_THE_OFFICE = [
+  "when you join and leave, mute, deafen, turn on your camera or share your screen",
+  "every soundboard sound and emoji you send",
+  "everything you say, but only while someone has started a recording (the bot shows up as 🔴 Recording)",
+] as const;
+
+export const REQUEST_EXPIRY_MS = 60_000;
+
+export const CHECK_INTERVAL_MS = 2_000;
+
+export const ANSWER_WINDOW_MS = REQUEST_EXPIRY_MS + 2 * CHECK_INTERVAL_MS;
+
+export const RECORDING_LIMIT_MS = 4 * 60 * 60 * 1000;
+
+export const TITLE_MAX_LENGTH = 80;
+
+export const AGENDA_MAX_LENGTH = 500;
+
+export const SUMMARY_STYLES = ["brief", "detailed", "decisions"] as const;
+
+export const DEFAULT_SUMMARY_STYLE = "brief" satisfies (typeof SUMMARY_STYLES)[number];
+
+export const SUMMARY_STYLE_LABELS = {
+  brief: "Brief",
+  detailed: "Detailed",
+  decisions: "Decisions & actions",
+} as const satisfies Record<(typeof SUMMARY_STYLES)[number], string>;

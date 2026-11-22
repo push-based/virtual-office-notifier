@@ -158,6 +158,47 @@ describe("OfficeVoice", () => {
     }).pipe(Effect.scoped, Effect.provide(layer));
   });
 
+  // A voice WebSocket that closes with anything but 4014 takes the connection
+  // from Ready straight back to Signalling, never through Disconnected.
+  it.effect("replaces a connection that drops after it was ready and never comes back", () =>
+    Effect.gen(function* () {
+      const { office, gateways } = yield* setUp("dropped-after-ready");
+
+      yield* office.join(false);
+
+      const live = yield* office.current;
+      assert.isTrue(Option.isSome(live));
+
+      const { connection } = Option.getOrThrow(live);
+
+      Reflect.set(connection, "state", {
+        ...connection.state,
+        status: VoiceConnectionStatus.Ready,
+      });
+      yield* Effect.repeat(Effect.yieldNow, { times: 10 });
+      Reflect.set(connection, "state", {
+        ...connection.state,
+        status: VoiceConnectionStatus.Signalling,
+      });
+
+      yield* TestClock.adjust(CONNECT_TIMEOUT);
+      yield* pollUntil(
+        Effect.sync(() => connection.state.status),
+        (status) => status === VoiceConnectionStatus.Destroyed,
+      );
+      yield* TestClock.adjust(REJOIN_DELAY);
+      yield* pollUntil(
+        Effect.sync(() => gateways.length),
+        (count) => count > 1,
+      );
+
+      assert.strictEqual(connection.state.status, VoiceConnectionStatus.Destroyed);
+      assert.strictEqual(gateways.length, 2);
+
+      yield* office.leave;
+    }).pipe(Effect.scoped),
+  );
+
   it("notes what Discord sends the voice connection and still passes it on", () => {
     const history = startJoinHistory(() => 0);
     const received: Array<string> = [];

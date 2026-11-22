@@ -1,45 +1,31 @@
-export { PbAvatar } from "./avatar";
+export type { Content } from "./content.ts";
 
-export { PbAvatarGroup } from "./avatar-group";
+export { type BadgeTone, badge } from "./badge.ts";
 
-export { type BadgeTone, PbBadge } from "./badge";
+export { type Bar, barList } from "./bar-list.ts";
 
-export { type Bar, PbBarList } from "./bar-list";
+export { type ButtonVariant, blockButton, button } from "./button.ts";
 
-export { type ButtonSize, type ButtonVariant, PbButton } from "./button";
+export { card } from "./card.ts";
 
-export { type CardSize, PbCard } from "./card";
+export { checkbox, checkboxLabel } from "./checkbox.ts";
 
-export { PbDescription } from "./description";
+export { confirmBox } from "./confirm-box.ts";
 
-export { PbDivider } from "./divider";
+export { disclosure } from "./disclosure.ts";
 
-export { formatDuration, formatElapsed, formatTimeLeft, formatTimeSince } from "./duration";
+export { type SelectOption, inlineSelect, selectField, textField } from "./fields.ts";
 
-export { type EyebrowTone, PbEyebrow } from "./eyebrow";
+export { type HeatmapRow, heatmap } from "./heatmap.ts";
 
-export { PbHeading } from "./heading";
+export { NoticeContent, notice, noticeRegion } from "./notice.ts";
 
-export { type HeatmapCell, type HeatmapRow, PbHeatmap } from "./heatmap";
+export { avatar, people, type Person } from "./people.ts";
 
-export { InitialsPipe } from "./initials.pipe";
+export { stat } from "./stat.ts";
 
-export { type LiveDotTone, PbLiveDot } from "./live-dot";
+export { statusHeading } from "./status-heading.ts";
 
-export { type NoticeKind, PbNotice } from "./notice";
+export * as Tabs from "./tabs.ts";
 
-export { PbNoticeRegion } from "./notice-region";
-
-export { PbPeople, type Person } from "./people";
-
-export { PbRecordButton } from "./record-button";
-
-export { PbSelectField, type SelectOption } from "./select-field";
-
-export { PbStat } from "./stat";
-
-export { type HeadingLevel, PbStatusHeading } from "./status-heading";
-
-export { PbTabs, type Tab, type TabsAppearance, tabId, tabPanelId } from "./tabs";
-
-export { PbTextField } from "./text-field";
+export { description, descriptionItem, divider, eyebrow, heading } from "./text.ts";
