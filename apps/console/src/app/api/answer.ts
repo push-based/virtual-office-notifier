@@ -24,11 +24,11 @@ const polled = <A, Answered extends A, E, R>(
 ): Effect.Effect<Option.Option<Answered>, E, R> => {
   const attempt = (left: number): Effect.Effect<Option.Option<Answered>, E, R> =>
     left === 0
-      ? Effect.succeed(Option.none())
+      ? Effect.succeedNone
       : Effect.sleep(timing.every).pipe(
           Effect.andThen(check),
           Effect.flatMap((found) =>
-            isAnswered(found) ? Effect.succeed(Option.some(found)) : attempt(left - 1),
+            isAnswered(found) ? Effect.succeedSome(found) : attempt(left - 1),
           ),
         );
 

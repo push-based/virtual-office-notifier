@@ -1,4 +1,4 @@
-import { DateTime } from "effect";
+import { Array, DateTime } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -120,6 +120,10 @@ describe("transcriptTurns", () => {
       { speaker: anna, startedAt: DateTime.makeUnsafe("2026-10-29T12:08:00.000Z"), text: "Three" },
     ];
 
-    expect(transcriptTurns(clips).map((turn) => turn.lines)).toEqual([["One"], ["Two"], ["Three"]]);
+    expect(Array.map(transcriptTurns(clips), (turn) => turn.lines)).toEqual([
+      ["One"],
+      ["Two"],
+      ["Three"],
+    ]);
   });
 });

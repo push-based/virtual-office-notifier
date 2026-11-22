@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from "effect";
+import { Array, Effect, Option, Schema } from "effect";
 import { avatar, description, eyebrow, notice, noticeRegion } from "design-system";
 import { Command, Submodel, type Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -34,7 +34,7 @@ export const ownerChoices = (
   members: ReadonlyArray<OfficeMember>,
   owner: OfficeMember | null,
 ): ReadonlyArray<OfficeMember> =>
-  owner === null || members.some(({ userId }) => userId === owner.userId)
+  owner === null || Array.some(members, ({ userId }) => userId === owner.userId)
     ? members
     : [owner, ...members];
 
@@ -163,7 +163,7 @@ const itemView = (
                 ],
                 [
                   h.option([h.Value(""), h.Selected(item.owner === null)], [UNASSIGNED]),
-                  ...ownerChoices(inputs.members, item.owner).map((member) =>
+                  ...Array.map(ownerChoices(inputs.members, item.owner), (member) =>
                     h.keyed("option")(
                       member.userId,
                       [h.Value(member.userId), h.Selected(member.userId === item.owner?.userId)],
@@ -192,7 +192,7 @@ const itemsView = (
       )
     : h.ul(
         [h.Class("action-items")],
-        items.map((item) => itemView(model, inputs, item, h)),
+        Array.map(items, (item) => itemView(model, inputs, item, h)),
       );
 
 export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inputs, h) =>

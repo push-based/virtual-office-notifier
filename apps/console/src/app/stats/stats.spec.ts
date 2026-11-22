@@ -1,4 +1,4 @@
-import { DateTime, identity } from "effect";
+import { Array, DateTime, identity } from "effect";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
@@ -33,7 +33,7 @@ describe("the office stats", () => {
       Story.given(open(init()).model),
       Story.model((model) => expect(model.stats).toEqual(StatsData.Loading())),
     );
-    expect(open(init()).commands?.map(({ name, args }) => ({ name, args }))).toEqual([
+    expect(Array.map(open(init()).commands ?? [], ({ name, args }) => ({ name, args }))).toEqual([
       { name: FetchStats.name, args: { range: "week" } },
     ]);
     Scene.scene(

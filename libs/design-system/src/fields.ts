@@ -1,3 +1,4 @@
+import { Array } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 export interface TextFieldConfig<Message> {
@@ -71,7 +72,7 @@ export const selectField = <Message>(
           h.Disabled(config.isDisabled === true),
           h.OnChange(config.onChange),
         ],
-        config.options.map((option) =>
+        Array.map(config.options, (option) =>
           h.keyed("option")(
             option.value,
             [h.Value(option.value), h.Selected(option.value === config.value)],

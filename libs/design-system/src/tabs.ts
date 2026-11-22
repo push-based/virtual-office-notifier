@@ -1,4 +1,4 @@
-import { Option } from "effect";
+import { Array, Option } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 export interface Tab<Id extends string = string> {
@@ -33,10 +33,12 @@ export const tabAfterKey = <Id extends string>(
   from: Id,
   key: string,
 ): Option.Option<Tab<Id>> => {
-  const index = tabs.findIndex((tab) => tab.id === from);
+  const index = Array.findFirstIndex(tabs, (tab) => tab.id === from).pipe(
+    Option.getOrElse(() => -1),
+  );
 
   return Option.fromNullishOr(MOVES.get(key)).pipe(
-    Option.flatMap((move) => Option.fromNullishOr(tabs[move(index, tabs.length)])),
+    Option.flatMap((move) => Array.get(tabs, move(index, tabs.length))),
   );
 };
 
@@ -46,7 +48,7 @@ export const tabs = <Id extends string, Message>(
 ): Html =>
   h.div(
     [h.Class(`pb-tabs pb-tabs-${config.appearance}`), h.Role("tablist"), h.AriaLabel(config.label)],
-    config.tabs.map((tab) =>
+    Array.map(config.tabs, (tab) =>
       h.keyed("button")(
         tab.id,
         [

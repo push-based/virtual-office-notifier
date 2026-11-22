@@ -31,48 +31,50 @@ export interface SentRequest {
 
 export type FakeRoutes = (request: SentRequest) => FakeAnswer | "unanswered" | "hangs";
 
-const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
+const decodeJson = (text: string) =>
+  Schema.decodeEffect(Schema.fromJsonString(Schema.Json))(text).pipe(Effect.orDie);
 
-const bodyOf = (request: HttpClientRequest.HttpClientRequest): Schema.Json =>
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+
+const bodyOf = (request: HttpClientRequest.HttpClientRequest): Effect.Effect<Schema.Json> =>
   Predicate.isTagged(request.body, "Uint8Array")
     ? decodeJson(new TextDecoder().decode(request.body.body))
-    : null;
+    : Effect.succeed(null);
+
+const responseBodyOf = (answer: FakeAnswer): Effect.Effect<string | null> =>
+  answer.body === undefined ? Effect.succeed(null) : encodeJson(answer.body).pipe(Effect.orDie);
 
 export const fakeServer = (routes: FakeRoutes) => {
   const sent: Array<SentRequest> = [];
 
   const client = HttpClient.make((request, url) =>
-    Effect.suspend(() => {
+    Effect.gen(function* () {
       const seen: SentRequest = {
         method: request.method,
         path: url.pathname,
         query: url.search,
         authorization: request.headers["authorization"],
-        body: bodyOf(request),
+        body: yield* bodyOf(request),
       };
 
       sent.push(seen);
 
       const answer = routes(seen);
 
-      if (answer === "hangs") return Effect.never;
+      if (answer === "hangs") return yield* Effect.never;
 
       if (answer === "unanswered") {
-        return Effect.fail(
-          new HttpClientError.HttpClientError({
-            reason: new HttpClientError.TransportError({ request, description: "unreachable" }),
-          }),
-        );
+        return yield* new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({ request, description: "unreachable" }),
+        });
       }
 
-      return Effect.succeed(
-        HttpClientResponse.fromWeb(
-          request,
-          new Response(answer.body === undefined ? null : JSON.stringify(answer.body), {
-            status: answer.status ?? 200,
-            headers: answer.headers ?? {},
-          }),
-        ),
+      return HttpClientResponse.fromWeb(
+        request,
+        new Response(yield* responseBodyOf(answer), {
+          status: answer.status ?? 200,
+          headers: answer.headers ?? {},
+        }),
       );
     }),
   );
@@ -164,18 +166,19 @@ const unfaked = {
   ),
 };
 
-const seenBy = async (request: Request): Promise<SentRequest> => {
-  const url = new URL(request.url);
-  const text = await request.text();
+const seenBy = (request: Request): Effect.Effect<SentRequest> =>
+  Effect.gen(function* () {
+    const url = new URL(request.url);
+    const text = yield* Effect.promise(() => request.text());
 
-  return {
-    method: request.method,
-    path: url.pathname,
-    query: url.search,
-    authorization: request.headers.get("authorization") ?? undefined,
-    body: text === "" ? null : decodeJson(text),
-  };
-};
+    return {
+      method: request.method,
+      path: url.pathname,
+      query: url.search,
+      authorization: request.headers.get("authorization") ?? undefined,
+      body: text === "" ? null : yield* decodeJson(text),
+    };
+  });
 
 export const fakeWorker = (faked: FakeGroups = {}) => {
   const sent: Array<SentRequest> = [];
@@ -200,15 +203,18 @@ export const fakeWorker = (faked: FakeGroups = {}) => {
     { disableLogger: true },
   );
 
-  const fetchFromWorker: typeof globalThis.fetch = async (input, init) => {
+  const fetchFromWorker: typeof globalThis.fetch = (input, init) => {
     const request = new Request(
       new URL(input instanceof Request ? input.url : input, "http://console.test"),
       init,
     );
 
-    sent.push(await seenBy(request.clone()));
-
-    return worker.handler(request);
+    return Effect.runPromise(
+      seenBy(request.clone()).pipe(
+        Effect.tap((seen) => Effect.sync(() => sent.push(seen))),
+        Effect.andThen(Effect.promise(() => worker.handler(request))),
+      ),
+    );
   };
 
   const layer = FetchHttpClient.layer.pipe(

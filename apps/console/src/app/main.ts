@@ -1,4 +1,4 @@
-import { Clock, Duration, Effect, Option, Predicate, Schema, Stream } from "effect";
+import { Array, Clock, Duration, Effect, Option, pipe, Predicate, Schema, Stream } from "effect";
 import { type Tab, tabId, tabPanelId, tabs } from "design-system";
 import { Command, Subscription, Update } from "foldkit";
 import type { Document, Html, HtmlBuilder } from "foldkit/html";
@@ -27,7 +27,12 @@ export const VIEWS: ReadonlyArray<Tab<View>> = [
   { id: "privacy", label: "Privacy" },
 ];
 
-export const viewOf = (id: string): View => VIEWS.find((tab) => tab.id === id)?.id ?? "now";
+export const viewOf = (id: string): View =>
+  pipe(
+    VIEWS,
+    Array.findFirst((tab) => tab.id === id),
+    Option.match({ onNone: () => "now", onSome: (tab) => tab.id }),
+  );
 
 export const SignIn = defineTaggedUnion({
   SigningIn: {},
@@ -38,7 +43,7 @@ export const SignIn = defineTaggedUnion({
 export const Model = Schema.Struct({
   view: View,
   signIn: SignIn,
-  now: Schema.Number,
+  now: Schema.Finite,
   recorder: Recorder.Model,
   history: History.Model,
   stats: Stats.Model,
@@ -54,7 +59,7 @@ export const Message = defineMessageUnion({
   SucceededSignIn: {},
   FailedSignIn: { reason: Schema.String },
   CompletedStartTelemetry: {},
-  TickedClock: { now: Schema.Number },
+  TickedClock: { now: Schema.Finite },
   GotRecorderMessage: { message: Recorder.Message },
   GotHistoryMessage: { message: History.Message },
   GotStatsMessage: { message: Stats.Message },

@@ -34,12 +34,12 @@ const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
 const askWorker = <A, E extends ApiFailure, R>(asking: Effect.Effect<A, E, R>) =>
-  Effect.mapError(asking, (failure) => new SignInFailure({ reason: reasonOf(failure) }));
+  Effect.mapError(asking, (failure) => SignInFailure.make({ reason: reasonOf(failure) }));
 
 const fromDiscord = <A>(call: () => Promise<A>) =>
   Effect.tryPromise({
     try: call,
-    catch: (cause) => new SignInFailure({ reason: messageOf(cause) }),
+    catch: (cause) => SignInFailure.make({ reason: messageOf(cause) }),
   });
 
 export class Session extends Context.Service<
@@ -49,7 +49,7 @@ export class Session extends Context.Service<
     readonly showPresence: (presence: Presence) => Effect.Effect<void>;
     readonly openExternalLink: (url: string) => Effect.Effect<void, LinkFailure>;
   }
->()("console/session/Session") {
+>()("console/app/session/session") {
   static readonly layer = Layer.effect(
     Session,
     Effect.gen(function* () {
@@ -63,7 +63,7 @@ export class Session extends Context.Service<
 
         const discord = yield* Effect.try({
           try: () => createClient(clientId),
-          catch: (cause) => new SignInFailure({ reason: messageOf(cause) }),
+          catch: (cause) => SignInFailure.make({ reason: messageOf(cause) }),
         });
 
         yield* fromDiscord(() => discord.ready());
@@ -110,7 +110,7 @@ export class Session extends Context.Service<
               onSome: (discord) =>
                 Effect.tryPromise({
                   try: () => discord.commands.openExternalLink({ url }),
-                  catch: (cause) => new LinkFailure({ reason: messageOf(cause) }),
+                  catch: (cause) => LinkFailure.make({ reason: messageOf(cause) }),
                 }).pipe(Effect.asVoid),
             }),
           ),

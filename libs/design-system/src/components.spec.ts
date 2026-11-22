@@ -1,3 +1,4 @@
+import { Array } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { click, expect, given, label, role, scene, selector, text, type } from "foldkit/scene";
 import { describe, expect as expectValue, it } from "vite-plus/test";
@@ -16,7 +17,7 @@ type Clicks = ReadonlyArray<string>;
 const counting = (render: (h: HtmlBuilder<string>) => Html) => ({
   update: (clicks: Clicks, message: string) => ({ model: [...clicks, message] }),
   view: (clicks: Clicks, h: HtmlBuilder<string>) =>
-    h.div([], [render(h), h.output([], [clicks.join(",")])]),
+    h.div([], [render(h), h.output([], [Array.join(clicks, ",")])]),
 });
 
 describe("button", () => {
@@ -108,7 +109,7 @@ describe("barList", () => {
   ];
 
   it("sizes each bar against the largest value", () => {
-    expectValue(items.map((item) => barShare(items, item))).toEqual([100, 50]);
+    expectValue(Array.map(items, (item) => barShare(items, item))).toEqual([100, 50]);
   });
 
   it("lists the bars under their label, or says when there are none", () => {
@@ -142,9 +143,9 @@ describe("heatmap", () => {
   ];
 
   it("shades each cell against the busiest one", () => {
-    expectValue(rows.flatMap((row) => row.cells.map((cell) => heatOf(rows, cell)))).toEqual([
-      1, 0, 0.5,
-    ]);
+    expectValue(
+      Array.flatMap(rows, (row) => Array.map(row.cells, (cell) => heatOf(rows, cell))),
+    ).toEqual([1, 0, 0.5]);
   });
 
   it("describes every cell for screen readers and marks unknown ones", () => {

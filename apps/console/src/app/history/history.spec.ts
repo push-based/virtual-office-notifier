@@ -1,4 +1,4 @@
-import { DateTime, identity, Option } from "effect";
+import { Array, DateTime, identity, Option } from "effect";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
@@ -104,7 +104,7 @@ describe("the recording history", () => {
         }),
       ),
       Story.model((model) => {
-        expect(model.list.recordings.map(({ id }) => id)).toEqual(["r1", "r0"]);
+        expect(Array.map(model.list.recordings, ({ id }) => id)).toEqual(["r1", "r0"]);
         expect(model.list.older).toBeNull();
         expect(model.isLoadingOlder).toBe(false);
       }),

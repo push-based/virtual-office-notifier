@@ -1,3 +1,4 @@
+import { Array } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import { eyebrow } from "./text.ts";
@@ -20,11 +21,14 @@ export interface AvatarConfig {
 export type AvatarSize = "sm" | "md";
 
 const avatarClass = (config: AvatarConfig): string =>
-  [
-    "pb-avatar",
-    ...(config.size === "sm" ? ["pb-avatar-sm"] : []),
-    ...(config.isSpeaking === true ? ["pb-avatar-speaking"] : []),
-  ].join(" ");
+  Array.join(
+    [
+      "pb-avatar",
+      ...(config.size === "sm" ? ["pb-avatar-sm"] : []),
+      ...(config.isSpeaking === true ? ["pb-avatar-speaking"] : []),
+    ],
+    " ",
+  );
 
 export const avatar = <Message>(h: HtmlBuilder<Message>, config: AvatarConfig): Html =>
   h.span(
@@ -56,7 +60,7 @@ export const people = <Message>(h: HtmlBuilder<Message>, config: PeopleConfig): 
         : eyebrow(h, { text: config.label, tone: "muted", id: labelId }),
       h.ul(
         config.label === undefined ? [] : [h.AriaLabelledBy(labelId)],
-        config.people.map((person) =>
+        Array.map(config.people, (person) =>
           h.keyed("li")(
             person.id,
             [],

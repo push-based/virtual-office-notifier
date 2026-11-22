@@ -1,4 +1,4 @@
-import { DateTime } from "effect";
+import { Array, DateTime } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { listedRecording } from "./fixtures.ts";
@@ -12,7 +12,7 @@ const recordingAt = (minute: number, state: "running" | "finished" = "finished")
   });
 
 const ids = (list: { readonly recordings: ReadonlyArray<{ readonly id: string }> }) =>
-  list.recordings.map(({ id }) => id);
+  Array.map(list.recordings, ({ id }) => id);
 
 describe("the history list", () => {
   it("starts from the newest page and offers what's older", () => {

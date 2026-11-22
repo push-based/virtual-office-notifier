@@ -19,9 +19,7 @@ const serving = (answer: FakeAnswer) =>
     Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero, timeout: Duration.seconds(1) }),
   );
 
-afterEach(async () => {
-  await Sentry.close();
-});
+afterEach(() => Sentry.close());
 
 describe("the telemetry", () => {
   it.effect("sends nothing when the Worker has no DSN", () =>
@@ -56,31 +54,33 @@ describe("the telemetry", () => {
     }).pipe(Effect.provide(serving({ body: telemetry }))),
   );
 
-  it("reports a crash through the Worker", async () => {
-    const sentTo: Array<string> = [];
-    const errors: Array<string | undefined> = [];
+  it.effect("reports a crash through the Worker", () =>
+    Effect.gen(function* () {
+      const sentTo: Array<string> = [];
+      const errors: Array<string | undefined> = [];
 
-    Sentry.init({
-      ...sentryOptionsFor(telemetry),
-      transport: (options) =>
-        Sentry.createTransport(options, () => {
-          sentTo.push(options.url);
+      Sentry.init({
+        ...sentryOptionsFor(telemetry),
+        transport: (options) =>
+          Sentry.createTransport(options, () => {
+            sentTo.push(options.url);
 
-          return Promise.resolve({});
-        }),
-      beforeSend: (event) => {
-        errors.push(event.exception?.values?.[0]?.value);
+            return Promise.resolve({});
+          }),
+        beforeSend: (event) => {
+          errors.push(event.exception?.values?.[0]?.value);
 
-        return event;
-      },
-    });
+          return event;
+        },
+      });
 
-    reportCrash(new Error("The page caught fire"));
-    await Sentry.flush(2000);
+      reportCrash(new Error("The page caught fire"));
+      yield* Effect.promise(() => Sentry.flush(2000));
 
-    expect(errors).toEqual(["The page caught fire"]);
-    expect(new Set(sentTo)).toEqual(new Set(["/api/sentry"]));
-  });
+      expect(errors).toEqual(["The page caught fire"]);
+      expect(new Set(sentTo)).toEqual(new Set(["/api/sentry"]));
+    }),
+  );
 
   it("leaves the release out when the Worker has none", () => {
     expect(sentryOptionsFor({ ...telemetry, release: null }).release).toBeUndefined();

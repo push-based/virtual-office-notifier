@@ -1,3 +1,4 @@
+import { Array } from "effect";
 import { Scene, Story } from "foldkit";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -22,7 +23,7 @@ const scene = { update, view };
 
 describe("the Console", () => {
   it("starts the telemetry and signs in through Discord", () => {
-    expect(init().commands?.map(({ name }) => name)).toEqual([
+    expect(Array.map(init().commands ?? [], ({ name }) => name)).toEqual([
       StartTelemetry.name,
       SignInToDiscord.name,
     ]);

@@ -1,3 +1,4 @@
+import { Array } from "effect";
 import { badge, description, people, type Person } from "design-system";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
@@ -17,11 +18,14 @@ export interface RecordingRowConfig<Message> {
 }
 
 export const factLine = (recording: ListedRecording, now: number): string =>
-  [
-    ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
-    formatRunTime(recording.startedAt, recording.stoppedAt, now),
-    `Started by ${recording.startedBy.name}`,
-  ].join(" · ");
+  Array.join(
+    [
+      ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
+      formatRunTime(recording.startedAt, recording.stoppedAt, now),
+      `Started by ${recording.startedBy.name}`,
+    ],
+    " · ",
+  );
 
 export const recordingRow = <Message>(
   h: HtmlBuilder<Message>,
@@ -29,7 +33,7 @@ export const recordingRow = <Message>(
 ): Html => {
   const { recording } = config;
   const state = stateBadge(recording.state);
-  const speakers = recording.speakers.map(personOf);
+  const speakers = Array.map(recording.speakers, personOf);
 
   const facts = [
     h.span(

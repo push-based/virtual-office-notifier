@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from "effect";
+import { Array, Effect, Option, Schema, String } from "effect";
 import {
   button,
   card,
@@ -57,7 +57,7 @@ const groundOf = (value: string): RefusalGround =>
 export const CasesData = AsyncData.Schema(Schema.Array(ErasureCase), Schema.String);
 
 export const Confirming = Schema.Struct({
-  id: Schema.Number,
+  id: Schema.Finite,
   action: Schema.Literals(["now", "refuse"]),
 });
 
@@ -72,7 +72,7 @@ export type Decision = typeof Decision.Type;
 export const Model = Schema.Struct({
   cases: CasesData.schema,
   confirming: Schema.Option(Confirming),
-  busy: Schema.Option(Schema.Number),
+  busy: Schema.Option(Schema.Finite),
   notice: Schema.Option(Notice),
   ground: RefusalGround,
   reason: Schema.String,
@@ -94,11 +94,11 @@ export const Message = defineMessageUnion({
   FailedFetchCases: { reason: Schema.String },
   ClickedConfirm: { confirming: Confirming },
   ClickedBack: {},
-  ClickedDeleteNow: { id: Schema.Number },
-  ClickedLetItRun: { id: Schema.Number },
+  ClickedDeleteNow: { id: Schema.Finite },
+  ClickedLetItRun: { id: Schema.Finite },
   UpdatedGround: { value: Schema.String },
   UpdatedReason: { value: Schema.String },
-  SubmittedRefusal: { id: Schema.Number },
+  SubmittedRefusal: { id: Schema.Finite },
   SucceededDecideErasure: { decision: Decision },
   FailedDecideErasure: { isAlreadyDecided: Schema.Boolean },
 });
@@ -131,7 +131,7 @@ const decided = (id: number, decision: Decision) =>
   });
 
 export const DecideErasure = Command.define("DecideErasure", {
-  args: { id: Schema.Number, decision: Decision },
+  args: { id: Schema.Finite, decision: Decision },
   messages: [Message.SucceededDecideErasure, Message.FailedDecideErasure],
   execute: ({ id, decision }) =>
     decided(id, decision).pipe(
@@ -139,7 +139,7 @@ export const DecideErasure = Command.define("DecideErasure", {
       Effect.catchTag("ErasureNotFound", () =>
         Effect.succeed(Message.FailedDecideErasure({ isAlreadyDecided: true })),
       ),
-      Effect.catch(() => Effect.succeed(Message.FailedDecideErasure({ isAlreadyDecided: false }))),
+      Effect.orElseSucceed(() => Message.FailedDecideErasure({ isAlreadyDecided: false })),
     ),
 });
 
@@ -211,7 +211,7 @@ export const update = (model: Model, message: Message) =>
     UpdatedReason: ({ value }) => ({ model: modifyFields(model, { reason: () => value }) }),
 
     SubmittedRefusal: ({ id }) => {
-      const reason = model.reason.trim();
+      const reason = String.trim(model.reason);
 
       return reason === ""
         ? { model }
@@ -295,7 +295,7 @@ const refuseView = (model: Model, id: number, h: HtmlBuilder<Message>): Html =>
           button(h, {
             label: [workingLabel(model, id, "Refuse the deletion")],
             isSubmit: true,
-            isDisabled: Option.isSome(model.busy) || model.reason.trim() === "",
+            isDisabled: Option.isSome(model.busy) || String.trim(model.reason) === "",
           }),
           button(h, {
             label: ["Keep it open"],
@@ -344,7 +344,7 @@ const decisionView = (model: Model, erasure: ErasureCase, h: HtmlBuilder<Message
 
 const caseView = (model: Model, erasure: ErasureCase, h: HtmlBuilder<Message>): Html =>
   h.keyed("article")(
-    String(erasure.id),
+    globalThis.String(erasure.id),
     [h.Class("case"), h.AriaLabelledBy(`case-${erasure.id}`)],
     [
       h.h3(
@@ -366,7 +366,7 @@ const caseView = (model: Model, erasure: ErasureCase, h: HtmlBuilder<Message>): 
       h.h4([h.Class("text-body-sm label")], ["What will be deleted"]),
       h.ul(
         [h.Class("text-body-sm bullets")],
-        describeInventory(erasure.inventory).map((line) => h.li([], [line])),
+        Array.map(describeInventory(erasure.inventory), (line) => h.li([], [line])),
       ),
       decisionView(model, erasure, h),
     ],
@@ -376,7 +376,7 @@ const casesView = (model: Model, cases: ReadonlyArray<ErasureCase>, h: HtmlBuild
   ...(cases.length === 0
     ? [description(h, ["Nobody has asked for their data to be deleted."])]
     : []),
-  ...cases.map((erasure) => caseView(model, erasure, h)),
+  ...Array.map(cases, (erasure) => caseView(model, erasure, h)),
 ];
 
 const loading = (h: HtmlBuilder<Message>) => [description(h, ["Loading…"])];

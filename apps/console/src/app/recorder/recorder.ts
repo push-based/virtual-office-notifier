@@ -1,4 +1,4 @@
-import { Duration, Effect, Option, Schema, Stream } from "effect";
+import { Array, Duration, Effect, Option, Schema, Stream } from "effect";
 import {
   button,
   card,
@@ -50,18 +50,18 @@ export const Connection = defineTaggedUnion({
 
 export type Connection = typeof Connection.Type;
 
-export const ShownNotice = Schema.Struct({ id: Schema.Number, notice: Notice });
+export const ShownNotice = Schema.Struct({ id: Schema.Finite, notice: Notice });
 
 export const Model = Schema.Struct({
   connection: Connection,
   draft: Draft,
   isSubmitting: Schema.Boolean,
   notice: Schema.Option(ShownNotice),
-  noticeCount: Schema.Number,
+  noticeCount: Schema.Finite,
   presence: Schema.Option(Presence),
   editor: RecordingEditor.Model,
-  statusRequests: Schema.Number,
-  statusApplied: Schema.Number,
+  statusRequests: Schema.Finite,
+  statusApplied: Schema.Finite,
 });
 
 export type Model = typeof Model.Type;
@@ -110,8 +110,8 @@ export const canPress = (model: Model): boolean =>
 
 export const Message = defineMessageUnion({
   TickedStatusPoll: {},
-  SucceededFetchStatus: { request: Schema.Number, status: RecordingStatus },
-  FailedFetchStatus: { request: Schema.Number, reason: Schema.String },
+  SucceededFetchStatus: { request: Schema.Finite, status: RecordingStatus },
+  FailedFetchStatus: { request: Schema.Finite, reason: Schema.String },
   CompletedShowPresence: {},
   UpdatedDraftTitle: { value: Schema.String },
   UpdatedDraftAgenda: { value: Schema.String },
@@ -120,14 +120,14 @@ export const Message = defineMessageUnion({
   ClickedPause: {},
   CompletedSubmitRequest: { handled: Schema.NullOr(HandledRequest) },
   FailedSubmitRequest: { reason: Schema.String },
-  CompletedWaitBeforeDismissal: { id: Schema.Number },
+  CompletedWaitBeforeDismissal: { id: Schema.Finite },
   GotEditorMessage: { message: RecordingEditor.Message },
 });
 
 export type Message = typeof Message.Type;
 
 export const FetchStatus = Command.define("FetchStatus", {
-  args: { request: Schema.Number },
+  args: { request: Schema.Finite },
   messages: [Message.SucceededFetchStatus, Message.FailedFetchStatus],
   execute: ({ request }) =>
     ConsoleApi.use((api) => api.recording.status()).pipe(
@@ -172,7 +172,7 @@ export const SubmitRequest = Command.define("SubmitRequest", {
 });
 
 export const WaitBeforeDismissal = Command.define("WaitBeforeDismissal", {
-  args: { id: Schema.Number },
+  args: { id: Schema.Finite },
   messages: [Message.CompletedWaitBeforeDismissal],
   execute: ({ id }) =>
     Effect.sleep(NOTICE_SHOWN_FOR).pipe(Effect.as(Message.CompletedWaitBeforeDismissal({ id }))),
@@ -341,7 +341,7 @@ export const pollInterval = (model: Model): Option.Option<number> =>
 
 export const subscriptions = Subscription.make<Model, Message>()((entry) => ({
   pollStatus: entry(
-    { intervalMs: Schema.NullOr(Schema.Number) },
+    { intervalMs: Schema.NullOr(Schema.Finite) },
     {
       modelToDependencies: (model) => ({ intervalMs: Option.getOrNull(pollInterval(model)) }),
       dependenciesToStream: ({ intervalMs }) =>
@@ -357,7 +357,7 @@ export interface ViewInputs {
 }
 
 const peopleOf = (status: RecordingStatus | null): ReadonlyArray<Person> =>
-  (status?.occupants ?? []).map((occupant) => ({
+  Array.map(status?.occupants ?? [], (occupant) => ({
     id: occupant.userId,
     name: occupant.displayName,
     avatarUrl: occupant.avatarUrl,

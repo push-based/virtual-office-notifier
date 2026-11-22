@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/browser";
-import { Effect } from "effect";
+import { Array, Effect } from "effect";
 import { type Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
 
 import { ConsoleApi } from "../api/api.ts";
@@ -16,7 +16,7 @@ export const sentryOptionsFor = ({
   tracesSampleRate: 1,
   dataCollection: { userInfo: false, cookies: false, httpHeaders: false, httpBodies: [] },
   integrations: (defaults) => [
-    ...defaults.filter(({ name }) => name !== "Console"),
+    ...Array.filter(defaults, ({ name }) => name !== "Console"),
     Sentry.breadcrumbsIntegration({ dom: false }),
     Sentry.browserTracingIntegration(),
   ],

@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/browser";
-import { Context, Effect } from "effect";
+import { Array, Context, Effect, pipe, Record, String } from "effect";
 
 export const BODY_LIMIT = 200;
 
@@ -14,16 +14,18 @@ export interface FailedResponse {
 }
 
 export const describeGatewayFailure = (response: FailedResponse): FailureDetails => {
-  const headers = SAFE_HEADERS.flatMap((name) => {
+  const headers = Array.flatMap(SAFE_HEADERS, (name) => {
     const value = response.headers[name];
 
     return value === undefined ? [] : [[name, value] as const];
   });
 
-  return Object.fromEntries([
-    ["status", String(response.status)],
+  return Record.fromEntries([
+    ["status", `${response.status}`] as const,
     ...headers,
-    ...(response.body === "" ? [] : [["body", response.body.slice(0, BODY_LIMIT)] as const]),
+    ...(response.body === ""
+      ? []
+      : [["body", pipe(response.body, String.slice(0, BODY_LIMIT))] as const]),
   ]);
 };
 
@@ -52,7 +54,7 @@ export const sentryGatewayFailures: GatewayFailuresService = {
     Effect.sync(() => {
       Sentry.captureMessage(`${failure.path} kept answering ${failure.status}`, {
         level: "warning",
-        fingerprint: ["gateway-failure", String(failure.status)],
+        fingerprint: ["gateway-failure", `${failure.status}`],
         contexts: { response: failure.details },
       });
     }),

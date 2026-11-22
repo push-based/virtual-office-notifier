@@ -1,3 +1,4 @@
+import { Array } from "effect";
 import type { Attribute, Html, HtmlBuilder } from "foldkit/html";
 
 import type { Content } from "./content.ts";
@@ -19,13 +20,16 @@ export interface ButtonConfig<Message> {
 }
 
 const classOf = <Message>(config: ButtonConfig<Message>): string =>
-  [
-    "pb-btn",
-    `pb-btn-${config.variant ?? "primary"}`,
-    ...(config.size === "lg" ? ["pb-btn-lg"] : []),
-    ...(config.isFullWidth === true ? ["pb-btn-full"] : []),
-    ...(config.className === undefined ? [] : [config.className]),
-  ].join(" ");
+  Array.join(
+    [
+      "pb-btn",
+      `pb-btn-${config.variant ?? "primary"}`,
+      ...(config.size === "lg" ? ["pb-btn-lg"] : []),
+      ...(config.isFullWidth === true ? ["pb-btn-full"] : []),
+      ...(config.className === undefined ? [] : [config.className]),
+    ],
+    " ",
+  );
 
 export const button = <Message>(h: HtmlBuilder<Message>, config: ButtonConfig<Message>): Html => {
   const isDisabled = config.isDisabled === true;

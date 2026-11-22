@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option, Ref } from "effect";
+import { Array, Effect, Option, Ref } from "effect";
 
 import { SessionToken } from "../api/api.ts";
 import { fakeDiscord, fakeResources, fakeServer, fakeWorker } from "../fakes.ts";
@@ -22,9 +22,12 @@ describe("the session", () => {
         prompt: "none",
         scope: ["identify", "rpc.activities.write"],
       });
-      expect(worker.sent.find(({ path }) => path === "/api/token")?.body).toEqual({
-        code: "discord-code",
-      });
+      expect(
+        Option.map(
+          Array.findFirst(worker.sent, ({ path }) => path === "/api/token"),
+          ({ body }) => body,
+        ),
+      ).toEqual(Option.some({ code: "discord-code" }));
       expect(discord.commands.authenticate).toHaveBeenCalledWith({ access_token: "access-1" });
       expect(yield* Ref.get(yield* SessionToken)).toEqual(Option.some("session-1"));
     }).pipe(Effect.provide(fakeResources(worker.layer, discord)));

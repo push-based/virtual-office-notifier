@@ -1,4 +1,4 @@
-import { Duration, Effect, Option, Schema, Stream } from "effect";
+import { Array, Duration, Effect, Option, Schema, Stream } from "effect";
 import { button, card, description, eyebrow, notice, noticeRegion } from "design-system";
 import { Command, Submodel, Subscription, Update } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -23,13 +23,13 @@ export const RECORDING_POLL = Duration.seconds(5);
 
 export const Opened = Schema.Struct({
   id: Schema.String,
-  opening: Schema.Number,
+  opening: Schema.Finite,
   recording: Schema.Option(RecordingDetail),
   editor: RecordingEditor.Model,
   rewrite: SummaryRewrite.Model,
   actionItems: ActionItems.Model,
-  requests: Schema.Number,
-  applied: Schema.Number,
+  requests: Schema.Finite,
+  applied: Schema.Finite,
 });
 
 export type Opened = typeof Opened.Type;
@@ -40,9 +40,9 @@ export const Model = Schema.Struct({
   isLoadingOlder: Schema.Boolean,
   opened: Schema.Option(Opened),
   failure: Schema.Option(Schema.String),
-  listRequests: Schema.Number,
-  listApplied: Schema.Number,
-  openings: Schema.Number,
+  listRequests: Schema.Finite,
+  listApplied: Schema.Finite,
+  openings: Schema.Finite,
 });
 
 export type Model = typeof Model.Type;
@@ -71,8 +71,8 @@ const openedAt = (id: string, opening: number): Opened => ({
 
 export const Message = defineMessageUnion({
   TickedListPoll: {},
-  SucceededFetchNewest: { request: Schema.Number, page: RecordingPage },
-  FailedFetchNewest: { request: Schema.Number, reason: Schema.String },
+  SucceededFetchNewest: { request: Schema.Finite, page: RecordingPage },
+  FailedFetchNewest: { request: Schema.Finite, reason: Schema.String },
   ClickedShowOlder: {},
   SucceededFetchOlder: { page: RecordingPage },
   FailedFetchOlder: { reason: Schema.String },
@@ -80,11 +80,11 @@ export const Message = defineMessageUnion({
   ClickedBack: {},
   TickedRecordingPoll: { id: Schema.String },
   SucceededFetchRecording: {
-    opening: Schema.Number,
-    request: Schema.Number,
+    opening: Schema.Finite,
+    request: Schema.Finite,
     recording: RecordingDetail,
   },
-  FailedFetchRecording: { opening: Schema.Number, request: Schema.Number, reason: Schema.String },
+  FailedFetchRecording: { opening: Schema.Finite, request: Schema.Finite, reason: Schema.String },
   ClickedOpenInSlack: { url: Schema.String },
   CompletedOpenInSlack: {},
   FailedOpenInSlack: { reason: Schema.String },
@@ -96,7 +96,7 @@ export const Message = defineMessageUnion({
 export type Message = typeof Message.Type;
 
 export const FetchNewest = Command.define("FetchNewest", {
-  args: { request: Schema.Number },
+  args: { request: Schema.Finite },
   messages: [Message.SucceededFetchNewest, Message.FailedFetchNewest],
   execute: ({ request }) =>
     ConsoleApi.use((api) => api.history.recordings({ query: {} })).pipe(
@@ -120,7 +120,7 @@ export const FetchOlder = Command.define("FetchOlder", {
 });
 
 export const FetchRecording = Command.define("FetchRecording", {
-  args: { id: Schema.String, opening: Schema.Number, request: Schema.Number },
+  args: { id: Schema.String, opening: Schema.Finite, request: Schema.Finite },
   messages: [Message.SucceededFetchRecording, Message.FailedFetchRecording],
   execute: ({ id, opening, request }) =>
     ConsoleApi.use((api) => api.history.recording({ params: { id } })).pipe(
@@ -434,7 +434,7 @@ const listView = (model: Model, now: number, h: HtmlBuilder<Message>): Html =>
       [h.Class("recordings")],
       model.list.recordings.length === 0 && model.isLoaded
         ? [h.li([h.Class("text-body-sm pb-description")], ["Nothing has been recorded yet."])]
-        : model.list.recordings.map((recording) =>
+        : Array.map(model.list.recordings, (recording) =>
             h.keyed("li")(
               recording.id,
               [],

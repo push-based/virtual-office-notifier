@@ -1,4 +1,4 @@
-import { DateTime, Schema } from "effect";
+import { Array, DateTime, Schema } from "effect";
 
 import { ListedRecording, type RecordingPage } from "office-domain/Recording";
 
@@ -21,7 +21,9 @@ const merged = (
   known: ReadonlyArray<ListedRecording>,
   fresh: ReadonlyArray<ListedRecording>,
 ): ReadonlyArray<ListedRecording> =>
-  newestFirst(new Map([...known, ...fresh].map((recording) => [recording.id, recording])).values());
+  newestFirst(
+    new Map(Array.map([...known, ...fresh], (recording) => [recording.id, recording])).values(),
+  );
 
 export const withNewest = (list: HistoryList, page: RecordingPage): HistoryList => ({
   recordings: merged(list.recordings, page.recordings),

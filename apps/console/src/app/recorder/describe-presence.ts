@@ -5,7 +5,7 @@ import type { RecordingStatus } from "office-domain/RecordingRequest";
 export const Presence = Schema.Struct({
   details: Schema.String,
   state: Schema.NullOr(Schema.String),
-  timestamps: Schema.NullOr(Schema.Struct({ start: Schema.Number })),
+  timestamps: Schema.NullOr(Schema.Struct({ start: Schema.Finite })),
 });
 
 export type Presence = typeof Presence.Type;

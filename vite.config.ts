@@ -65,8 +65,10 @@ export default defineConfig({
       {
         files: [
           "apps/bot/**",
+          "apps/console/src/**",
           "apps/console/worker/**",
           "libs/activity-sign-in/**",
+          "libs/design-system/**",
           "libs/office-domain/**",
           "libs/recording-requests/**",
         ],
@@ -170,8 +172,12 @@ export default defineConfig({
         },
       },
       {
-        files: ["**/test/**", "**/scripts/**", "apps/bot/src/main.ts"],
+        files: ["**/test/**", "**/*.spec.ts", "**/scripts/**", "apps/bot/src/main.ts"],
         rules: { "effecttsgo/strict-effect-provide": "off" },
+      },
+      {
+        files: ["apps/console/src/app/resources.ts"],
+        rules: { "effecttsgo/global-fetch": "off" },
       },
     ],
   },

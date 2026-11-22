@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Array, Option, pipe, Schema, String } from "effect";
 
 import type { Notice } from "../notice.ts";
 import { SummaryStyle } from "office-domain/Recording";
@@ -23,13 +23,15 @@ export type Plan = typeof Plan.Type;
 
 export const EMPTY_DRAFT: Draft = { title: "", agenda: "", summaryStyle: DEFAULT_SUMMARY_STYLE };
 
-export const STYLE_OPTIONS = SUMMARY_STYLES.map((style) => ({
+export const STYLE_OPTIONS = Array.map(SUMMARY_STYLES, (style) => ({
   value: style,
   label: SUMMARY_STYLE_LABELS[style],
 }));
 
 export const summaryStyleOf = (value: string): SummaryStyle =>
-  SUMMARY_STYLES.find((style) => style === value) ?? DEFAULT_SUMMARY_STYLE;
+  Schema.decodeUnknownOption(SummaryStyle)(value).pipe(
+    Option.getOrElse((): SummaryStyle => DEFAULT_SUMMARY_STYLE),
+  );
 
 export const draftOf = (plan: Plan): Draft => ({
   title: plan.title ?? "",
@@ -40,8 +42,8 @@ export const draftOf = (plan: Plan): Draft => ({
 const orNull = (text: string): string | null => (text === "" ? null : text);
 
 export const planOf = (draft: Draft): Plan => ({
-  title: orNull(draft.title.replace(/\s+/g, " ").trim()),
-  agenda: orNull(draft.agenda.trim()),
+  title: orNull(pipe(draft.title, String.replace(/\s+/g, " "), String.trim)),
+  agenda: orNull(String.trim(draft.agenda)),
   summaryStyle: draft.summaryStyle,
 });
 

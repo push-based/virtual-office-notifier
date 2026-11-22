@@ -1,4 +1,4 @@
-import { Duration, Effect, Option, Schema } from "effect";
+import { Array, Duration, Effect, Option, Schema } from "effect";
 import {
   button,
   card,
@@ -102,7 +102,7 @@ export const Message = defineMessageUnion({
   ClickedKeep: {},
   ClickedWithdraw: {},
   ClickedErase: {},
-  ClickedCancelErasure: { id: Schema.Number },
+  ClickedCancelErasure: { id: Schema.Finite },
   CompletedAct: { notice: Notice },
   ClickedAuthorities: {},
   CompletedOpenAuthorities: {},
@@ -139,7 +139,7 @@ export const WithdrawConsent = Command.define("WithdrawConsent", {
       .pipe(
         Effect.flatMap((submitted) =>
           isAnswered(submitted)
-            ? Effect.succeed(Option.some(submitted))
+            ? Effect.succeedSome(submitted)
             : awaitAnswer(
                 api.consent.find({ params: { id: submitted.id } }),
                 isAnswered,
@@ -164,7 +164,7 @@ export const RequestErasure = Command.define("RequestErasure", {
 });
 
 export const CancelErasure = Command.define("CancelErasure", {
-  args: { id: Schema.Number },
+  args: { id: Schema.Finite },
   messages: [Message.CompletedAct],
   execute: ({ id }) =>
     ConsoleApi.use((api) => api.consent.cancelErasure({ params: { id } })).pipe(
@@ -336,7 +336,7 @@ const recordedView = (h: HtmlBuilder<Message>): Html =>
       ),
       h.ul(
         [h.Class("text-body-sm bullets")],
-        RECORDED_IN_THE_OFFICE.map((item) => h.li([], [item])),
+        Array.map(RECORDED_IN_THE_OFFICE, (item) => h.li([], [item])),
       ),
       description(h, [
         "It's shared in the office Slack channel, and AI models read it to write the office banter and summarise recordings. That's how the office works, so it can't be switched off for one person.",

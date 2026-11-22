@@ -1,4 +1,4 @@
-import { DateTime } from "effect";
+import { Array, DateTime } from "effect";
 import {
   avatar,
   badge,
@@ -37,12 +37,15 @@ export interface RecordingPageConfig<Message> {
 }
 
 export const pageFacts = (recording: RecordingDetail, now: number): string =>
-  [
-    ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
-    formatRunTime(recording.startedAt, recording.stoppedAt, now),
-    `Started by ${recording.startedBy.name}`,
-    ...[describeStop(recording)].flatMap((stop) => (stop === null ? [] : [stop])),
-  ].join(" · ");
+  Array.join(
+    [
+      ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
+      formatRunTime(recording.startedAt, recording.stoppedAt, now),
+      `Started by ${recording.startedBy.name}`,
+      ...Array.flatMap([describeStop(recording)], (stop) => (stop === null ? [] : [stop])),
+    ],
+    " · ",
+  );
 
 const headerView = <Message>(
   h: HtmlBuilder<Message>,
@@ -50,7 +53,7 @@ const headerView = <Message>(
 ): Html => {
   const { recording } = config;
   const state = stateBadge(recording.state);
-  const speakers = recording.speakers.map(personOf);
+  const speakers = Array.map(recording.speakers, personOf);
 
   return h.header(
     [h.Class("stack-2")],
@@ -124,7 +127,7 @@ const turnView = <Message>(h: HtmlBuilder<Message>, turn: TranscriptTurn): Html 
               h.span([h.Class("text-caption transcript-time")], [formatClock(turn.startedAt)]),
             ],
           ),
-          ...turn.lines.map((line) => h.p([h.Class("text-body preserved-lines")], [line])),
+          ...Array.map(turn.lines, (line) => h.p([h.Class("text-body preserved-lines")], [line])),
         ],
       ),
     ],
@@ -141,7 +144,7 @@ const transcriptView = <Message>(h: HtmlBuilder<Message>, recording: RecordingDe
         [h.Class("transcript")],
         turns.length === 0
           ? [h.li([h.Class("text-body-sm pb-description")], ["Nothing transcribed yet."])]
-          : turns.map((turn) => turnView(h, turn)),
+          : Array.map(turns, (turn) => turnView(h, turn)),
       ),
       isLive(recording.state) ? description(h, ["More on the way…"]) : h.empty,
     ],

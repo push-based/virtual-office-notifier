@@ -37,7 +37,7 @@ import {
 } from "../telemetry/gateway-failures.ts";
 
 export class SessionToken extends Context.Service<SessionToken, Ref.Ref<Option.Option<string>>>()(
-  "console/api/SessionToken",
+  "console/app/api/api/SessionToken",
 ) {
   static readonly layer = Layer.effect(SessionToken, Ref.make(Option.none<string>()));
 }
@@ -129,7 +129,7 @@ const withGatewayRetries = (client: HttpClient.HttpClient): HttpClient.HttpClien
 export class ConsoleApi extends Context.Service<
   ConsoleApi,
   HttpApiClient.ForApi<typeof RecordingApi>
->()("console/api/ConsoleApi") {
+>()("console/app/api/api/ConsoleApi") {
   static readonly layer = Layer.effect(
     ConsoleApi,
     HttpApiClient.make(RecordingApi, { transformClient: withGatewayRetries }),

@@ -1,4 +1,4 @@
-import { DateTime } from "effect";
+import { Array, DateTime } from "effect";
 import type { OfficeStats } from "office-domain/OfficeStats";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -36,7 +36,10 @@ describe("describeStats", () => {
     expect(view.lastOut).toEqual([{ id: "grace", label: "Grace", value: 2, display: "2 days" }]);
     expect(view.sounds).toEqual([{ id: "airhorn", label: "airhorn", value: 3, display: "3" }]);
     expect(view.players).toEqual([{ id: "grace", label: "Grace", value: 3, display: "3" }]);
-    expect(view.reactions.map((reaction) => reaction.label)).toEqual(["🎉", ":partyparrot:"]);
+    expect(Array.map(view.reactions, (reaction) => reaction.label)).toEqual([
+      "🎉",
+      ":partyparrot:",
+    ]);
   });
 });
 
@@ -66,7 +69,7 @@ describe("busiestGrid", () => {
     ]);
 
     expect(grid.columns).toEqual(["9", "10", "11"]);
-    expect(grid.rows.map((row) => row.label)).toEqual([
+    expect(Array.map(grid.rows, (row) => row.label)).toEqual([
       "Mon",
       "Tue",
       "Wed",
