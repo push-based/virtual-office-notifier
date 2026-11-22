@@ -767,6 +767,43 @@ describe("Recorder", () => {
     }),
   );
 
+  it.effect("records a stop the database missed when the office emptied, on the next tick", () =>
+    Effect.gen(function* () {
+      const failures = yield* Ref.make(1);
+
+      const h = yield* makeHarness({
+        present: [ada],
+        store: (store) =>
+          RecordingStore.of({
+            ...store,
+            stopRecording: (id, at, reason, by) =>
+              Ref.getAndUpdate(failures, (left) => left - 1).pipe(
+                Effect.flatMap((left) =>
+                  left > 0
+                    ? Effect.fail(StoreUnavailable.make({ reason: "Timed out after 10 seconds" }))
+                    : store.stopRecording(id, at, reason, by),
+                ),
+              ),
+          }),
+      });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.offer(leave());
+      yield* h.eventually(Ref.get(failures), (left) => left === 0);
+      yield* h.settle;
+
+      assert.isNull((yield* h.recordingRows)[0]?.stoppedAt);
+
+      yield* h.tick;
+
+      const [recording] = yield* recordingFinished(h);
+      assert.strictEqual(recording?.stopReason, "office_emptied");
+      assert.deepStrictEqual(yield* h.recordings, ["Capturing", "Off"]);
+    }),
+  );
+
   it.effect("stops when the office empties, and posts nothing when nobody spoke", () =>
     Effect.gen(function* () {
       const h = yield* makeHarness({ present: [ada] });
@@ -1023,6 +1060,55 @@ describe("Recorder", () => {
 
       const [recording] = yield* recordingStopped(h);
       assert.strictEqual(recording?.stopReason, "time_limit");
+    }),
+  );
+
+  it.effect("picks up the recording from before a restart once the database answers", () =>
+    Effect.gen(function* () {
+      const failures = yield* Ref.make(1);
+
+      const h = yield* makeHarness({
+        present: [ada],
+        store: (store) =>
+          RecordingStore.of({
+            ...store,
+            activeRecording: Ref.getAndUpdate(failures, (left) => left - 1).pipe(
+              Effect.flatMap((left) =>
+                left > 0
+                  ? Effect.fail(StoreUnavailable.make({ reason: "Timed out after 10 seconds" }))
+                  : store.activeRecording,
+              ),
+            ),
+          }),
+        before: Effect.gen(function* () {
+          const store = yield* RecordingStore;
+
+          yield* store.startRecording({
+            id: "6f1c2c1e-6c1a-4c55-9a0e-8e3b8f9b2a10",
+            guildId: "guild",
+            channelId: OFFICE,
+            startedAt: yield* DateTime.now,
+            startedBy: "u1",
+            startedByName: "Ada",
+            title: null,
+            agenda: null,
+            summaryStyle: "brief",
+          });
+        }),
+      });
+
+      yield* h.eventually(Ref.get(failures), (left) => left === 0);
+      yield* h.settle;
+      yield* h.tick;
+      yield* h.eventually(h.eventRows, (rows) =>
+        Array.some(rows, (row) => row.event === "resumed"),
+      );
+
+      assert.deepStrictEqual(yield* h.eventRows, [
+        { event: "started", reason: null },
+        { event: "resumed", reason: "bot_restarted" },
+      ]);
+      assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
     }),
   );
 
