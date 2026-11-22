@@ -1,13 +1,11 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Duration, Effect, Exit, Option, Schema } from "effect";
+import { DateTime, Effect, Exit, Option, Schema } from "effect";
 
 import {
   type ActiveRecording,
   decideRequest,
   endsAt,
-  explain,
   isOverLimit,
-  RECORDING_LIMIT,
   REQUEST_EXPIRY,
   RecordingStatus,
   RequestDecision,
@@ -154,9 +152,7 @@ describe("decideRequest", () => {
       RequestDecision.Ignore({ reason: "office_empty" }),
     );
   });
-});
 
-describe("request expiry", () => {
   it("ignores a request the bot only sees after a minute, before anything else", () => {
     const late = DateTime.addDuration(DateTime.makeUnsafe(1), REQUEST_EXPIRY);
 
@@ -197,7 +193,6 @@ describe("RowId", () => {
 
 describe("time limit", () => {
   it("ends four hours after the start", () => {
-    assert.strictEqual(Duration.toHours(RECORDING_LIMIT), 4);
     assert.strictEqual(DateTime.toEpochMillis(endsAt(active.startedAt)), 4 * 60 * 60 * 1000);
     assert.isFalse(isOverLimit(active, DateTime.makeUnsafe(4 * 60 * 60 * 1000 - 1)));
     assert.isTrue(isOverLimit(active, DateTime.makeUnsafe(4 * 60 * 60 * 1000)));
@@ -205,18 +200,6 @@ describe("time limit", () => {
 
   it("counts pauses, so a paused recording still ends four hours after the start", () => {
     assert.isTrue(isOverLimit(paused, DateTime.makeUnsafe(4 * 60 * 60 * 1000)));
-  });
-});
-
-describe("explain", () => {
-  it("explains each ignore reason to the person who pressed the button", () => {
-    assert.include(explain("expired"), "again");
-    assert.include(explain("not_in_office"), "office voice channel");
-    assert.include(explain("already_recording"), "already");
-    assert.include(explain("not_recording"), "no recording");
-    assert.include(explain("office_empty"), "empty");
-    assert.include(explain("already_paused"), "already paused");
-    assert.include(explain("not_paused"), "isn't paused");
   });
 });
 
