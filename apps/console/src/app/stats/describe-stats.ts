@@ -1,5 +1,5 @@
 import { type Bar, formatDuration, type HeatmapRow, type Tab } from "design-system";
-import type { BusyHour, OfficeStats, PersonDays, StatsRange } from "../wire.ts";
+import type { BusyHour, OfficeStats, PersonDays, StatsRange } from "office-domain/OfficeStats";
 
 export interface RangeTab extends Tab {
   readonly id: StatsRange;

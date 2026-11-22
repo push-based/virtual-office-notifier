@@ -1,6 +1,6 @@
 import { formatElapsed, formatTimeLeft, formatTimeSince } from "design-system";
 
-import type { RecordingPause, RunningRecording } from "../wire.ts";
+import type { RecordingPause, RunningRecording } from "office-domain/RecordingRequest";
 
 export type OfficePhase =
   | { readonly kind: "failed"; readonly reason: string }

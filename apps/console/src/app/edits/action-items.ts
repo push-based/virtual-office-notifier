@@ -7,8 +7,10 @@ import { modifyFields } from "foldkit/struct";
 
 import { Notice } from "../notice.ts";
 import { unreachableNotice } from "../recorder/notices.ts";
+import { reasonOf } from "../api/api.ts";
 import type { Resources } from "../resources.ts";
-import { ActionItem, type OfficeMember, RecordingChange } from "../wire.ts";
+import { ActionItem, type OfficeMember } from "office-domain/Recording";
+import { RecordingChange } from "office-domain/RecordingEdit";
 import { saveChanges } from "./save.ts";
 
 export const NO_ACTION_ITEMS = "No action items could be pulled out.";
@@ -66,8 +68,8 @@ export const SaveActionItems = Command.define("SaveActionItems", {
   execute: ({ recordingId, changes }) =>
     saveChanges(recordingId, changes).pipe(
       Effect.map((shown) => Message.CompletedSaveActionItems({ notice: shown })),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedSaveActionItems({ reason })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedSaveActionItems({ reason: reasonOf(failure) })),
       ),
     ),
 });

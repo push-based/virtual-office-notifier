@@ -1,14 +1,9 @@
 import { Schema } from "effect";
 
 import type { Notice } from "../notice.ts";
-import {
-  DEFAULT_SUMMARY_STYLE,
-  type HandledEdit,
-  type RecordingChange,
-  SUMMARY_STYLE_LABELS,
-  SUMMARY_STYLES,
-  SummaryStyle,
-} from "../wire.ts";
+import { SummaryStyle } from "office-domain/Recording";
+import type { HandledEdit, RecordingChange } from "office-domain/RecordingEdit";
+import { DEFAULT_SUMMARY_STYLE, SUMMARY_STYLE_LABELS, SUMMARY_STYLES } from "office-domain/wire";
 
 export const Draft = Schema.Struct({
   title: Schema.String,

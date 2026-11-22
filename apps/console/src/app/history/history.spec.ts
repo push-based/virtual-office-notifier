@@ -1,4 +1,4 @@
-import { identity, Option } from "effect";
+import { DateTime, identity, Option } from "effect";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
@@ -27,18 +27,18 @@ const scene = {
     h.submodel({ slotId: "history", model, view, viewInputs: { now }, toParentMessage: identity }),
 };
 
-const page = (recordings = [listedRecording()], older: string | null = null) => ({
+const page = (recordings = [listedRecording()], older: DateTime.Utc | null = null) => ({
   recordings,
   older,
 });
 
-const listed = (recordings = [listedRecording()], older: string | null = null): Model =>
+const listed = (recordings = [listedRecording()], older: DateTime.Utc | null = null): Model =>
   update(init(), Message.SucceededFetchNewest({ request: 1, page: page(recordings, older) })).model;
 
 const opened = (detail = recordingDetail()): Model =>
   update(
     update(listed(), Message.ClickedRecording({ id: detail.id })).model,
-    Message.SucceededFetchRecording({ id: detail.id, request: 1, recording: detail }),
+    Message.SucceededFetchRecording({ opening: 1, request: 1, recording: detail }),
   ).model;
 
 describe("the recording history", () => {
@@ -70,7 +70,7 @@ describe("the recording history", () => {
           listedRecording({
             id: "r2",
             state: "silent",
-            startedAt: "2026-10-28T09:00:00.000Z",
+            startedAt: DateTime.makeUnsafe("2026-10-28T09:00:00.000Z"),
             speakers: [],
           }),
         ]),
@@ -87,13 +87,20 @@ describe("the recording history", () => {
   it("shows older recordings from where the list ends", () => {
     Story.story(
       update,
-      Story.given(listed([listedRecording()], "2026-10-29T12:05:00.000Z")),
+      Story.given(listed([listedRecording()], DateTime.makeUnsafe("2026-10-29T12:05:00.000Z"))),
       Story.message(Message.ClickedShowOlder()),
-      Story.Command.expectExact(FetchOlder({ before: "2026-10-29T12:05:00.000Z" })),
+      Story.Command.expectExact(
+        FetchOlder({ before: DateTime.makeUnsafe("2026-10-29T12:05:00.000Z") }),
+      ),
       Story.Command.resolve(
         FetchOlder,
         Message.SucceededFetchOlder({
-          page: page([listedRecording({ id: "r0", startedAt: "2026-10-20T09:00:00.000Z" })]),
+          page: page([
+            listedRecording({
+              id: "r0",
+              startedAt: DateTime.makeUnsafe("2026-10-20T09:00:00.000Z"),
+            }),
+          ]),
         }),
       ),
       Story.model((model) => {
@@ -117,12 +124,43 @@ describe("the recording history", () => {
   it("ignores a recording that arrives after another one was opened", () => {
     Story.story(
       update,
-      Story.given(update(listed(), Message.ClickedRecording({ id: "r2" })).model),
+      Story.given(listed()),
+      Story.message(Message.ClickedRecording({ id: "r1" })),
+      Story.message(Message.ClickedBack()),
+      Story.message(Message.ClickedRecording({ id: "r2" })),
       Story.message(
-        Message.SucceededFetchRecording({ id: "r1", request: 1, recording: recordingDetail() }),
+        Message.SucceededFetchRecording({ opening: 1, request: 1, recording: recordingDetail() }),
       ),
       Story.model((model) =>
         expect(Option.flatMap(model.opened, ({ recording }) => recording)).toEqual(Option.none()),
+      ),
+    );
+  });
+
+  it("ignores the answer to an earlier look at the same recording, and keeps the fresh one", () => {
+    const stale = recordingDetail({ title: "Before" });
+    const fresh = recordingDetail({ title: "After" });
+
+    Story.story(
+      update,
+      Story.given(listed()),
+      Story.message(Message.ClickedRecording({ id: "r1" })),
+      Story.message(Message.ClickedBack()),
+      Story.message(Message.ClickedRecording({ id: "r1" })),
+      Story.message(Message.SucceededFetchRecording({ opening: 1, request: 1, recording: stale })),
+      Story.model((model) =>
+        expect(Option.flatMap(model.opened, ({ recording }) => recording)).toEqual(Option.none()),
+      ),
+      Story.message(Message.TickedRecordingPoll({ id: "r1" })),
+      Story.Command.expectExact(FetchRecording({ id: "r1", opening: 2, request: 1 })),
+      Story.Command.resolve(
+        FetchRecording,
+        Message.SucceededFetchRecording({ opening: 2, request: 1, recording: fresh }),
+      ),
+      Story.model((model) =>
+        expect(Option.flatMap(model.opened, ({ recording }) => recording)).toEqual(
+          Option.some(fresh),
+        ),
       ),
     );
   });
@@ -148,7 +186,7 @@ describe("the recording history", () => {
       update,
       Story.given(opened()),
       Story.message(Message.FailedFetchNewest({ request: 2, reason: "late" })),
-      Story.message(Message.FailedFetchRecording({ id: "r2", request: 2, reason: "elsewhere" })),
+      Story.message(Message.FailedFetchRecording({ opening: 2, request: 2, reason: "elsewhere" })),
       Story.model((model) => expect(model.failure).toEqual(Option.none())),
     );
   });
@@ -212,11 +250,11 @@ describe("the recording history", () => {
         SummaryRewrite.RewriteSummary,
         SummaryRewrite.Message.CompletedRewriteSummary({ notice: Option.none() }),
       ),
-      Story.Command.expectExact(FetchRecording({ id: "r1", request: 1 })),
+      Story.Command.expectExact(FetchRecording({ id: "r1", opening: 1, request: 1 })),
       Story.Command.resolve(
         FetchRecording,
         Message.SucceededFetchRecording({
-          id: "r1",
+          opening: 1,
           request: 1,
           recording: recordingDetail({ rewriting: true }),
         }),
@@ -324,7 +362,7 @@ describe("a recording's page", () => {
       Scene.Command.resolve(
         FetchRecording,
         Message.SucceededFetchRecording({
-          id: "r1",
+          opening: 1,
           request: 1,
           recording: recordingDetail({ title: "Retro" }),
         }),

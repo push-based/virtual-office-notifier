@@ -1,3 +1,4 @@
+import { DateTime } from "effect";
 import {
   avatar,
   badge,
@@ -10,7 +11,7 @@ import {
 } from "design-system";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
-import type { RecordingDetail } from "../wire.ts";
+import type { RecordingDetail } from "office-domain/Recording";
 import {
   describeStop,
   formatClock,
@@ -109,7 +110,7 @@ const summaryView = <Message>(
 
 const turnView = <Message>(h: HtmlBuilder<Message>, turn: TranscriptTurn): Html =>
   h.keyed("li")(
-    `${turn.startedAt}${turn.speaker.userId}`,
+    `${DateTime.toEpochMillis(turn.startedAt)}${turn.speaker.userId}`,
     [h.Class("transcript-turn")],
     [
       avatar(h, { name: turn.speaker.name, src: turn.speaker.avatarUrl }),

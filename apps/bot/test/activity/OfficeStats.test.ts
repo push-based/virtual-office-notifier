@@ -138,7 +138,7 @@ const recording = Effect.fnUntraced(function* (
   `;
 });
 
-const peopleAt = (hours: ReadonlyArray<typeof BusyHour.Type>, weekday: number, hour: number) =>
+const peopleAt = (hours: ReadonlyArray<BusyHour>, weekday: number, hour: number) =>
   Option.getOrUndefined(
     Option.map(
       Array.findFirst(hours, (busy) => busy.weekday === weekday && busy.hour === hour),

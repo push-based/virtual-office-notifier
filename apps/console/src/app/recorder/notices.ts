@@ -1,5 +1,5 @@
 import type { Notice } from "../notice.ts";
-import type { HandledRequest } from "../wire.ts";
+import type { HandledRequest } from "office-domain/RecordingRequest";
 
 export const outcomeNotice = (result: HandledRequest | null): Notice => {
   if (result === null)

@@ -111,6 +111,10 @@ export const IgnoredEdit = Schema.Struct({
   explanation: Schema.String,
 });
 
+export const HandledEdit = Schema.Union([AppliedEdit, IgnoredEdit]);
+
+export type HandledEdit = typeof HandledEdit.Type;
+
 export const SubmittedEdit = Schema.Union([PendingEdit, AppliedEdit, IgnoredEdit]);
 
 export type SubmittedEdit = typeof SubmittedEdit.Type;

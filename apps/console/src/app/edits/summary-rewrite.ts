@@ -6,6 +6,7 @@ import { modifyFields } from "foldkit/struct";
 
 import { Notice } from "../notice.ts";
 import { unreachableNotice } from "../recorder/notices.ts";
+import { reasonOf } from "../api/api.ts";
 import type { Resources } from "../resources.ts";
 import { saveChanges } from "./save.ts";
 
@@ -38,8 +39,8 @@ export const RewriteSummary = Command.define("RewriteSummary", {
   execute: ({ recordingId }) =>
     saveChanges(recordingId, [{ kind: "rewrite_summary" }]).pipe(
       Effect.map((shown) => Message.CompletedRewriteSummary({ notice: shown })),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedRewriteSummary({ reason })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedRewriteSummary({ reason: reasonOf(failure) })),
       ),
     ),
 });

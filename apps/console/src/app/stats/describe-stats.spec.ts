@@ -1,12 +1,13 @@
-import type { OfficeStats } from "../wire.ts";
+import { DateTime } from "effect";
+import type { OfficeStats } from "office-domain/OfficeStats";
 import { describe, expect, it } from "vite-plus/test";
 
 import { busiestGrid, describeStats, emojiLabel, rangeOf } from "./describe-stats.ts";
 
 const stats: OfficeStats = {
   range: "week",
-  since: "2026-10-25T22:00:00.000Z",
-  until: "2026-10-27T12:00:00.000Z",
+  since: DateTime.makeUnsafe("2026-10-25T22:00:00.000Z"),
+  until: DateTime.makeUnsafe("2026-10-27T12:00:00.000Z"),
   timeInOffice: [{ userId: "ada", name: "Ada Lovelace", seconds: 19_800, days: 2 }],
   firstIn: [{ userId: "ada", name: "Ada Lovelace", days: 1 }],
   lastOut: [{ userId: "grace", name: "Grace", days: 2 }],

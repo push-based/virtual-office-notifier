@@ -1,11 +1,7 @@
+import type { DateTime } from "effect";
 import { formatOfficeTime } from "../history/describe-recording.ts";
-import {
-  type ErasureCase,
-  type ErasureInventory,
-  FORMER_MEMBER,
-  type RefusalGround,
-  REFUSAL_GROUNDS,
-} from "../wire.ts";
+import type { ErasureCase, ErasureInventory, RefusalGround } from "office-domain/Consent";
+import { FORMER_MEMBER, REFUSAL_GROUNDS } from "office-domain/wire";
 
 const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
@@ -42,4 +38,4 @@ export const describeStanding = (erasure: ErasureCase): string => {
   }
 };
 
-export const officeTime = (iso: string): string => `${formatOfficeTime(iso)}, UTC+2`;
+export const officeTime = (at: DateTime.Utc): string => `${formatOfficeTime(at)}, UTC+2`;

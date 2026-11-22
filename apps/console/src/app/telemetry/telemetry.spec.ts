@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import type { Telemetry } from "office-domain/Telemetry";
 
-import { RetryTiming, SessionToken } from "../api/api.ts";
-import { type FakeAnswer, fakeServer } from "../fakes.ts";
+import { RetryTiming } from "../api/api.ts";
+import { type FakeAnswer, fakeApi, fakeServer } from "../fakes.ts";
 import { reportCrash, sentryOptionsFor, startTelemetry } from "./telemetry.ts";
 
 const telemetry: Telemetry = {
@@ -15,9 +15,8 @@ const telemetry: Telemetry = {
 
 const serving = (answer: FakeAnswer) =>
   Layer.mergeAll(
-    fakeServer(() => answer).layer,
-    SessionToken.layer,
-    Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero }),
+    fakeApi(fakeServer(() => answer).layer),
+    Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero, timeout: Duration.seconds(1) }),
   );
 
 afterEach(async () => {

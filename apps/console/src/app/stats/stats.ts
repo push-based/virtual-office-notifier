@@ -17,9 +17,9 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import * as Api from "../api/api.ts";
+import { ConsoleApi, reasonOf } from "../api/api.ts";
 import type { Resources } from "../resources.ts";
-import { OfficeStats, StatsRange } from "../wire.ts";
+import { OfficeStats, StatsRange } from "office-domain/OfficeStats";
 import { describeStats, RANGES, rangeOf, type StatsView } from "./describe-stats.ts";
 
 export const StatsData = AsyncData.Schema(OfficeStats, Schema.String);
@@ -47,10 +47,10 @@ export const FetchStats = Command.define("FetchStats", {
   messages: [Message.SucceededFetchStats, Message.FailedFetchStats],
   interrupt: true,
   execute: ({ range }) =>
-    Api.get("/api/stats", OfficeStats, { range }).pipe(
+    ConsoleApi.use((api) => api.stats.office({ query: { range } })).pipe(
       Effect.map((stats) => Message.SucceededFetchStats({ range, stats })),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedFetchStats({ range, reason })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedFetchStats({ range, reason: reasonOf(failure) })),
       ),
     ),
 });

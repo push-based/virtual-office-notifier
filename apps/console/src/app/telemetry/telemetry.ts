@@ -1,8 +1,8 @@
 import * as Sentry from "@sentry/browser";
-import { Effect, Schema } from "effect";
-import { Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
+import { Effect } from "effect";
+import { type Telemetry, TUNNEL_PATH } from "office-domain/Telemetry";
 
-import * as Api from "../api/api.ts";
+import { ConsoleApi } from "../api/api.ts";
 
 export const sentryOptionsFor = ({
   dsn,
@@ -22,7 +22,7 @@ export const sentryOptionsFor = ({
   ],
 });
 
-export const startTelemetry = Api.get("/api/telemetry", Schema.NullOr(Telemetry)).pipe(
+export const startTelemetry = ConsoleApi.use((api) => api.telemetry.config()).pipe(
   Effect.flatMap((telemetry) =>
     telemetry === null ? Effect.void : Effect.sync(() => Sentry.init(sentryOptionsFor(telemetry))),
   ),

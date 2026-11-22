@@ -1,3 +1,4 @@
+import { DateTime } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import { describePhase } from "./describe-phase.ts";
@@ -32,9 +33,9 @@ describe("describePhase", () => {
   it("shows the running clock, who started it and the time left", () => {
     const recording = {
       id: "1",
-      startedAt: "2026-10-27T12:00:00Z",
+      startedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
       startedByName: "Chris",
-      endsAt: "2026-10-27T12:59:34Z",
+      endsAt: DateTime.makeUnsafe("2026-10-27T12:59:34Z"),
       pause: null,
       title: null,
       agenda: null,
@@ -49,13 +50,13 @@ describe("describePhase", () => {
   });
 
   it("shows who paused and for how long instead of the clock, and keeps counting down", () => {
-    const pause = { since: "2026-10-27T12:09:00Z", byName: "Ben" };
+    const pause = { since: DateTime.makeUnsafe("2026-10-27T12:09:00Z"), byName: "Ben" };
 
     const recording = {
       id: "1",
-      startedAt: "2026-10-27T12:00:00Z",
+      startedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
       startedByName: "Chris",
-      endsAt: "2026-10-27T12:59:34Z",
+      endsAt: DateTime.makeUnsafe("2026-10-27T12:59:34Z"),
       pause,
       title: null,
       agenda: null,

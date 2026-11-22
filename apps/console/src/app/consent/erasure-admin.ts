@@ -14,16 +14,11 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import * as Api from "../api/api.ts";
+import { ConsoleApi, reasonOf } from "../api/api.ts";
 import { Notice } from "../notice.ts";
 import type { Resources } from "../resources.ts";
-import {
-  type ErasureCase,
-  ErasureCases,
-  REFUSAL_GROUNDS,
-  RefusalGround,
-  SubmittedErasure,
-} from "../wire.ts";
+import { ErasureCase, RefusalGround } from "office-domain/Consent";
+import { REFUSAL_GROUNDS } from "office-domain/wire";
 import { describeInventory, describeStanding, officeTime } from "./describe-erasure.ts";
 
 export const NOTED_NOW: Notice = {
@@ -59,7 +54,7 @@ const GROUNDS: ReadonlyArray<SelectOption> = [
 const groundOf = (value: string): RefusalGround =>
   value === "legal_claim" ? "legal_claim" : "legal_obligation";
 
-export const CasesData = AsyncData.Schema(ErasureCases, Schema.String);
+export const CasesData = AsyncData.Schema(Schema.Array(ErasureCase), Schema.String);
 
 export const Confirming = Schema.Struct({
   id: Schema.Number,
@@ -95,7 +90,7 @@ export const init = (): Model => ({
 });
 
 export const Message = defineMessageUnion({
-  SucceededFetchCases: { cases: ErasureCases },
+  SucceededFetchCases: { cases: Schema.Array(ErasureCase) },
   FailedFetchCases: { reason: Schema.String },
   ClickedConfirm: { confirming: Confirming },
   ClickedBack: {},
@@ -112,27 +107,28 @@ export type Message = typeof Message.Type;
 
 export const FetchCases = Command.define("FetchCases", {
   messages: [Message.SucceededFetchCases, Message.FailedFetchCases],
-  execute: Api.get("/api/admin/erasures", ErasureCases).pipe(
+  execute: ConsoleApi.use((api) => api.erasureAdmin.cases()).pipe(
     Effect.map((cases) => Message.SucceededFetchCases({ cases })),
-    Effect.catchTag("ApiFailure", ({ reason }) =>
-      Effect.succeed(Message.FailedFetchCases({ reason })),
+    Effect.catch((failure) =>
+      Effect.succeed(Message.FailedFetchCases({ reason: reasonOf(failure) })),
     ),
   ),
 });
 
-const decided = (id: number, decision: Decision) => {
-  switch (decision.kind) {
-    case "now":
-      return Api.post(`/api/admin/erasures/${id}/now`, SubmittedErasure);
-    case "seen":
-      return Api.post(`/api/admin/erasures/${id}/seen`, SubmittedErasure);
-    case "refuse":
-      return Api.post(`/api/admin/erasures/${id}/refuse`, SubmittedErasure, {
-        ground: decision.ground,
-        reason: decision.reason,
-      });
-  }
-};
+const decided = (id: number, decision: Decision) =>
+  ConsoleApi.use((api) => {
+    switch (decision.kind) {
+      case "now":
+        return api.erasureAdmin.expedite({ params: { id } });
+      case "seen":
+        return api.erasureAdmin.seen({ params: { id } });
+      case "refuse":
+        return api.erasureAdmin.refuse({
+          params: { id },
+          payload: { ground: decision.ground, reason: decision.reason },
+        });
+    }
+  });
 
 export const DecideErasure = Command.define("DecideErasure", {
   args: { id: Schema.Number, decision: Decision },
@@ -140,9 +136,10 @@ export const DecideErasure = Command.define("DecideErasure", {
   execute: ({ id, decision }) =>
     decided(id, decision).pipe(
       Effect.as(Message.SucceededDecideErasure({ decision })),
-      Effect.catchTag("ApiFailure", ({ status }) =>
-        Effect.succeed(Message.FailedDecideErasure({ isAlreadyDecided: status === 404 })),
+      Effect.catchTag("ErasureNotFound", () =>
+        Effect.succeed(Message.FailedDecideErasure({ isAlreadyDecided: true })),
       ),
+      Effect.catch(() => Effect.succeed(Message.FailedDecideErasure({ isAlreadyDecided: false }))),
     ),
 });
 

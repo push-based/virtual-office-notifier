@@ -1,3 +1,4 @@
+import { DateTime } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -14,23 +15,49 @@ import { anna, ben, recordingDetail } from "./fixtures.ts";
 
 describe("formatOfficeTime", () => {
   it("shows when a recording started in office time, UTC+2", () => {
-    expect(formatOfficeTime("2026-10-29T12:05:00.000Z")).toBe("Thu 29 Oct, 14:05");
-    expect(formatOfficeTime("2026-10-31T22:30:00.000Z")).toBe("Sun 1 Nov, 00:30");
-    expect(formatClock("2026-10-29T07:09:00.000Z")).toBe("09:09");
+    expect(formatOfficeTime(DateTime.makeUnsafe("2026-10-29T12:05:00.000Z"))).toBe(
+      "Thu 29 Oct, 14:05",
+    );
+    expect(formatOfficeTime(DateTime.makeUnsafe("2026-10-31T22:30:00.000Z"))).toBe(
+      "Sun 1 Nov, 00:30",
+    );
+    expect(formatClock(DateTime.makeUnsafe("2026-10-29T07:09:00.000Z"))).toBe("09:09");
   });
 });
 
 describe("formatRunTime", () => {
   it("says how long a recording ran, in hours and minutes", () => {
-    expect(formatRunTime("2026-10-29T12:05:00Z", "2026-10-29T13:17:30Z", 0)).toBe("1h 12m");
-    expect(formatRunTime("2026-10-29T12:05:00Z", "2026-10-29T12:47:00Z", 0)).toBe("42m");
-    expect(formatRunTime("2026-10-29T12:05:00Z", "2026-10-29T12:05:20Z", 0)).toBe("under a minute");
+    expect(
+      formatRunTime(
+        DateTime.makeUnsafe("2026-10-29T12:05:00Z"),
+        DateTime.makeUnsafe("2026-10-29T13:17:30Z"),
+        0,
+      ),
+    ).toBe("1h 12m");
+    expect(
+      formatRunTime(
+        DateTime.makeUnsafe("2026-10-29T12:05:00Z"),
+        DateTime.makeUnsafe("2026-10-29T12:47:00Z"),
+        0,
+      ),
+    ).toBe("42m");
+    expect(
+      formatRunTime(
+        DateTime.makeUnsafe("2026-10-29T12:05:00Z"),
+        DateTime.makeUnsafe("2026-10-29T12:05:20Z"),
+        0,
+      ),
+    ).toBe("under a minute");
   });
 
   it("counts a running recording up to now", () => {
-    expect(formatRunTime("2026-10-29T12:05:00Z", null, Date.parse("2026-10-29T14:05:00Z"))).toBe(
-      "2h 0m",
-    );
+    expect(
+      formatRunTime(
+        DateTime.makeUnsafe("2026-10-29T12:05:00Z"),
+        null,
+        Date.parse("2026-10-29T14:05:00Z"),
+      ),
+    ).toBe("2h 0m");
   });
 });
 
@@ -73,16 +100,24 @@ describe("describeStop", () => {
 describe("transcriptTurns", () => {
   it("groups back-to-back clips from the same person", () => {
     expect(transcriptTurns(recordingDetail().clips)).toEqual([
-      { speaker: anna, startedAt: "2026-10-29T12:06:00.000Z", lines: ["Hello", "Anyone there?"] },
-      { speaker: ben, startedAt: "2026-10-29T12:07:00.000Z", lines: ["Morning"] },
+      {
+        speaker: anna,
+        startedAt: DateTime.makeUnsafe("2026-10-29T12:06:00.000Z"),
+        lines: ["Hello", "Anyone there?"],
+      },
+      {
+        speaker: ben,
+        startedAt: DateTime.makeUnsafe("2026-10-29T12:07:00.000Z"),
+        lines: ["Morning"],
+      },
     ]);
   });
 
   it("starts a new turn when someone speaks again after someone else", () => {
     const clips = [
-      { speaker: anna, startedAt: "2026-10-29T12:06:00.000Z", text: "One" },
-      { speaker: ben, startedAt: "2026-10-29T12:07:00.000Z", text: "Two" },
-      { speaker: anna, startedAt: "2026-10-29T12:08:00.000Z", text: "Three" },
+      { speaker: anna, startedAt: DateTime.makeUnsafe("2026-10-29T12:06:00.000Z"), text: "One" },
+      { speaker: ben, startedAt: DateTime.makeUnsafe("2026-10-29T12:07:00.000Z"), text: "Two" },
+      { speaker: anna, startedAt: DateTime.makeUnsafe("2026-10-29T12:08:00.000Z"), text: "Three" },
     ];
 
     expect(transcriptTurns(clips).map((turn) => turn.lines)).toEqual([["One"], ["Two"], ["Three"]]);

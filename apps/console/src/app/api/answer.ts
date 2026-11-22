@@ -1,6 +1,5 @@
-import { Duration, Effect, Option } from "effect";
-
-import { ANSWER_WINDOW_MS } from "../wire.ts";
+import { Context, Duration, Effect, Option } from "effect";
+import { ANSWER_WINDOW_MS } from "office-domain/wire";
 
 export interface AnswerTiming {
   readonly every: Duration.Duration;
@@ -14,7 +13,11 @@ export const REQUEST_ANSWER: AnswerTiming = {
   attempts: Math.ceil(ANSWER_WINDOW_MS / Duration.toMillis(REQUEST_POLL)),
 };
 
-export const awaitAnswer = <A, Answered extends A, E, R>(
+export const RequestAnswer = Context.Reference<AnswerTiming>("console/api/RequestAnswer", {
+  defaultValue: () => REQUEST_ANSWER,
+});
+
+const polled = <A, Answered extends A, E, R>(
   check: Effect.Effect<A, E, R>,
   isAnswered: (found: A) => found is Answered,
   timing: AnswerTiming,
@@ -31,3 +34,12 @@ export const awaitAnswer = <A, Answered extends A, E, R>(
 
   return attempt(timing.attempts);
 };
+
+export const awaitAnswer = <A, Answered extends A, E, R>(
+  check: Effect.Effect<A, E, R>,
+  isAnswered: (found: A) => found is Answered,
+  timing?: AnswerTiming,
+): Effect.Effect<Option.Option<Answered>, E, R> =>
+  Effect.gen(function* () {
+    return yield* polled(check, isAnswered, timing ?? (yield* RequestAnswer));
+  });

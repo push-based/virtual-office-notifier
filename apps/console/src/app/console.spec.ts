@@ -1,24 +1,28 @@
+import { DateTime, Duration, Effect, Layer } from "effect";
+import { HttpApiBuilder } from "effect/http-api";
 import { Runtime } from "foldkit";
+import { RecordingApi, RecordingNotFound } from "office-domain/RecordingApi";
+import type { RecordingStatus } from "office-domain/RecordingRequest";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { fakeDiscord, fakeResources, fakeServer, type SentRequest } from "./fakes.ts";
+import { REQUEST_ANSWER, RequestAnswer } from "./api/answer.ts";
+import { fakeDiscord, fakeResources, fakeWorker } from "./fakes.ts";
 import { init, Model, subscriptions, update, view } from "./main.ts";
-import type { RecordingStatus } from "./wire.ts";
 
 const idle: RecordingStatus = {
   botInOffice: true,
   occupants: [{ userId: "u1", displayName: "Ada", avatarUrl: null, speaking: true }],
   recording: null,
-  updatedAt: "2026-10-27T12:00:00Z",
+  updatedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
 };
 
 const recording: RecordingStatus = {
   ...idle,
   recording: {
     id: "r1",
-    startedAt: "2026-10-27T12:00:00Z",
+    startedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
     startedByName: "Ada",
-    endsAt: "2026-10-27T16:00:00Z",
+    endsAt: DateTime.makeUnsafe("2026-10-27T16:00:00Z"),
     pause: null,
     title: "Deploy retro",
     agenda: null,
@@ -29,37 +33,31 @@ const recording: RecordingStatus = {
 const office = () => {
   let status = idle;
 
-  const routes = (request: SentRequest) => {
-    if (request.path === "/api/telemetry") return { body: null };
+  return fakeWorker({
+    recording: HttpApiBuilder.group(RecordingApi, "recording", (handlers) =>
+      handlers
+        .handle("status", () => Effect.sync(() => status))
+        .handle("submit", () =>
+          Effect.sync(() => {
+            status = recording;
 
-    if (request.path === "/api/config") return { body: { clientId: "client-1" } };
-
-    if (request.path === "/api/token")
-      return {
-        body: {
-          accessToken: "access-1",
-          session: "session-1",
-          user: { id: "u1", name: "Ada", avatarUrl: null },
-        },
-      };
-
-    if (request.path === "/api/status") return { body: status };
-
-    if (request.path === "/api/recordings") return { body: { recordings: [], older: null } };
-
-    if (request.path === "/api/requests") {
-      status = recording;
-
-      return { status: 202, body: { id: 7, outcome: null } };
-    }
-
-    if (request.path === "/api/requests/7") return { body: { id: 7, outcome: "started" } };
-
-    return { status: 404 };
-  };
-
-  return fakeServer(routes);
+            return { id: 7, outcome: null };
+          }),
+        )
+        .handle("find", ({ params }) => Effect.succeed({ id: params.id, outcome: "started" })),
+    ),
+    history: HttpApiBuilder.group(RecordingApi, "history", (handlers) =>
+      handlers
+        .handle("recordings", () => Effect.succeed({ recordings: [], older: null }))
+        .handle("recording", () => Effect.fail(RecordingNotFound.make())),
+    ),
+  });
 };
+
+const quickAnswers = Layer.succeed(RequestAnswer, {
+  every: Duration.millis(10),
+  attempts: REQUEST_ANSWER.attempts,
+});
 
 const started = () => {
   const server = office();
@@ -79,7 +77,7 @@ const started = () => {
       update,
       view: (model, h) => view(model, h).body,
       subscriptions,
-      resources: fakeResources(server, discord),
+      resources: fakeResources(server.layer, discord).pipe(Layer.provideMerge(quickAnswers)),
       container,
     }),
   );
@@ -132,9 +130,7 @@ describe("the Console", () => {
 
     start?.click();
 
-    await vi.waitFor(() => expect(text(wrapper)).toContain("Recording started."), {
-      timeout: 5000,
-    });
+    await vi.waitFor(() => expect(text(wrapper)).toContain("Recording started."));
 
     expect(server.sent.find(({ path }) => path === "/api/requests")?.body).toEqual({
       action: "start",

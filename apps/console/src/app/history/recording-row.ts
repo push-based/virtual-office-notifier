@@ -1,7 +1,7 @@
 import { badge, description, people, type Person } from "design-system";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
-import type { ListedRecording, OfficeMember } from "../wire.ts";
+import type { ListedRecording, OfficeMember } from "office-domain/Recording";
 import { canOpen, formatOfficeTime, formatRunTime, stateBadge } from "./describe-recording.ts";
 
 export const personOf = (member: OfficeMember): Person => ({

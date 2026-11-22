@@ -1,15 +1,15 @@
-import { identity } from "effect";
+import { DateTime, identity } from "effect";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { OfficeStats } from "../wire.ts";
+import type { OfficeStats } from "office-domain/OfficeStats";
 import { FetchStats, init, Message, type Model, open, StatsData, update, view } from "./stats.ts";
 
 const stats: OfficeStats = {
   range: "week",
-  since: "2026-10-25T22:00:00.000Z",
-  until: "2026-10-27T12:00:00.000Z",
+  since: DateTime.makeUnsafe("2026-10-25T22:00:00.000Z"),
+  until: DateTime.makeUnsafe("2026-10-27T12:00:00.000Z"),
   timeInOffice: [{ userId: "u1", name: "Ada", seconds: 7200, days: 2 }],
   firstIn: [{ userId: "u1", name: "Ada", days: 2 }],
   lastOut: [],

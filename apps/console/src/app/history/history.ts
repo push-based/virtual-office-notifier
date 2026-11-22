@@ -5,13 +5,13 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import * as Api from "../api/api.ts";
+import { ConsoleApi, reasonOf } from "../api/api.ts";
 import * as ActionItems from "../edits/action-items.ts";
 import * as RecordingEditor from "../edits/recording-editor.ts";
 import * as SummaryRewrite from "../edits/summary-rewrite.ts";
 import type { Resources } from "../resources.ts";
 import { Session } from "../session/session.ts";
-import { RecordingDetail, RecordingPage } from "../wire.ts";
+import { RecordingDetail, RecordingPage } from "office-domain/Recording";
 import { isChanging } from "./describe-recording.ts";
 import { EMPTY_HISTORY, HistoryList, withNewest, withOlder } from "./history-list.ts";
 import { recordingPage } from "./recording-page.ts";
@@ -23,6 +23,7 @@ export const RECORDING_POLL = Duration.seconds(5);
 
 export const Opened = Schema.Struct({
   id: Schema.String,
+  opening: Schema.Number,
   recording: Schema.Option(RecordingDetail),
   editor: RecordingEditor.Model,
   rewrite: SummaryRewrite.Model,
@@ -41,6 +42,7 @@ export const Model = Schema.Struct({
   failure: Schema.Option(Schema.String),
   listRequests: Schema.Number,
   listApplied: Schema.Number,
+  openings: Schema.Number,
 });
 
 export type Model = typeof Model.Type;
@@ -53,10 +55,12 @@ export const init = (): Model => ({
   failure: Option.none(),
   listRequests: 0,
   listApplied: 0,
+  openings: 0,
 });
 
-const openedAt = (id: string): Opened => ({
+const openedAt = (id: string, opening: number): Opened => ({
   id,
+  opening,
   recording: Option.none(),
   editor: RecordingEditor.init(),
   rewrite: SummaryRewrite.init(),
@@ -76,11 +80,11 @@ export const Message = defineMessageUnion({
   ClickedBack: {},
   TickedRecordingPoll: { id: Schema.String },
   SucceededFetchRecording: {
-    id: Schema.String,
+    opening: Schema.Number,
     request: Schema.Number,
     recording: RecordingDetail,
   },
-  FailedFetchRecording: { id: Schema.String, request: Schema.Number, reason: Schema.String },
+  FailedFetchRecording: { opening: Schema.Number, request: Schema.Number, reason: Schema.String },
   ClickedOpenInSlack: { url: Schema.String },
   CompletedOpenInSlack: {},
   FailedOpenInSlack: { reason: Schema.String },
@@ -95,34 +99,36 @@ export const FetchNewest = Command.define("FetchNewest", {
   args: { request: Schema.Number },
   messages: [Message.SucceededFetchNewest, Message.FailedFetchNewest],
   execute: ({ request }) =>
-    Api.get("/api/recordings", RecordingPage).pipe(
+    ConsoleApi.use((api) => api.history.recordings({ query: {} })).pipe(
       Effect.map((page) => Message.SucceededFetchNewest({ request, page })),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedFetchNewest({ request, reason })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedFetchNewest({ request, reason: reasonOf(failure) })),
       ),
     ),
 });
 
 export const FetchOlder = Command.define("FetchOlder", {
-  args: { before: Schema.String },
+  args: { before: Schema.DateTimeUtcFromString },
   messages: [Message.SucceededFetchOlder, Message.FailedFetchOlder],
   execute: ({ before }) =>
-    Api.get("/api/recordings", RecordingPage, { before }).pipe(
+    ConsoleApi.use((api) => api.history.recordings({ query: { before } })).pipe(
       Effect.map((page) => Message.SucceededFetchOlder({ page })),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedFetchOlder({ reason })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedFetchOlder({ reason: reasonOf(failure) })),
       ),
     ),
 });
 
 export const FetchRecording = Command.define("FetchRecording", {
-  args: { id: Schema.String, request: Schema.Number },
+  args: { id: Schema.String, opening: Schema.Number, request: Schema.Number },
   messages: [Message.SucceededFetchRecording, Message.FailedFetchRecording],
-  execute: ({ id, request }) =>
-    Api.get(`/api/recordings/${encodeURIComponent(id)}`, RecordingDetail).pipe(
-      Effect.map((recording) => Message.SucceededFetchRecording({ id, request, recording })),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedFetchRecording({ id, request, reason })),
+  execute: ({ id, opening, request }) =>
+    ConsoleApi.use((api) => api.history.recording({ params: { id } })).pipe(
+      Effect.map((recording) => Message.SucceededFetchRecording({ opening, request, recording })),
+      Effect.catch((failure) =>
+        Effect.succeed(
+          Message.FailedFetchRecording({ opening, request, reason: reasonOf(failure) }),
+        ),
       ),
     ),
 });
@@ -166,7 +172,7 @@ const requestRecording: Step = (model) =>
 
       return {
         model: writeOpened(model, (current) => ({ ...current, requests: request })),
-        commands: [FetchRecording({ id: opened.id, request })],
+        commands: [FetchRecording({ id: opened.id, opening: opened.opening, request })],
       };
     },
   });
@@ -201,8 +207,8 @@ const foldActionItems = (id: string) =>
     foldOutMessage: ActionItems.OutMessage.match<Step>({ SavedEdits: () => requestRecording }),
   });
 
-const isAnswerToCurrent = (model: Model, id: string, request: number): boolean =>
-  Option.exists(openedWith(model, id), (opened) => request > opened.applied);
+const isAnswerToCurrent = (model: Model, opening: number, request: number): boolean =>
+  Option.exists(model.opened, (opened) => opened.opening === opening && request > opened.applied);
 
 const appliedRecording = (model: Model, request: number): Model =>
   writeOpened(model, (opened) => ({ ...opened, applied: request }));
@@ -261,12 +267,17 @@ export const update = (model: Model, message: Message) =>
       model: failed(modifyFields(model, { isLoadingOlder: () => false }), reason),
     }),
 
-    ClickedRecording: ({ id }) => ({
-      model: modifyFields(model, {
-        opened: () => Option.some(openedAt(id)),
-        failure: () => Option.none(),
-      }),
-    }),
+    ClickedRecording: ({ id }) => {
+      const opening = model.openings + 1;
+
+      return {
+        model: modifyFields(model, {
+          opened: () => Option.some(openedAt(id, opening)),
+          openings: () => opening,
+          failure: () => Option.none(),
+        }),
+      };
+    },
 
     ClickedBack: () => ({
       model: modifyFields(model, { opened: () => Option.none(), failure: () => Option.none() }),
@@ -277,8 +288,8 @@ export const update = (model: Model, message: Message) =>
         ? requestRecording(model)
         : { model },
 
-    SucceededFetchRecording: ({ id, request, recording }) =>
-      isAnswerToCurrent(model, id, request)
+    SucceededFetchRecording: ({ opening, request, recording }) =>
+      isAnswerToCurrent(model, opening, request)
         ? {
             model: modifyFields(
               writeOpened(appliedRecording(model, request), (opened) => ({
@@ -290,8 +301,8 @@ export const update = (model: Model, message: Message) =>
           }
         : { model },
 
-    FailedFetchRecording: ({ id, request, reason }) =>
-      isAnswerToCurrent(model, id, request)
+    FailedFetchRecording: ({ opening, request, reason }) =>
+      isAnswerToCurrent(model, opening, request)
         ? { model: failed(appliedRecording(model, request), reason) }
         : { model },
 

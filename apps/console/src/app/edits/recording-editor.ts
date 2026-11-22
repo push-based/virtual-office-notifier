@@ -7,8 +7,9 @@ import { modifyFields } from "foldkit/struct";
 
 import { Notice } from "../notice.ts";
 import { unreachableNotice } from "../recorder/notices.ts";
+import { reasonOf } from "../api/api.ts";
 import type { Resources } from "../resources.ts";
-import { RecordingChange } from "../wire.ts";
+import { RecordingChange } from "office-domain/RecordingEdit";
 import { planFields } from "./plan-fields.ts";
 import { changesBetween, Draft, draftOf, Plan, summaryStyleOf } from "./plan.ts";
 import { saveChanges } from "./save.ts";
@@ -52,8 +53,8 @@ export const SaveEdits = Command.define("SaveEdits", {
   execute: ({ recordingId, changes }) =>
     saveChanges(recordingId, changes).pipe(
       Effect.map((shown) => Message.CompletedSaveEdits({ notice: shown })),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedSaveEdits({ reason })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedSaveEdits({ reason: reasonOf(failure) })),
       ),
     ),
 });

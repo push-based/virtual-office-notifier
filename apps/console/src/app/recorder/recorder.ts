@@ -17,8 +17,8 @@ import { defineMessageUnion } from "foldkit/message";
 import { defineTaggedUnion } from "foldkit/schema";
 import { modifyFields } from "foldkit/struct";
 
-import * as Api from "../api/api.ts";
-import { awaitAnswer, REQUEST_ANSWER } from "../api/answer.ts";
+import { ConsoleApi, reasonOf } from "../api/api.ts";
+import { awaitAnswer } from "../api/answer.ts";
 import * as RecordingEditor from "../edits/recording-editor.ts";
 import { planFields } from "../edits/plan-fields.ts";
 import { Draft, EMPTY_DRAFT, planOf, summaryStyleOf } from "../edits/plan.ts";
@@ -30,8 +30,7 @@ import {
   RecordingStatus,
   RequestSubmission,
   type RunningRecording,
-  SubmittedRequest,
-} from "../wire.ts";
+} from "office-domain/RecordingRequest";
 import { describePhase, type OfficePhase } from "./describe-phase.ts";
 import { describePresence, Presence, samePresence } from "./describe-presence.ts";
 import { outcomeNotice, unreachableNotice } from "./notices.ts";
@@ -131,10 +130,10 @@ export const FetchStatus = Command.define("FetchStatus", {
   args: { request: Schema.Number },
   messages: [Message.SucceededFetchStatus, Message.FailedFetchStatus],
   execute: ({ request }) =>
-    Api.get("/api/status", RecordingStatus).pipe(
+    ConsoleApi.use((api) => api.recording.status()).pipe(
       Effect.map((status) => Message.SucceededFetchStatus({ request, status })),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedFetchStatus({ request, reason })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedFetchStatus({ request, reason: reasonOf(failure) })),
       ),
     ),
 });
@@ -154,15 +153,20 @@ export const SubmitRequest = Command.define("SubmitRequest", {
   args: { submission: RequestSubmission },
   messages: [Message.CompletedSubmitRequest, Message.FailedSubmitRequest],
   execute: ({ submission }) =>
-    Api.post("/api/requests", SubmittedRequest, submission).pipe(
-      Effect.flatMap(({ id }) =>
-        awaitAnswer(Api.get(`/api/requests/${id}`, SubmittedRequest), isHandled, REQUEST_ANSWER),
-      ),
+    ConsoleApi.use((api) =>
+      api.recording
+        .submit({ payload: submission })
+        .pipe(
+          Effect.flatMap(({ id }) =>
+            awaitAnswer(api.recording.find({ params: { id } }), isHandled),
+          ),
+        ),
+    ).pipe(
       Effect.map((handled) =>
         Message.CompletedSubmitRequest({ handled: Option.getOrNull(handled) }),
       ),
-      Effect.catchTag("ApiFailure", ({ reason }) =>
-        Effect.succeed(Message.FailedSubmitRequest({ reason })),
+      Effect.catch((failure) =>
+        Effect.succeed(Message.FailedSubmitRequest({ reason: reasonOf(failure) })),
       ),
     ),
 });

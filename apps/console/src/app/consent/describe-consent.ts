@@ -1,4 +1,4 @@
-import type { ConsentStatus, Refusal } from "../wire.ts";
+import type { ConsentStatus, Refusal } from "office-domain/Consent";
 
 import { formatOfficeTime } from "../history/describe-recording.ts";
 

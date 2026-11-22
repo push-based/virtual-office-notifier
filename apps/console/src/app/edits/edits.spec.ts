@@ -4,7 +4,7 @@ import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vite-plus/test";
 
 import { anna, ben } from "../history/fixtures.ts";
-import type { ActionItem } from "../wire.ts";
+import type { ActionItem } from "office-domain/Recording";
 import * as ActionItems from "./action-items.ts";
 import * as RecordingEditor from "./recording-editor.ts";
 import * as SummaryRewrite from "./summary-rewrite.ts";

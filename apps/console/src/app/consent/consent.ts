@@ -13,22 +13,19 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import * as Api from "../api/api.ts";
+import { ConsoleApi, reasonOf } from "../api/api.ts";
 import { awaitAnswer } from "../api/answer.ts";
 import { Notice } from "../notice.ts";
 import type { Resources } from "../resources.ts";
 import { Session } from "../session/session.ts";
+import { ConsentStatus, type Refusal, SubmittedWithdrawal } from "office-domain/Consent";
 import {
   ANSWER_WINDOW_MS,
   CHECK_INTERVAL_MS,
-  ConsentStatus,
   DATA_PROTECTION_AUTHORITIES_URL,
   ERASURE_REVIEW_DAYS,
   RECORDED_IN_THE_OFFICE,
-  type Refusal,
-  SubmittedErasure,
-  SubmittedWithdrawal,
-} from "../wire.ts";
+} from "office-domain/wire";
 import { type ConsentView, describeConsent } from "./describe-consent.ts";
 import { groundLabel, officeTime } from "./describe-erasure.ts";
 import * as ErasureAdmin from "./erasure-admin.ts";
@@ -116,10 +113,10 @@ export type Message = typeof Message.Type;
 
 export const FetchConsent = Command.define("FetchConsent", {
   messages: [Message.SucceededFetchConsent, Message.FailedFetchConsent],
-  execute: Api.get("/api/consent", ConsentStatus).pipe(
+  execute: ConsoleApi.use((api) => api.consent.status()).pipe(
     Effect.map((status) => Message.SucceededFetchConsent({ status })),
-    Effect.catchTag("ApiFailure", ({ reason }) =>
-      Effect.succeed(Message.FailedFetchConsent({ reason })),
+    Effect.catch((failure) =>
+      Effect.succeed(Message.FailedFetchConsent({ reason: reasonOf(failure) })),
     ),
   ),
 });
@@ -136,16 +133,21 @@ const withdrawalNotice = (withdrawal: SubmittedWithdrawal): Notice =>
 
 export const WithdrawConsent = Command.define("WithdrawConsent", {
   messages: [Message.CompletedAct],
-  execute: Api.post("/api/consent/withdrawals", SubmittedWithdrawal).pipe(
-    Effect.flatMap((submitted) =>
-      isAnswered(submitted)
-        ? Effect.succeed(Option.some(submitted))
-        : awaitAnswer(
-            Api.get(`/api/consent/withdrawals/${submitted.id}`, SubmittedWithdrawal),
-            isAnswered,
-            WITHDRAWAL_ANSWER,
-          ),
-    ),
+  execute: ConsoleApi.use((api) =>
+    api.consent
+      .withdraw()
+      .pipe(
+        Effect.flatMap((submitted) =>
+          isAnswered(submitted)
+            ? Effect.succeed(Option.some(submitted))
+            : awaitAnswer(
+                api.consent.find({ params: { id: submitted.id } }),
+                isAnswered,
+                WITHDRAWAL_ANSWER,
+              ),
+        ),
+      ),
+  ).pipe(
     Effect.map(Option.match({ onNone: () => NO_ANSWER, onSome: withdrawalNotice })),
     Effect.orElseSucceed(() => NO_ANSWER),
     Effect.map((shown) => Message.CompletedAct({ notice: shown })),
@@ -154,7 +156,7 @@ export const WithdrawConsent = Command.define("WithdrawConsent", {
 
 export const RequestErasure = Command.define("RequestErasure", {
   messages: [Message.CompletedAct],
-  execute: Api.post("/api/consent/erasures", SubmittedErasure).pipe(
+  execute: ConsoleApi.use((api) => api.consent.erase()).pipe(
     Effect.as(SCHEDULED),
     Effect.orElseSucceed(() => NOT_SCHEDULED),
     Effect.map((shown) => Message.CompletedAct({ notice: shown })),
@@ -165,7 +167,7 @@ export const CancelErasure = Command.define("CancelErasure", {
   args: { id: Schema.Number },
   messages: [Message.CompletedAct],
   execute: ({ id }) =>
-    Api.post(`/api/consent/erasures/${id}/cancel`, SubmittedErasure).pipe(
+    ConsoleApi.use((api) => api.consent.cancelErasure({ params: { id } })).pipe(
       Effect.as(CANCELLED),
       Effect.orElseSucceed(() => NOT_CANCELLED),
       Effect.map((shown) => Message.CompletedAct({ notice: shown })),
