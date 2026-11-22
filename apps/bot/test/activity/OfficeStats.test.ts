@@ -1,14 +1,14 @@
 import { PgliteClient } from "@effect/sql-pglite";
 import { assert, describe, it } from "@effect/vitest";
-import { Array, DateTime, Effect, Layer, Option, Redacted, Result } from "effect";
+import { Array, DateTime, Effect, Layer, Option, Result } from "effect";
 import { SecureRandom } from "effect/crypto";
-import { HttpClientRequest, HttpServer } from "effect/http";
-import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
+import { HttpServer } from "effect/http";
+import { HttpApiTest } from "effect/http-api";
 import { SqlClient } from "effect/sql";
 import { TestClock } from "effect/testing";
 import type { BusyHour } from "office-domain/OfficeStats";
 import { OfficeStatsReader } from "recording-requests/OfficeStats";
-import { CurrentRequester, RecordingApi, SignedIn, Unauthorized } from "office-domain/RecordingApi";
+import { RecordingApi } from "office-domain/RecordingApi";
 import { StatsHandlers } from "recording-requests/StatsHandlers";
 
 import { ActivityLog } from "../../src/activity/ActivityLog.ts";
@@ -16,6 +16,7 @@ import { columnNaming, Database } from "../../src/database/Database.ts";
 import { NO_VOICE_DETAILS, type VoiceDetails } from "../../src/office/OfficeEvent.ts";
 import type { TimedVoiceEffect } from "../../src/office/VoiceEffect.ts";
 import type { VoiceObservation } from "../../src/office/VoiceObservation.ts";
+import { signedInAs, VALID_SESSION, withSession } from "../fakes.ts";
 
 const OFFICE = "office";
 
@@ -356,20 +357,7 @@ describe("OfficeStatsReader", () => {
 
 const ada = { id: "ada", name: "Ada" };
 
-const SignedInTest = Layer.succeed(
-  SignedIn,
-  SignedIn.of({
-    session: (httpEffect, { credential }) =>
-      Redacted.value(credential) === "ada-session"
-        ? Effect.provideService(httpEffect, CurrentRequester, ada)
-        : Effect.fail(Unauthorized.make()),
-  }),
-);
-
-const withSession = (session: string) =>
-  HttpApiMiddleware.layerClient(SignedIn, ({ next, request }) =>
-    next(HttpClientRequest.bearerToken(request, session)),
-  );
+const SignedInTest = signedInAs(ada);
 
 const HttpLayer = Layer.mergeAll(
   StatsHandlers.pipe(Layer.provideMerge(TestLayer), Layer.provideMerge(SignedInTest)),
@@ -388,7 +376,7 @@ describe("GET /api/stats", () => {
       assert.strictEqual(stats.range, "month");
       assert.deepStrictEqual(stats.since, at("2026-09-30T22:00:00Z"));
       assert.deepStrictEqual(stats.recordings, { count: 0, seconds: 0 });
-    }).pipe(Effect.provide(Layer.mergeAll(withSession("ada-session"), HttpLayer))),
+    }).pipe(Effect.provide(Layer.mergeAll(withSession(VALID_SESSION), HttpLayer))),
   );
 
   it.effect("turns away anyone without a valid session", () =>

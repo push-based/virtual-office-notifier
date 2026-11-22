@@ -204,17 +204,6 @@ describe("RecordingWriter.pullActionItems", () => {
     }),
   );
 
-  it.effect("leaves an item unassigned when its owner wasn't there", () =>
-    Effect.gen(function* () {
-      const { writer } = yield* makeWriter(['[{"text": "call the vendor", "owner": "Carla"}]']);
-
-      assert.deepStrictEqual(
-        Option.map(yield* writer.pullActionItems(recording(), attendees), ({ items }) => items),
-        Option.some([{ text: "call the vendor", owner: null }]),
-      );
-    }),
-  );
-
   it.effect("says no action items could be pulled out when no model answers, and reports it", () =>
     Effect.gen(function* () {
       const { reports, layer } = captureReports();

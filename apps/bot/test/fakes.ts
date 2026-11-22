@@ -7,8 +7,10 @@ import {
   ErrorReporter,
   Layer,
   Option,
+  Predicate,
   Queue,
   Random,
+  Redacted,
   Ref,
   Schedule,
   Schema,
@@ -16,13 +18,15 @@ import {
   String,
 } from "effect";
 import { LanguageModel, Model } from "effect/ai";
+import { CurrentRequester, SignedIn, Unauthorized } from "office-domain/RecordingApi";
 import {
-  HttpBody,
   HttpClient,
+  HttpClientRequest as ClientRequest,
   HttpClientError,
   type HttpClientRequest,
   HttpClientResponse,
 } from "effect/http";
+import { HttpApiMiddleware } from "effect/http-api";
 
 import { ActivityRecorder } from "../src/activity/ActivityRecorder.ts";
 import { BotPosts } from "../src/slack/BotPosts.ts";
@@ -110,7 +114,7 @@ export const networkDown: Reply = (request) =>
 export const hang: Reply = () => Effect.never;
 
 export const requestText = (request: HttpClientRequest.HttpClientRequest): string =>
-  request.body instanceof HttpBody.Uint8Array ? new TextDecoder().decode(request.body.body) : "";
+  Predicate.isTagged(request.body, "Uint8Array") ? new TextDecoder().decode(request.body.body) : "";
 
 export const requestJson = (request: HttpClientRequest.HttpClientRequest): Schema.Json =>
   JSON.parse(requestText(request));
@@ -242,7 +246,7 @@ export const pollUntil = <A, E, R>(poll: Effect.Effect<A, E, R>, done: (value: A
     ),
   );
 
-export interface Report {
+interface Report {
   readonly name: string;
   readonly message: string;
   readonly severity: string;
@@ -274,7 +278,7 @@ export const DEFAULT_SETTINGS: ResponderSettings = {
   reactionEmoji: ["joy", "eyes", "raised_hands"],
 };
 
-export interface FakeHistoryOptions {
+interface FakeHistoryOptions {
   readonly settings?: ResponderSettings | undefined;
   readonly members?: ReadonlyMap<string, LinkedMember> | undefined;
   readonly postsUnavailable?: boolean | undefined;
@@ -391,14 +395,14 @@ export interface FakeSlackClientOptions {
   readonly threadPosts?: ReadonlyMap<string, ReadonlyArray<FetchedMessage>> | undefined;
 }
 
-export interface RewrittenMessage {
+interface RewrittenMessage {
   readonly channel: string;
   readonly ts: string;
   readonly text: string;
   readonly blocks: Option.Option<Schema.JsonArray>;
 }
 
-export interface UpdatedMessage {
+interface UpdatedMessage {
   readonly channel: string;
   readonly ts: string;
   readonly message: SlackMessage;
@@ -418,7 +422,6 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
   const deletions = yield* Ref.make<ReadonlyArray<readonly [string, string]>>([]);
   const rewrites = yield* Ref.make<ReadonlyArray<RewrittenMessage>>([]);
   const deletedFiles = yield* Ref.make<ReadonlyArray<string>>([]);
-  const views = yield* Ref.make<ReadonlyArray<{ triggerId: string; view: Schema.Json }>>([]);
   const threads = yield* Ref.make(new Map(options.threads ?? []));
   const profiles = options.profiles ?? new Map<string, SlackProfile>();
 
@@ -474,7 +477,7 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
           ? Effect.succeed(permalinkOf(channel, ts))
           : Effect.fail(SlackError.make({ reason: options.permalinkFailure })),
       openDirectMessage: (userId) => Effect.succeed(`D-${userId}`),
-      openView: (triggerId, view) => Ref.update(views, (all) => [...all, { triggerId, view }]),
+      openView: () => Effect.void,
       botUserId: Effect.succeed(BOT_USER_ID),
       openConnection: Effect.never,
     }),
@@ -489,10 +492,23 @@ export const makeFakeSlackClient = Effect.fnUntraced(function* (
     deletions: Ref.get(deletions),
     rewrites: Ref.get(rewrites),
     deletedFiles: Ref.get(deletedFiles),
-    views: Ref.get(views),
-    addToThread: (threadTs: string, message: ThreadMessage) =>
-      Ref.update(threads, (all) =>
-        new Map(all).set(threadTs, [...(all.get(threadTs) ?? []), message]),
-      ),
   };
 });
+
+export const VALID_SESSION = "valid-session";
+
+export const signedInAs = (requester: CurrentRequester["Service"]) =>
+  Layer.succeed(
+    SignedIn,
+    SignedIn.of({
+      session: (httpEffect, { credential }) =>
+        Redacted.value(credential) === VALID_SESSION
+          ? Effect.provideService(httpEffect, CurrentRequester, requester)
+          : Effect.fail(Unauthorized.make()),
+    }),
+  );
+
+export const withSession = (session: string) =>
+  HttpApiMiddleware.layerClient(SignedIn, ({ next, request }) =>
+    next(ClientRequest.bearerToken(request, session)),
+  );

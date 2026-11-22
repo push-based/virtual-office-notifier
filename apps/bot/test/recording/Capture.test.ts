@@ -23,9 +23,11 @@ const OFFICE = { guildId: "guild", channelId: "office" };
 
 const celt20ms = new Uint8Array([0b1111_1100, 1, 2, 3]);
 
-const clip = (seconds: number): Clip => ({
-  userId: "u1",
-  startedAt: DateTime.nowUnsafe(),
+const heardAt = DateTime.makeUnsafe("2026-10-30T12:00:00Z");
+
+const clip = (seconds: number, userId = "u1"): Clip => ({
+  userId,
+  startedAt: heardAt,
   packets: Array.makeBy(Math.round(seconds * 50), () => celt20ms),
 });
 
@@ -98,6 +100,13 @@ const setUp = Effect.fnUntraced(function* (voice?: VoiceCapture["Service"], gate
     `,
   ).pipe(Effect.provideContext(context));
 
+  const speakers = Effect.flatMap(
+    SqlClient.SqlClient,
+    (sql) => sql<{ readonly userId: string }>`
+      SELECT user_id FROM office.recording_clips ORDER BY id
+    `,
+  ).pipe(Effect.map(Array.map(({ userId }) => userId)), Effect.provideContext(context));
+
   const loseClipTable = Effect.flatMap(
     SqlClient.SqlClient,
     (sql) => sql`ALTER TABLE office.recording_clips RENAME TO recording_clips_gone`,
@@ -106,6 +115,7 @@ const setUp = Effect.fnUntraced(function* (voice?: VoiceCapture["Service"], gate
   return {
     capture,
     clips,
+    speakers,
     loseClipTable,
     hear: (event: Heard) => Queue.offer(heard, event),
     modes: Queue.clear(modes),
@@ -134,7 +144,7 @@ describe("Capture", () => {
 
   it.effect("keeps no speech from before someone agreed, even in a clip that ends after", () =>
     Effect.gen(function* () {
-      const agreedAt = DateTime.add(DateTime.nowUnsafe(), { minutes: 1 });
+      const agreedAt = DateTime.add(heardAt, { minutes: 1 });
 
       const gate: Gate = {
         ...ConsentGate.open,
@@ -157,19 +167,20 @@ describe("Capture", () => {
     Effect.gen(function* () {
       const gate: Gate = {
         ...ConsentGate.open,
-        isAdmitted: () => Effect.succeed(false),
-        admittedSince: () => Effect.succeedNone,
+        isAdmitted: (userId) => Effect.succeed(userId === "u2"),
+        admittedSince: (userId) =>
+          userId === "u2" ? Effect.succeedSome(recording.startedAt) : Effect.succeedNone,
       };
 
-      const { capture, clips, hear } = yield* setUp(undefined, gate);
+      const { capture, speakers, hear } = yield* setUp(undefined, gate);
 
       yield* capture.begin(recording);
       yield* hear(Heard.StartedSpeaking({ userId: "u1" }));
       yield* hear(Heard.Spoke({ clip: clip(2) }));
-      yield* Effect.sleep("10 millis").pipe(TestClock.withLive);
+      yield* hear(Heard.Spoke({ clip: clip(2, "u2") }));
 
+      assert.deepStrictEqual(yield* pollUntil(speakers, (all) => all.length > 0), ["u2"]);
       assert.deepStrictEqual(yield* capture.speaking, new Set());
-      assert.deepStrictEqual(yield* clips, []);
     }),
   );
 

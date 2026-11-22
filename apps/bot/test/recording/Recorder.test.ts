@@ -94,11 +94,12 @@ const leave = (overrides: Partial<VoiceStateUpdate> = {}) =>
 
 const celt20ms = new Uint8Array([0b1111_1100, 1, 2, 3]);
 
-const clip = (userId: string, seconds: number): Clip => ({
-  userId,
-  startedAt: DateTime.nowUnsafe(),
-  packets: Array.makeBy(seconds * 50, () => celt20ms),
-});
+const clip = (userId: string, seconds: number) =>
+  Effect.map(DateTime.now, (startedAt): Clip => ({
+    userId,
+    startedAt,
+    packets: Array.makeBy(seconds * 50, () => celt20ms),
+  }));
 
 interface HarnessOptions {
   readonly present?: ReadonlyArray<VoiceStateUpdate>;
@@ -419,7 +420,7 @@ const finishedRecording = (h: Harness, plan: RecordingPlan = NO_PLAN) =>
     yield* h.request("u1", "start", plan);
     yield* h.tick;
     yield* recordingStarted(h);
-    yield* h.speak(clip("u1", 2));
+    yield* h.speak(yield* clip("u1", 2));
     yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
     yield* h.request("u1", "stop");
     yield* h.tick;
@@ -447,7 +448,7 @@ describe("Recorder", () => {
 
         assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
 
-        yield* h.speak(clip("u1", 2));
+        yield* h.speak(yield* clip("u1", 2));
         yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
 
         yield* h.request("u1", "stop");
@@ -501,7 +502,7 @@ describe("Recorder", () => {
       yield* h.request("u1", "start");
       yield* h.tick;
       yield* recordingStarted(h);
-      yield* h.speak(clip("u1", 2));
+      yield* h.speak(yield* clip("u1", 2));
       yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
       yield* h.request("u1", "stop");
       yield* h.tick;
@@ -538,7 +539,7 @@ describe("Recorder", () => {
       yield* h.request("u1", "start");
       yield* h.tick;
       yield* recordingStarted(h);
-      yield* h.speak(clip("u1", 2));
+      yield* h.speak(yield* clip("u1", 2));
       yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
       yield* h.request("u1", "stop");
       yield* h.tick;
@@ -748,7 +749,7 @@ describe("Recorder", () => {
       yield* h.request("u1", "start");
       yield* h.tick;
       yield* recordingStarted(h);
-      yield* h.speak(clip("u1", 2));
+      yield* h.speak(yield* clip("u1", 2));
       yield* Deferred.await(uploading);
 
       yield* h.request("u1", "stop");
@@ -812,7 +813,7 @@ describe("Recorder", () => {
       yield* h.tick;
       yield* recordingStarted(h);
 
-      yield* h.speak(clip("u1", 0.2));
+      yield* h.speak(yield* clip("u1", 0.2));
       yield* h.eventually(h.clipRows, (rows) => rows.length === 1);
       assert.strictEqual((yield* h.clipRows)[0]?.transcription, "skipped");
 
@@ -904,7 +905,7 @@ describe("Recorder", () => {
       yield* h.request("u1", "start");
       yield* h.tick;
       yield* recordingStarted(h);
-      yield* h.speak(clip("u1", 2));
+      yield* h.speak(yield* clip("u1", 2));
       yield* h.eventually(h.clipRows, (rows) => rows.length === 1);
 
       yield* h.request("u1", "stop");
@@ -939,7 +940,7 @@ describe("Recorder", () => {
       yield* h.request("u1", "start");
       yield* h.tick;
       yield* recordingStarted(h);
-      yield* h.speak(clip("u1", 2));
+      yield* h.speak(yield* clip("u1", 2));
       yield* h.eventually(h.clipRows, (rows) => rows.length === 1);
 
       yield* TestClock.adjust(reconnectDelay(1));
@@ -961,7 +962,7 @@ describe("Recorder", () => {
         yield* h.request("u1", "start");
         yield* h.tick;
         yield* recordingStarted(h);
-        yield* h.speak({ ...clip("u1", 2), startedAt: yield* DateTime.now });
+        yield* h.speak(yield* clip("u1", 2));
         yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
         assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
 
@@ -978,7 +979,7 @@ describe("Recorder", () => {
         yield* h.eventually(h.pauseRows, (rows) => rows[0]?.pausedBy === null);
         assert.deepStrictEqual(yield* h.recordings, ["Capturing"]);
 
-        yield* h.speak({ ...clip("u2", 2), startedAt: yield* DateTime.now });
+        yield* h.speak(yield* clip("u2", 2));
         yield* h.eventually(h.clipRows, (rows) => rows[1]?.transcription === "done");
 
         yield* h.request("u2", "stop");
@@ -1433,7 +1434,7 @@ describe("Recorder", () => {
         yield* h.tick;
         yield* allHandled(h);
 
-        yield* h.speak(clip("u1", 2));
+        yield* h.speak(yield* clip("u1", 2));
         yield* h.eventually(h.clipRows, (rows) => rows[0]?.transcription === "done");
         yield* h.request("u1", "stop");
         yield* h.tick;
@@ -1997,7 +1998,7 @@ describe("Recorder", () => {
       yield* h.request("u1", "start");
       yield* h.tick;
       yield* recordingStarted(h);
-      yield* h.speak(clip("u1", 2));
+      yield* h.speak(yield* clip("u1", 2));
 
       yield* h.eventually(
         Effect.sync(() => reports),

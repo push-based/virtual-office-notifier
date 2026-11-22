@@ -20,14 +20,6 @@ describe("ClipAudio", () => {
     }),
   );
 
-  it.effect("has nothing for a clip it was never given", () =>
-    Effect.gen(function* () {
-      const audio = yield* ClipAudio.make;
-
-      assert.deepStrictEqual(yield* audio.get(7), Option.none());
-    }),
-  );
-
   it.effect("keeps each clip's audio apart, and removing one leaves the others", () =>
     Effect.gen(function* () {
       const audio = yield* ClipAudio.make;

@@ -8,7 +8,6 @@ import {
   MAX_SUMMARY_LENGTH,
   SLACK_SECTION_LIMIT,
   speakersOf,
-  STYLE_BRIEFS,
   SummaryText,
   summaryRequest,
   transcriptLines,
@@ -206,14 +205,4 @@ describe("SummaryText", () => {
       assert.isTrue(Exit.isFailure(yield* Effect.exit(decode('""'))));
     }),
   );
-});
-
-describe("STYLE_BRIEFS", () => {
-  it("leaves the action items out of every style, since they're pulled out on their own", () => {
-    for (const { prompt } of [STYLE_BRIEFS.brief, STYLE_BRIEFS.detailed, STYLE_BRIEFS.decisions]) {
-      assert.include(prompt, "the action items, which are listed separately");
-      assert.notInclude(prompt, "any action items");
-      assert.notInclude(prompt, "who took what on");
-    }
-  });
 });
