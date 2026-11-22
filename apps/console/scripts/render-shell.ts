@@ -4,19 +4,23 @@ import { pathToFileURL } from "node:url";
 
 import { build } from "vite-plus";
 
-const root = join(import.meta.dirname, "..");
+export const renderFirstScreen = async (root: string, clientOutDir: string): Promise<void> => {
+  const page = join(clientOutDir, "index.html");
+  const serverOut = join(root, "node_modules/.render-shell");
 
-const page = join(root, "dist/client/index.html");
+  await build({
+    root,
+    mode: "prerender",
+    logLevel: "warn",
+    build: {
+      ssr: "src/entry.server.ts",
+      outDir: serverOut,
+      emptyOutDir: true,
+      copyPublicDir: false,
+    },
+  });
 
-const serverOut = join(root, "node_modules/.render-shell");
+  const { renderShell } = await import(pathToFileURL(join(serverOut, "entry.server.js")).href);
 
-await build({
-  root,
-  mode: "prerender",
-  logLevel: "warn",
-  build: { ssr: "src/entry.server.ts", outDir: serverOut, emptyOutDir: true, copyPublicDir: false },
-});
-
-const { renderShell } = await import(pathToFileURL(join(serverOut, "entry.server.js")).href);
-
-await writeFile(page, await renderShell(await readFile(page, "utf8")));
+  await writeFile(page, await renderShell(await readFile(page, "utf8")));
+};

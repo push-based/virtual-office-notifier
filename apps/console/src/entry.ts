@@ -1,4 +1,5 @@
 import { Runtime } from "foldkit";
+import { Server } from "foldkit/experimental";
 
 import { init, Message, Model, subscriptions, update, view } from "./app/main.ts";
 import { resources as liveResources } from "./app/resources.ts";
@@ -23,7 +24,7 @@ const application = Runtime.makeApplication({
   devTools: { Message },
 });
 
-if (import.meta.env.DEV) {
+if (document.querySelector(`[${Server.FOLDKIT_APP_ATTRIBUTE}]`) === null) {
   Runtime.run(application);
 } else {
   Runtime.hydrate(application);
