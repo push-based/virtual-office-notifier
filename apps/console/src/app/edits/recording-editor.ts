@@ -1,31 +1,27 @@
 import { Effect, Option, Schema } from "effect";
 import { Command, Submodel, type Update } from "foldkit";
-import { button, notice, noticeRegion } from "design-system";
+import { button, NoticeContent, noticeRegion } from "design-system";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import { Notice } from "../notice.ts";
-import { unreachableNotice } from "../recorder/notices.ts";
 import { reasonOf } from "../api/api.ts";
 import type { Resources } from "../resources.ts";
 import { RecordingChange } from "office-domain/RecordingEdit";
 import { planFields } from "./plan-fields.ts";
 import { changesBetween, Draft, draftOf, Plan, summaryStyleOf } from "./plan.ts";
-import { saveChanges } from "./save.ts";
+import { answered, failedSave, isSaving, noticeOf, SaveState, saveChanges } from "./save.ts";
 
 export const Model = Schema.Struct({
   draft: Schema.Option(Draft),
-  isSaving: Schema.Boolean,
-  notice: Schema.Option(Notice),
+  save: SaveState,
 });
 
 export type Model = typeof Model.Type;
 
 export const init = (): Model => ({
   draft: Option.none(),
-  isSaving: false,
-  notice: Option.none(),
+  save: SaveState.Idle(),
 });
 
 export const Message = defineMessageUnion({
@@ -35,7 +31,7 @@ export const Message = defineMessageUnion({
   UpdatedSummaryStyle: { value: Schema.String },
   ClickedSave: { recordingId: Schema.String, current: Plan },
   ClickedCancel: {},
-  CompletedSaveEdits: { notice: Schema.Option(Notice) },
+  CompletedSaveEdits: { notice: Schema.Option(NoticeContent) },
   FailedSaveEdits: { reason: Schema.String },
 });
 
@@ -79,7 +75,7 @@ export const update = (model: Model, message: Message) =>
       editDraft(model, (draft) => ({ ...draft, summaryStyle: summaryStyleOf(value) })),
 
     ClickedSave: ({ recordingId, current }) => {
-      if (model.isSaving || Option.isNone(model.draft)) {
+      if (isSaving(model.save) || Option.isNone(model.draft)) {
         return { model };
       }
 
@@ -87,13 +83,13 @@ export const update = (model: Model, message: Message) =>
 
       if (changes.length === 0) {
         return {
-          model: modifyFields(model, { draft: () => Option.none(), notice: () => Option.none() }),
+          model: modifyFields(model, { draft: () => Option.none(), save: () => SaveState.Idle() }),
           outMessage: OutMessage.SavedEdits(),
         };
       }
 
       return {
-        model: modifyFields(model, { isSaving: () => true, notice: () => Option.none() }),
+        model: modifyFields(model, { save: () => SaveState.Saving() }),
         commands: [SaveEdits({ recordingId, changes })],
       };
     },
@@ -101,19 +97,12 @@ export const update = (model: Model, message: Message) =>
     ClickedCancel: () => ({ model: modifyFields(model, { draft: () => Option.none() }) }),
 
     CompletedSaveEdits: ({ notice: shown }) => ({
-      model: modifyFields(model, {
-        isSaving: () => false,
-        draft: () => Option.none(),
-        notice: () => shown,
-      }),
+      model: modifyFields(model, { draft: () => Option.none(), save: () => answered(shown) }),
       outMessage: OutMessage.SavedEdits(),
     }),
 
     FailedSaveEdits: ({ reason }) => ({
-      model: modifyFields(model, {
-        isSaving: () => false,
-        notice: () => Option.some(unreachableNotice(reason)),
-      }),
+      model: modifyFields(model, { save: () => failedSave(reason) }),
     }),
   });
 
@@ -133,7 +122,7 @@ const formView = (
   planFields(h, {
     idPrefix: `${inputs.idPrefix}-${inputs.recordingId}`,
     draft,
-    isDisabled: model.isSaving,
+    isDisabled: isSaving(model.save),
     onTitle: (value) => Message.UpdatedTitle({ value }),
     onAgenda: (value) => Message.UpdatedAgenda({ value }),
     onSummaryStyle: (value) => Message.UpdatedSummaryStyle({ value }),
@@ -142,16 +131,16 @@ const formView = (
     [h.Class("editor-actions")],
     [
       button(h, {
-        label: [model.isSaving ? "Saving…" : "Save"],
+        label: [isSaving(model.save) ? "Saving…" : "Save"],
         onClick: Message.ClickedSave({ recordingId: inputs.recordingId, current: inputs.current }),
-        isDisabled: model.isSaving,
-        isBusy: model.isSaving,
+        isDisabled: isSaving(model.save),
+        isBusy: isSaving(model.save),
       }),
       button(h, {
         label: ["Cancel"],
         variant: "ghost",
         onClick: Message.ClickedCancel(),
-        isDisabled: model.isSaving,
+        isDisabled: isSaving(model.save),
       }),
     ],
   ),
@@ -172,10 +161,7 @@ export const view = Submodel.defineView<Model, Message, ViewInputs>((model, inpu
         ],
         onSome: (draft) => formView(model, draft, inputs, h),
       }),
-      noticeRegion(
-        h,
-        Option.match(model.notice, { onNone: () => [], onSome: (shown) => [notice(h, shown)] }),
-      ),
+      noticeRegion(h, noticeOf(model.save)),
     ],
   ),
 );

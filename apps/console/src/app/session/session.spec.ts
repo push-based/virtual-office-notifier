@@ -2,7 +2,8 @@ import { describe, expect, it } from "@effect/vitest";
 import { Array, Effect, Option, Ref } from "effect";
 
 import { SessionToken } from "../api/api.ts";
-import { fakeDiscord, fakeResources, fakeServer, fakeWorker } from "../fakes.ts";
+import { fakeResources, fakeWorker } from "../dev/fake-worker.ts";
+import { fakeDiscord, fakeServer } from "../fakes.ts";
 import { Session } from "./session.ts";
 
 const presence = { details: "In the office", state: "Not recording", timestamps: null };

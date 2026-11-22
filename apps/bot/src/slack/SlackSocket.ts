@@ -1,5 +1,6 @@
 import { NodeSocket } from "@effect/platform-node";
 import {
+  Array,
   Cause,
   Context,
   Duration,
@@ -40,6 +41,8 @@ export class SlackSocketDropped extends Schema.TaggedError<
 const MAX_RECONNECT_DELAY = Duration.minutes(5);
 
 const REPORT_AFTER_FAILURES = 3;
+
+const REMEMBERED_EVENTS = 1000;
 
 const dropped = (error: Socket.SocketError) =>
   SlackSocketDropped.make({ reason: error.reason._tag });
@@ -86,6 +89,19 @@ export class SlackSocket extends Context.Service<
       const slack = yield* SlackClient;
       const makeWebSocket = yield* Socket.WebSocketConstructor;
 
+      const recentEventIds = yield* Ref.make<ReadonlyArray<string>>([]);
+
+      const firstSighting = (eventId: Option.Option<string>) =>
+        Option.match(eventId, {
+          onNone: () => Effect.succeed(true),
+          onSome: (id) =>
+            Ref.modify(recentEventIds, (recent) =>
+              Array.contains(recent, id)
+                ? [false, recent]
+                : [true, Array.append(Array.takeRight(recent, REMEMBERED_EVENTS - 1), id)],
+            ),
+        });
+
       const handle = Effect.fnUntraced(function* (
         frame: string,
         writer: Socket.Writer,
@@ -105,8 +121,8 @@ export class SlackSocket extends Context.Service<
 
         if (envelope.type === "disconnect") return true;
 
-        if (envelope.retryAttempt > 0) {
-          yield* Effect.logDebug("Dropped a redelivered Slack event");
+        if (!(yield* firstSighting(envelope.eventId))) {
+          yield* Effect.logDebug("Dropped a Slack event it already had");
 
           return false;
         }

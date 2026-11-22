@@ -7,7 +7,8 @@ import type { RecordingStatus } from "office-domain/RecordingRequest";
 import { vi } from "vite-plus/test";
 
 import { REQUEST_ANSWER, RequestAnswer } from "./api/answer.ts";
-import { fakeDiscord, fakeResources, fakeWorker, type SentRequest } from "./fakes.ts";
+import { fakeResources, fakeWorker, type SentRequest } from "./dev/fake-worker.ts";
+import { fakeDiscord } from "./fakes.ts";
 import { init, Model, subscriptions, update, view } from "./main.ts";
 
 const idle: RecordingStatus = {

@@ -14,7 +14,7 @@ export type OfficePhase =
       readonly pause: RecordingPause;
     };
 
-export interface PhaseDescription {
+interface PhaseDescription {
   readonly heading: string;
   readonly description: string;
   readonly live: boolean;

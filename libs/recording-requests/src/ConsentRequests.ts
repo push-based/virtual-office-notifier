@@ -507,6 +507,7 @@ export class ConsentRequests extends Context.Service<
           SET decision = ${decision}, decided_by = ${by}, decided_at = now(),
               due_at = CASE WHEN ${decision} = 'now' THEN now() ELSE due_at END
           WHERE id = ${id} AND kind = 'erase' AND handled_at IS NULL AND decision IS NULL
+            AND due_at > now()
             ${Option.match(ownedBy, { onNone: () => sql.literal(""), onSome: (userId) => sql`AND user_id = ${userId}` })}
           RETURNING id
         `,
@@ -564,6 +565,7 @@ export class ConsentRequests extends Context.Service<
                 SET decision = 'refused', decided_by = ${adminId}, decided_at = now(),
                     refusal_ground = ${refusal.ground}, refusal_reason = ${refusal.reason}
                 WHERE id = ${id} AND kind = 'erase' AND handled_at IS NULL AND decision IS NULL
+                  AND due_at > now()
                 RETURNING id
               `,
             })(),

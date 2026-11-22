@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: lazyPlugins(() => [
     foldkit({ buildId: process.env["GITHUB_SHA"] ?? "local" }),
-    mode === "test" || mode === "prerender"
+    mode === "test" || mode === "prerender" || mode === "fake"
       ? []
       : cloudflare({ viteEnvironment: { name: "worker" } }),
   ]),

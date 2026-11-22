@@ -7,7 +7,7 @@ import { TestClock } from "effect/testing";
 
 import { REQUEST_ANSWER } from "../api/answer.ts";
 import { SessionToken } from "../api/api.ts";
-import { fakeApi, fakeWorker, SESSION } from "../fakes.ts";
+import { fakeApi, fakeWorker, SESSION } from "../dev/fake-worker.ts";
 import { saveChanges } from "./save.ts";
 
 const RECORDING = "6a1f2c3e-4b5d-4e6f-8a7b-9c0d1e2f3a4b";
