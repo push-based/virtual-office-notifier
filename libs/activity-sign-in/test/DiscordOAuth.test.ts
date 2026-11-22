@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer, Predicate, Redacted } from "effect";
 import {
   HttpClient,
   HttpClientError,
@@ -98,7 +98,9 @@ describe("DiscordOAuth", () => {
       assert.strictEqual(token?.method, "POST");
       assert.strictEqual(token?.url, "https://discord.com/api/oauth2/token");
       assert.strictEqual(
-        token?.body._tag === "Uint8Array" ? new TextDecoder().decode(token.body.body) : "",
+        Predicate.isTagged(token?.body, "Uint8Array")
+          ? new TextDecoder().decode(token.body.body)
+          : "",
         "client_id=client-id&client_secret=client-secret&grant_type=authorization_code&code=the-code",
       );
       assert.strictEqual(me?.method, "GET");
