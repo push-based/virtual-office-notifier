@@ -1,17 +1,8 @@
 import { DateTime } from "effect";
-import type { ConsentStatus } from "office-domain/Consent";
 import { describe, expect, it } from "vite-plus/test";
 
 import { describeConsent } from "./describe-consent.ts";
-
-const agreed: ConsentStatus = {
-  standing: "agreed",
-  since: DateTime.makeUnsafe("2026-11-06T08:42:00.000Z"),
-  pendingWithdrawal: null,
-  pendingErasure: null,
-  refusedErasure: null,
-  admin: false,
-};
+import { agreed } from "./fixtures.ts";
 
 const pending = {
   id: 9,

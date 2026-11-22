@@ -1,13 +1,11 @@
 import { describe, expect, it } from "@effect/vitest";
-import { DateTime, Duration, Effect, Fiber, Layer, Option, Predicate, Ref, Schema } from "effect";
+import { Duration, Effect, Fiber, Option, Predicate, Ref, Schema } from "effect";
 import { HttpApiError } from "effect/http-api";
 import { TestClock } from "effect/testing";
-import type { ConsentStatus } from "office-domain/Consent";
 import { AsyncData, Story } from "foldkit";
 
-import { RetryTiming, SessionToken } from "../api/api.ts";
-import { fakeApi } from "../dev/fake-worker.ts";
-import { type FakeRoutes, fakeServer } from "../fakes.ts";
+import { SessionToken } from "../api/api.ts";
+import { answeringOnce } from "../fakes.ts";
 import {
   ConsentData,
   init,
@@ -22,16 +20,11 @@ import {
   WITHDRAWN,
 } from "./consent.ts";
 import * as ErasureAdmin from "./erasure-admin.ts";
+import { agreed } from "./fixtures.ts";
 
 const unavailable = Schema.encodeEffect(HttpApiError.ServiceUnavailable)(
   HttpApiError.ServiceUnavailable.make({}),
 ).pipe(Effect.map((body) => ({ status: 503, body })));
-
-const answering = (routes: FakeRoutes) =>
-  Layer.mergeAll(
-    fakeApi(fakeServer(routes).layer),
-    Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero, timeout: Duration.seconds(5) }),
-  );
 
 const signedIn = Effect.gen(function* () {
   yield* Ref.set(yield* SessionToken, Option.some("session-1"));
@@ -45,22 +38,13 @@ const noticeOf = <R>(command: { readonly effect: Effect.Effect<Message, never, R
     ),
   );
 
-const agreed: ConsentStatus = {
-  standing: "agreed",
-  since: DateTime.makeUnsafe("2026-11-06T08:42:00.000Z"),
-  pendingWithdrawal: null,
-  pendingErasure: null,
-  refusedErasure: null,
-  admin: true,
-};
-
 describe("when withdrawing or asking for deletion goes wrong", () => {
   it.effect("says nothing changed when the Worker refuses the withdrawal", () =>
     Effect.gen(function* () {
       const refusal = yield* unavailable;
 
       const notice = yield* noticeOf(WithdrawConsent()).pipe(
-        Effect.provide(answering(() => refusal)),
+        Effect.provide(answeringOnce(() => refusal)),
       );
 
       expect(notice).toEqual(Option.some(NOT_WITHDRAWN));
@@ -70,7 +54,7 @@ describe("when withdrawing or asking for deletion goes wrong", () => {
   it.effect("says it can't tell when the withdrawal got no answer at all", () =>
     noticeOf(WithdrawConsent()).pipe(
       Effect.map((notice) => expect(notice).toEqual(Option.some(NOT_SURE))),
-      Effect.provide(answering(() => "unanswered")),
+      Effect.provide(answeringOnce(() => "unanswered")),
     ),
   );
 
@@ -83,7 +67,7 @@ describe("when withdrawing or asking for deletion goes wrong", () => {
       expect(yield* Fiber.join(fiber)).toEqual(Option.some(WITHDRAWN));
     }).pipe(
       Effect.provide(
-        answering(({ method }) =>
+        answeringOnce(({ method }) =>
           method === "POST"
             ? { status: 202, body: { id: 3, outcome: null } }
             : { body: { id: 3, outcome: "withdrawn" } },
@@ -97,11 +81,11 @@ describe("when withdrawing or asking for deletion goes wrong", () => {
       const refusal = yield* unavailable;
 
       const refused = yield* noticeOf(RequestErasure()).pipe(
-        Effect.provide(answering(() => refusal)),
+        Effect.provide(answeringOnce(() => refusal)),
       );
 
       const unanswered = yield* noticeOf(RequestErasure()).pipe(
-        Effect.provide(answering(() => "unanswered")),
+        Effect.provide(answeringOnce(() => "unanswered")),
       );
 
       expect(refused).toEqual(Option.some(NOT_SCHEDULED));
@@ -114,7 +98,7 @@ describe("opening the privacy tab again", () => {
   it("keeps an action that's still running, and what an admin was typing", () => {
     const working = {
       ...init(),
-      status: ConsentData.Success({ data: agreed }),
+      status: ConsentData.Success({ data: { ...agreed, admin: true } }),
       busy: Option.some("withdraw" as const),
       admin: {
         ...ErasureAdmin.init(),
@@ -132,7 +116,7 @@ describe("opening the privacy tab again", () => {
     Story.story(
       update,
       Story.given(reopened.model),
-      Story.message(Message.SucceededFetchConsent({ status: agreed })),
+      Story.message(Message.SucceededFetchConsent({ status: { ...agreed, admin: true } })),
       Story.model((model) => {
         expect(model.admin.reason).toBe("An open dispute.");
         expect(AsyncData.isRefreshing(model.admin.cases)).toBe(true);

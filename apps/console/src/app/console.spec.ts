@@ -1,36 +1,15 @@
 import { afterEach, describe, expect, it } from "@effect/vitest";
-import { Array, DateTime, Duration, Effect, Layer, Option } from "effect";
+import { Array, Duration, Effect, Layer, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 import { Runtime } from "foldkit";
 import { RecordingApi, RecordingNotFound } from "office-domain/RecordingApi";
-import type { RecordingStatus } from "office-domain/RecordingRequest";
 import { vi } from "vite-plus/test";
 
 import { REQUEST_ANSWER, RequestAnswer } from "./api/answer.ts";
 import { fakeResources, fakeWorker, type SentRequest } from "./dev/fake-worker.ts";
 import { fakeDiscord } from "./fakes.ts";
 import { init, Model, subscriptions, update, view } from "./main.ts";
-
-const idle: RecordingStatus = {
-  botInOffice: true,
-  occupants: [{ userId: "u1", displayName: "Ada", avatarUrl: null, speaking: true }],
-  recording: null,
-  updatedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
-};
-
-const recording: RecordingStatus = {
-  ...idle,
-  recording: {
-    id: "r1",
-    startedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
-    startedByName: "Ada",
-    endsAt: DateTime.makeUnsafe("2026-10-27T16:00:00Z"),
-    pause: null,
-    title: "Deploy retro",
-    agenda: null,
-    summaryStyle: "brief",
-  },
-};
+import { idle, recording } from "./recorder/fixtures.ts";
 
 const office = () => {
   let status = idle;

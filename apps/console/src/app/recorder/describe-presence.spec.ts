@@ -1,48 +1,21 @@
 import { DateTime } from "effect";
 import { describe, expect, it } from "vite-plus/test";
 
+import type { RecordingStatus } from "office-domain/RecordingRequest";
 import { describePresence, samePresence } from "./describe-presence.ts";
-import type { RecordingStatus, RunningRecording } from "office-domain/RecordingRequest";
-
-const idle: RecordingStatus = {
-  botInOffice: true,
-  occupants: [],
-  recording: null,
-  updatedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
-};
-
-const anna: RunningRecording = {
-  id: "1",
-  startedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
-  startedByName: "Anna",
-  endsAt: DateTime.makeUnsafe("2026-10-27T16:00:00Z"),
-  pause: null,
-  title: null,
-  agenda: null,
-  summaryStyle: "brief",
-};
-
-const recording: RecordingStatus = { ...idle, recording: anna };
+import { chris, idle, paused, recording } from "./fixtures.ts";
 
 describe("describePresence", () => {
   it("names who started the recording and lets Discord count up from its start", () => {
     expect(describePresence(recording)).toEqual({
       details: "Recording the office",
-      state: "Started by Anna",
+      state: "Started by Chris",
       timestamps: { start: Date.parse("2026-10-27T12:00:00Z") },
     });
   });
 
   it("says who paused the recording while it's paused", () => {
-    expect(
-      describePresence({
-        ...idle,
-        recording: {
-          ...anna,
-          pause: { since: DateTime.makeUnsafe("2026-10-27T12:20:00Z"), byName: "Ben" },
-        },
-      }),
-    ).toEqual({
+    expect(describePresence(paused)).toEqual({
       details: "Recording paused",
       state: "Paused by Ben",
       timestamps: { start: Date.parse("2026-10-27T12:00:00Z") },
@@ -80,7 +53,7 @@ describe("samePresence", () => {
   it("tells a different starter apart", () => {
     const other: RecordingStatus = {
       ...recording,
-      recording: { ...anna, startedByName: "Ben" },
+      recording: { ...chris, startedByName: "Ben" },
     };
 
     expect(samePresence(describePresence(recording), describePresence(other))).toBe(false);
@@ -91,14 +64,6 @@ describe("samePresence", () => {
   });
 
   it("tells a pause apart from the recording running", () => {
-    const paused: RecordingStatus = {
-      ...recording,
-      recording: {
-        ...anna,
-        pause: { since: DateTime.makeUnsafe("2026-10-27T12:20:00Z"), byName: "Anna" },
-      },
-    };
-
     expect(samePresence(describePresence(recording), describePresence(paused))).toBe(false);
   });
 });

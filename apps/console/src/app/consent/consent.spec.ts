@@ -22,15 +22,7 @@ import {
   WITHDRAWN,
 } from "./consent.ts";
 import * as ErasureAdmin from "./erasure-admin.ts";
-
-const agreed: ConsentStatus = {
-  standing: "agreed",
-  since: DateTime.makeUnsafe("2026-11-06T08:42:00.000Z"),
-  pendingWithdrawal: null,
-  pendingErasure: null,
-  refusedErasure: null,
-  admin: false,
-};
+import { agreed } from "./fixtures.ts";
 
 const erasure: ErasureCase = {
   id: 12,

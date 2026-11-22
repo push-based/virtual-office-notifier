@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/cloudflare";
-import { afterAll, assert, beforeEach, describe, it } from "vite-plus/test";
+import { afterAll, assert, beforeEach, describe, it } from "@effect/vitest";
 
 import { Array, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
@@ -129,71 +129,67 @@ const send = (path: string, init?: RequestInit) =>
   });
 
 describe("the Worker's telemetry", () => {
-  it("reports a defect as an error, without the request's body or headers", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const response = yield* send("/api/burn", {
-          method: "POST",
-          headers: { "content-type": "application/json", authorization: "Bearer s3cr3t" },
-          body: '{"secret":"s3cr3t"}',
-        });
+  it.effect("reports a defect as an error, without the request's body or headers", () =>
+    Effect.gen(function* () {
+      const response = yield* send("/api/burn", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer s3cr3t" },
+        body: '{"secret":"s3cr3t"}',
+      });
 
-        assert.strictEqual(response.status, 500);
-        assert.strictEqual(errors.length, 1);
-        assert.strictEqual(errors[0]?.exception?.values?.[0]?.value, "The office caught fire");
-        assert.strictEqual(errors[0]?.level, "error");
-        assert.strictEqual(errors[0]?.environment, "production");
-        assert.strictEqual(errors[0]?.release, RELEASE);
-        assert.strictEqual(errors[0]?.request?.url, "http://console.test/api/burn");
-        assert.isUndefined(errors[0]?.request?.headers);
-        assert.isUndefined(errors[0]?.request?.data);
-        assert.notInclude(errors[0]?.sdk?.integrations ?? [], "Console");
-        assert.isNotEmpty(envelopes);
-        assert.notInclude(Array.join(envelopes, "\n"), "s3cr3t");
-      }),
-    ));
+      assert.strictEqual(response.status, 500);
+      assert.strictEqual(errors.length, 1);
+      assert.strictEqual(errors[0]?.exception?.values?.[0]?.value, "The office caught fire");
+      assert.strictEqual(errors[0]?.level, "error");
+      assert.strictEqual(errors[0]?.environment, "production");
+      assert.strictEqual(errors[0]?.release, RELEASE);
+      assert.strictEqual(errors[0]?.request?.url, "http://console.test/api/burn");
+      assert.isUndefined(errors[0]?.request?.headers);
+      assert.isUndefined(errors[0]?.request?.data);
+      assert.notInclude(errors[0]?.sdk?.integrations ?? [], "Console");
+      assert.isNotEmpty(envelopes);
+      assert.notInclude(Array.join(envelopes, "\n"), "s3cr3t");
+    }),
+  );
 
-  it("reports a 5xx failure and logs its warning without the annotations", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const response = yield* send("/api/busy");
+  it.effect("reports a 5xx failure and logs its warning without the annotations", () =>
+    Effect.gen(function* () {
+      const response = yield* send("/api/busy");
 
-        assert.strictEqual(response.status, 503);
-        assert.deepStrictEqual(
-          Array.map(errors, ({ level, exception }) => ({
-            level,
-            type: exception?.values?.[0]?.type,
-          })),
-          [{ level: "error", type: "effect/HttpApiError/ServiceUnavailable" }],
-        );
-        assert.deepStrictEqual(
-          Array.map(logs, ({ level, message, attributes }) => ({
-            level,
-            message,
-            who: attributes?.["who"],
-          })),
-          [{ level: "warn", message: "Couldn't reach the office", who: undefined }],
-        );
-      }),
-    ));
+      assert.strictEqual(response.status, 503);
+      assert.deepStrictEqual(
+        Array.map(errors, ({ level, exception }) => ({
+          level,
+          type: exception?.values?.[0]?.type,
+        })),
+        [{ level: "error", type: "effect/HttpApiError/ServiceUnavailable" }],
+      );
+      assert.deepStrictEqual(
+        Array.map(logs, ({ level, message, attributes }) => ({
+          level,
+          message,
+          who: attributes?.["who"],
+        })),
+        [{ level: "warn", message: "Couldn't reach the office", who: undefined }],
+      );
+    }),
+  );
 
-  it("traces each request", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        yield* send("/api/busy");
+  it.effect("traces each request", () =>
+    Effect.gen(function* () {
+      yield* send("/api/busy");
 
-        assert.deepStrictEqual(requests, ["GET /api/busy"]);
-      }),
-    ));
+      assert.deepStrictEqual(requests, ["GET /api/busy"]);
+    }),
+  );
 
-  it("doesn't trace the page's telemetry passing through", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        yield* send("/api/sentry", { method: "POST", body: "{}" });
+  it.effect("doesn't trace the page's telemetry passing through", () =>
+    Effect.gen(function* () {
+      yield* send("/api/sentry", { method: "POST", body: "{}" });
 
-        assert.deepStrictEqual(requests, []);
-      }),
-    ));
+      assert.deepStrictEqual(requests, []);
+    }),
+  );
 });
 
 describe("the Worker's Sentry settings", () => {

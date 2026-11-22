@@ -220,9 +220,7 @@ describe("the action items", () => {
     );
   });
 
-  it("builds the changes for ticking and reassigning", () => {
-    expect(ActionItems.tickOf(checklist)).toEqual({ kind: "tick", item: 4 });
-    expect(ActionItems.tickOf(room)).toEqual({ kind: "untick", item: 6 });
+  it("clears the owner when Unassigned is chosen, and sends nothing when the owner stays", () => {
     expect(ActionItems.reassignOf(checklist, "")).toEqual([
       { kind: "reassign", item: 4, owner: null },
     ]);

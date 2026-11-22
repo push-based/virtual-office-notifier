@@ -1,4 +1,4 @@
-import { Effect, Layer, Predicate, Schema } from "effect";
+import { Duration, Effect, Layer, Predicate, Schema } from "effect";
 import {
   HttpClient,
   HttpClientError,
@@ -7,7 +7,8 @@ import {
 } from "effect/http";
 import { vi } from "vite-plus/test";
 
-import { decodeJson, type SentRequest } from "./dev/fake-worker.ts";
+import { RetryTiming } from "./api/api.ts";
+import { decodeJson, fakeApi, type SentRequest } from "./dev/fake-worker.ts";
 import type { DiscordClient } from "./session/session.ts";
 
 export interface FakeAnswer {
@@ -65,6 +66,12 @@ export const fakeServer = (routes: FakeRoutes) => {
 
   return { sent, layer: Layer.succeed(HttpClient.HttpClient, client) };
 };
+
+export const answeringOnce = (routes: FakeRoutes) =>
+  Layer.mergeAll(
+    fakeApi(fakeServer(routes).layer),
+    Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero, timeout: Duration.seconds(5) }),
+  );
 
 export const fakeDiscord = () => ({
   ready: vi.fn<DiscordClient["ready"]>().mockResolvedValue(undefined),

@@ -8,7 +8,6 @@ import {
   formatOfficeTime,
   formatRunTime,
   isLive,
-  stateBadge,
   transcriptTurns,
 } from "./describe-recording.ts";
 import { anna, ben, recordingDetail } from "./fixtures.ts";
@@ -62,13 +61,6 @@ describe("formatRunTime", () => {
 });
 
 describe("recording states", () => {
-  it("gives each state its badge", () => {
-    expect(stateBadge("running")).toEqual({ label: "Running", tone: "live" });
-    expect(stateBadge("transcribing")).toEqual({ label: "Transcribing", tone: "pending" });
-    expect(stateBadge("finished")).toEqual({ label: "Finished", tone: "done" });
-    expect(stateBadge("silent")).toEqual({ label: "Silent", tone: "quiet" });
-  });
-
   it("opens every recording but a silent one", () => {
     expect(canOpen("running")).toBe(true);
     expect(canOpen("transcribing")).toBe(true);

@@ -1,11 +1,9 @@
 import * as Sentry from "@sentry/browser";
 import { afterEach, describe, expect, it } from "@effect/vitest";
-import { Duration, Effect, Layer } from "effect";
+import { Effect } from "effect";
 import type { Telemetry } from "office-domain/Telemetry";
 
-import { RetryTiming } from "../api/api.ts";
-import { fakeApi } from "../dev/fake-worker.ts";
-import { type FakeAnswer, fakeServer } from "../fakes.ts";
+import { answeringOnce, type FakeAnswer } from "../fakes.ts";
 import { reportCrash, sentryOptionsFor, startTelemetry } from "./telemetry.ts";
 
 const telemetry: Telemetry = {
@@ -14,11 +12,7 @@ const telemetry: Telemetry = {
   release: "abc123",
 };
 
-const serving = (answer: FakeAnswer) =>
-  Layer.mergeAll(
-    fakeApi(fakeServer(() => answer).layer),
-    Layer.succeed(RetryTiming, { retries: 0, delay: Duration.zero, timeout: Duration.seconds(1) }),
-  );
+const serving = (answer: FakeAnswer) => answeringOnce(() => answer);
 
 afterEach(() => Sentry.close());
 

@@ -7,7 +7,7 @@ import {
   HttpRouter,
   HttpServer,
 } from "effect/http";
-import { assert, describe, it } from "vite-plus/test";
+import { assert, describe, it } from "@effect/vitest";
 
 import type { Telemetry } from "office-domain/Telemetry";
 
@@ -77,101 +77,95 @@ const tunnel = (app: ReturnType<typeof consoleWith>, envelope: string) =>
 const accepted = () => Option.some(new Response('{"id":"1"}', { status: 200 }));
 
 describe("the Sentry tunnel", () => {
-  it("forwards an envelope for the Console's DSN to its project", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const forwarded: Array<Forwarded> = [];
-        const envelope = envelopeFor(DSN);
+  it.effect("forwards an envelope for the Console's DSN to its project", () =>
+    Effect.gen(function* () {
+      const forwarded: Array<Forwarded> = [];
+      const envelope = envelopeFor(DSN);
 
-        const response = yield* tunnel(
-          consoleWith(Option.some(telemetry), accepted(), forwarded),
-          envelope,
-        );
+      const response = yield* tunnel(
+        consoleWith(Option.some(telemetry), accepted(), forwarded),
+        envelope,
+      );
 
-        assert.strictEqual(response.status, 200);
-        assert.deepStrictEqual(forwarded, [
-          {
-            url: "https://o1.ingest.us.sentry.io/api/42/envelope/",
-            contentType: "application/x-sentry-envelope",
-            body: envelope,
-          },
-        ]);
-      }),
-    ));
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(forwarded, [
+        {
+          url: "https://o1.ingest.us.sentry.io/api/42/envelope/",
+          contentType: "application/x-sentry-envelope",
+          body: envelope,
+        },
+      ]);
+    }),
+  );
 
-  it("passes Sentry's rate limits back to the page", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const limited = new Response(null, {
-          status: 429,
-          headers: { "retry-after": "60", "x-sentry-rate-limits": "60:error:organization" },
-        });
+  it.effect("passes Sentry's rate limits back to the page", () =>
+    Effect.gen(function* () {
+      const limited = new Response(null, {
+        status: 429,
+        headers: { "retry-after": "60", "x-sentry-rate-limits": "60:error:organization" },
+      });
 
-        const response = yield* tunnel(
-          consoleWith(Option.some(telemetry), Option.some(limited)),
-          envelopeFor(DSN),
-        );
+      const response = yield* tunnel(
+        consoleWith(Option.some(telemetry), Option.some(limited)),
+        envelopeFor(DSN),
+      );
 
-        assert.strictEqual(response.status, 429);
-        assert.strictEqual(response.headers.get("retry-after"), "60");
-        assert.strictEqual(response.headers.get("x-sentry-rate-limits"), "60:error:organization");
-      }),
-    ));
+      assert.strictEqual(response.status, 429);
+      assert.strictEqual(response.headers.get("retry-after"), "60");
+      assert.strictEqual(response.headers.get("x-sentry-rate-limits"), "60:error:organization");
+    }),
+  );
 
-  it("refuses envelopes for any other DSN", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const forwarded: Array<Forwarded> = [];
+  it.effect("refuses envelopes for any other DSN", () =>
+    Effect.gen(function* () {
+      const forwarded: Array<Forwarded> = [];
 
-        const response = yield* tunnel(
-          consoleWith(Option.some(telemetry), accepted(), forwarded),
-          envelopeFor("https://public@o2.ingest.sentry.io/7"),
-        );
+      const response = yield* tunnel(
+        consoleWith(Option.some(telemetry), accepted(), forwarded),
+        envelopeFor("https://public@o2.ingest.sentry.io/7"),
+      );
 
-        assert.strictEqual(response.status, 403);
-        assert.deepStrictEqual(forwarded, []);
-      }),
-    ));
+      assert.strictEqual(response.status, 403);
+      assert.deepStrictEqual(forwarded, []);
+    }),
+  );
 
-  it("refuses something that isn't an envelope", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const forwarded: Array<Forwarded> = [];
+  it.effect("refuses something that isn't an envelope", () =>
+    Effect.gen(function* () {
+      const forwarded: Array<Forwarded> = [];
 
-        const response = yield* tunnel(
-          consoleWith(Option.some(telemetry), accepted(), forwarded),
-          "hello",
-        );
+      const response = yield* tunnel(
+        consoleWith(Option.some(telemetry), accepted(), forwarded),
+        "hello",
+      );
 
-        assert.strictEqual(response.status, 403);
-        assert.deepStrictEqual(forwarded, []);
-      }),
-    ));
+      assert.strictEqual(response.status, 403);
+      assert.deepStrictEqual(forwarded, []);
+    }),
+  );
 
-  it("answers 502 when Sentry can't be reached", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const response = yield* tunnel(
-          consoleWith(Option.some(telemetry), Option.none()),
-          envelopeFor(DSN),
-        );
+  it.effect("answers 502 when Sentry can't be reached", () =>
+    Effect.gen(function* () {
+      const response = yield* tunnel(
+        consoleWith(Option.some(telemetry), Option.none()),
+        envelopeFor(DSN),
+      );
 
-        assert.strictEqual(response.status, 502);
-      }),
-    ));
+      assert.strictEqual(response.status, 502);
+    }),
+  );
 
-  it("isn't there without a DSN", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const forwarded: Array<Forwarded> = [];
+  it.effect("isn't there without a DSN", () =>
+    Effect.gen(function* () {
+      const forwarded: Array<Forwarded> = [];
 
-        const response = yield* tunnel(
-          consoleWith(Option.none(), accepted(), forwarded),
-          envelopeFor(DSN),
-        );
+      const response = yield* tunnel(
+        consoleWith(Option.none(), accepted(), forwarded),
+        envelopeFor(DSN),
+      );
 
-        assert.strictEqual(response.status, 404);
-        assert.deepStrictEqual(forwarded, []);
-      }),
-    ));
+      assert.strictEqual(response.status, 404);
+      assert.deepStrictEqual(forwarded, []);
+    }),
+  );
 });
