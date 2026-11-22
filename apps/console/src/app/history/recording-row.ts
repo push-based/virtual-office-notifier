@@ -11,13 +11,13 @@ export const personOf = (member: OfficeMember): Person => ({
   avatarUrl: member.avatarUrl,
 });
 
-export interface RecordingRowConfig<Message> {
+interface RecordingRowConfig<Message> {
   readonly recording: ListedRecording;
   readonly now: number;
   readonly onOpen: Message;
 }
 
-export const factLine = (recording: ListedRecording, now: number): string =>
+const factLine = (recording: ListedRecording, now: number): string =>
   Array.join(
     [
       ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
@@ -43,7 +43,7 @@ export const recordingRow = <Message>(
           [h.Class("text-body recording-row-when")],
           [recording.title ?? formatOfficeTime(recording.startedAt)],
         ),
-        badge(h, state.tone, state.label),
+        badge(h, { tone: state.tone, label: state.label }),
       ],
     ),
     description(h, [factLine(recording, config.now)]),

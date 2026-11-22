@@ -2,27 +2,34 @@
 
 The Console's UI package. It holds the Foldkit view helpers the page builds its markup from, and the design tokens and CSS that give that markup its look. The interactive helpers sit on [`@foldkit/ui`](https://foldkit.dev/ui/overview), Foldkit's headless components, so the ARIA attributes, keyboard handling and focus management come from there and the markup and styling come from here.
 
-Every helper takes the page's `HtmlBuilder` first and a config second, and returns `Html`:
+Every helper takes the page's `HtmlBuilder` first and returns `Html`. What comes second depends on the helper:
+
+- `card`, `description` and `descriptionItem` only wrap content, so they take their children, like an `h.*` element does;
+- `noticeRegion` takes the notice to show, as an `Option`, so it can stay in the page when there's nothing to say;
+- `divider` takes nothing else;
+- every other helper takes a config object.
 
 ```ts
-import { button, card, eyebrow } from "design-system";
+import { button, card, eyebrow, noticeRegion } from "design-system";
 
-card(h, "lg", [
+card(h, [
   eyebrow(h, { text: "Recording" }),
   button(h, { label: ["Pause"], variant: "ghost", onClick: Message.ClickedPause() }),
+  noticeRegion(h, model.notice),
 ]);
 ```
 
 ## CSS
 
-The package exports four stylesheets:
+The package exports five stylesheets:
 
 | File             | What it holds                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------ |
 | `tokens.css`     | The design tokens (colours, spacing, radii, shadows, fonts) as custom properties, and the text styles. |
+| `base.css`       | The page-wide defaults: border-box sizing, no margin on the page, and the body's font and colours.     |
 | `components.css` | The styles for the helpers' markup, all under `pb-` class names.                                       |
 | `utilities.css`  | Layout and text utilities the page can put on its own elements.                                        |
-| `styles.css`     | The Geist fonts, then the three files above, in that order.                                            |
+| `styles.css`     | The Geist fonts, then the four files above, in that order.                                             |
 
 The page imports `styles.css` once, at the top of [`apps/console/src/styles.css`](../../apps/console/src/styles.css), and adds its own layout after it:
 
@@ -36,8 +43,7 @@ The utilities the page can use as class names are:
 - `sr-only`, for text only screen readers read;
 - `stack-2`, a column with a small gap;
 - `align-start`, which keeps an item at the start of a flex column instead of stretching it;
-- `label`, a bold heading-coloured line, and `muted`, muted text inside one;
-- `confirm` and `confirm-danger`, the bordered box that asks someone to confirm, and its red variant.
+- `label`, a bold heading-coloured line, and `muted`, muted text inside one.
 
 ## Helpers
 
@@ -46,12 +52,12 @@ The utilities the page can use as class names are:
 | `avatar`          | A person's picture, or their initials when there's none.                                                         |                     |
 | `badge`           | A small coloured label for a state, like Live or Done.                                                           |                     |
 | `barList`         | A labelled list of values, each with a bar sized against the largest.                                            |                     |
-| `barShare`        | The width, in percent, `barList` gives one bar.                                                                  |                     |
-| `blockButton`     | A whole block of content that acts as one button, styled by a class the page passes.                             | `Button`            |
+| `blockButton`     | A whole block of content that acts as one button. The page's class gives it its layout and border.               | `Button`            |
 | `button`          | A button in the primary, ghost or tertiary style.                                                                | `Button`            |
 | `card`            | The bordered panel the page's sections sit in.                                                                   |                     |
 | `checkbox`        | A native checkbox. Name it with `checkboxLabel`, so the visible text is its label and clicking it ticks the box. |                     |
 | `checkboxLabel`   | The visible label for a `checkbox`, tied to it by id.                                                            |                     |
+| `confirmBox`      | The bordered box that asks someone to confirm, red with `isDanger`. A group, or a form with `onSubmit`.          |                     |
 | `description`     | A paragraph of muted secondary text.                                                                             |                     |
 | `descriptionItem` | The same muted text as a list item, for a list that has nothing in it.                                           |                     |
 | `disclosure`      | A button that shows and hides the content under it.                                                              | `Disclosure`        |
@@ -59,31 +65,29 @@ The utilities the page can use as class names are:
 | `eyebrow`         | The small heading above a section.                                                                               |                     |
 | `heading`         | A section title.                                                                                                 |                     |
 | `heatmap`         | A labelled table of cells shaded by value, each described for screen readers.                                    |                     |
-| `heatOf`          | The shade, from 0 to 1, `heatmap` gives one cell.                                                                |                     |
-| `initials`        | The first letters of someone's first two names.                                                                  |                     |
 | `inlineSelect`    | A compact select that sits in a line of content, named by a label only screen readers see.                       | `Select`            |
-| `liveDot`         | The pulsing red dot that says something is live.                                                                 |                     |
 | `notice`          | An info or error message.                                                                                        |                     |
-| `noticeRegion`    | The status region notices go in, so screen readers announce them.                                                |                     |
+| `noticeRegion`    | The status region a notice goes in, so screen readers announce it.                                               |                     |
 | `people`          | A labelled row of avatars.                                                                                       |                     |
 | `selectField`     | A labelled select.                                                                                               | `Select`            |
 | `stat`            | A number with a caption under it.                                                                                |                     |
-| `statusHeading`   | A heading with an optional live dot, subheading and description.                                                 |                     |
+| `statusHeading`   | A heading with an optional live dot, a subheading when there is one, and a description.                          |                     |
 | `Tabs`            | A tab list and its panels. A Submodel, see below.                                                                | `Tabs`              |
 | `textField`       | A labelled text input, or a textarea with `isMultiline`, with a character count when it has a `maxLength`.       | `Input`, `Textarea` |
 
-`Content` is the type of a helper's children: `Html` or a string.
+`Content` is the type of a helper's children: `Html` or a string. `NoticeContent` is the Schema for what a `notice` says, its `kind` and `text`, so the page can keep a notice in its Model. A `Person` names someone in `people`, with `avatarUrl` and `isSpeaking` named as `avatar` names them.
 
 ## Tabs
 
 `Tabs` is the one helper with state of its own. `@foldkit/ui` keeps track of which tab has keyboard focus, moves focus with the arrow keys, Home and End, and selects the focused tab. The page keeps which tab is selected. Wire it in like any other Submodel:
 
+- a set of tabs made once, at the top of the module, with `Tabs.create(tabs)`, where `tabs` lists each tab's `id` and `label`;
 - a `Tabs.Model` field in the page's Model, made with `Tabs.init(name)`;
 - a `Got…Message` that carries a `Tabs.Message`;
-- an `Update.foldChild` with `Tabs.update`, whose `foldOutMessage` handles `Selected` by storing the tab's value;
-- `Tabs.view(h, config)` in the view.
+- an `Update.foldChild` with the created tabs' `update`, whose `foldOutMessage` handles `Selected` by storing the tab's value. Match it with `Tabs.OutMessage.match<Step, Tabs.OutMessage<Id>>`, and the value comes back as one of the tabs' ids;
+- the created tabs' `view(h, config)` in the view.
 
-`Tabs.view` renders the tab list and hands it to the page's `toView`, together with a `panel` function. The page lays them out, and renders each tab's content through `panel(id, attributes, children)`, which labels the panel with its tab and keeps it out of the tab order. [`apps/console/src/app/main.ts`](../../apps/console/src/app/main.ts) and [`apps/console/src/app/stats/stats.ts`](../../apps/console/src/app/stats/stats.ts) show both.
+`name` gives the tabs and their panels their ids, and the view uses it as the Submodel's slot too. The `view` renders the tab list and hands it to the page's `toView`, together with a `panel` function. The page lays them out, and renders each tab's content through `panel(id, attributes, children)`, which labels the panel with its tab and keeps it out of the tab order. [`apps/console/src/app/main.ts`](../../apps/console/src/app/main.ts) and [`apps/console/src/app/stats/stats.ts`](../../apps/console/src/app/stats/stats.ts) show both.
 
 Clicking a tab, or moving to it with a key, returns a `Tabs.FocusTab` Command. A Scene or Story that selects a tab resolves it with `Tabs.Message.CompletedFocusTab()`.
 

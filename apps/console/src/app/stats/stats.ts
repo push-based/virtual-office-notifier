@@ -18,7 +18,7 @@ import { modifyFields } from "foldkit/struct";
 import { ConsoleApi, reasonOf } from "../api/api.ts";
 import type { Resources } from "../resources.ts";
 import { OfficeStats, StatsRange } from "office-domain/OfficeStats";
-import { describeStats, RANGES, rangeOf, type StatsView } from "./describe-stats.ts";
+import { describeStats, RANGES, type StatsView } from "./describe-stats.ts";
 
 export const StatsData = AsyncData.Schema(OfficeStats, Schema.String);
 
@@ -70,20 +70,25 @@ export const open = (model: Model): UpdateReturn => {
   };
 };
 
+const RangeTabs = Tabs.create(RANGES);
+
 const toRangeTabsMessage = (message: Tabs.Message) => Message.GotRangeTabsMessage({ message });
 
 const selectRange = (model: Model, range: StatsRange): UpdateReturn =>
   range === model.range ? { model } : open(modifyFields(model, { range: () => range }));
 
-const foldRangeTabsOutMessage = Tabs.OutMessage.match<Update.Step<Model, Message, Resources>>({
+const foldRangeTabsOutMessage = Tabs.OutMessage.match<
+  Update.Step<Model, Message, Resources>,
+  Tabs.OutMessage<StatsRange>
+>({
   Selected:
     ({ value }) =>
     (stepModel) =>
-      selectRange(stepModel, rangeOf(value)),
+      selectRange(stepModel, value),
 });
 
 const foldRangeTabs = Update.foldChild({
-  update: Tabs.update,
+  update: RangeTabs.update,
   read: (model: Model) => Option.some(model.rangeTabs),
   write: (model, nextRangeTabs) => modifyFields(model, { rangeTabs: () => nextRangeTabs }),
   toParentMessage: toRangeTabsMessage,
@@ -111,7 +116,10 @@ const pair = <Message>(h: HtmlBuilder<Message>, children: ReadonlyArray<Html>): 
   h.div([h.Class("stats-pair")], children);
 
 const statsView = (h: HtmlBuilder<Message>, view: StatsView): ReadonlyArray<Html> => [
-  pair(h, [stat(h, view.recordings, "Recordings"), stat(h, view.recorded, "Recorded")]),
+  pair(h, [
+    stat(h, { value: view.recordings, label: "Recordings" }),
+    stat(h, { value: view.recorded, label: "Recorded" }),
+  ]),
   barList(h, {
     id: "time-in-office",
     label: "Time in the office",
@@ -153,7 +161,7 @@ const rangeView = (
   h: HtmlBuilder<Message>,
   { tablist, panel }: Tabs.Layout<StatsRange, Message>,
 ): Html =>
-  card(h, "lg", [
+  card(h, [
     eyebrow(h, { text: "Office stats" }),
     tablist,
     ...Array.map(RANGES, ({ id }) =>
@@ -188,12 +196,10 @@ const rangePanel = (
   );
 
 export const view = Submodel.defineView<Model, Message>((model, h) =>
-  Tabs.view(h, {
-    slotId: "range-tabs",
+  RangeTabs.view(h, {
     model: model.rangeTabs,
     label: "Range",
     appearance: "pills",
-    tabs: RANGES,
     selected: model.range,
     toParentMessage: toRangeTabsMessage,
     toView: (layout) => rangeView(model, h, layout),

@@ -12,12 +12,12 @@ import {
   type Model,
   SignInToDiscord,
   StartTelemetry,
+  subscriptions,
   update,
   type View,
   view,
   VIEWS,
 } from "./main.ts";
-import * as Recorder from "./recorder/recorder.ts";
 import * as Stats from "./stats/stats.ts";
 
 const signedIn = (): Model => update(initModel(), Message.SucceededSignIn()).model;
@@ -45,16 +45,16 @@ describe("the Console", () => {
     ]);
   });
 
-  it("starts polling the office once signed in", () => {
-    Story.story(
-      update,
-      Story.given(initModel()),
-      Story.message(Message.SucceededSignIn()),
-      Story.model((model) => {
-        expect(isSignedIn(model)).toBe(true);
-        expect(model.recorder.connection).toEqual(Recorder.Connection.Loading());
-      }),
-    );
+  it("starts polling the office once signed in, and never when signing in failed", () => {
+    const pollsTheOffice = (model: Model) =>
+      Option.isSome(subscriptions.pollStatus.modelToDependencies(model).maybeDependencies);
+
+    const failed = update(initModel(), Message.FailedSignIn({ reason: "No Discord" })).model;
+
+    expect(pollsTheOffice(initModel())).toBe(false);
+    expect(isSignedIn(signedIn())).toBe(true);
+    expect(pollsTheOffice(signedIn())).toBe(true);
+    expect(pollsTheOffice(failed)).toBe(false);
   });
 
   it("shows why it couldn't start when sign-in fails", () => {

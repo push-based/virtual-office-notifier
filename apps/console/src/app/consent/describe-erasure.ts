@@ -21,7 +21,7 @@ export const describeInventory = (inventory: ErasureInventory): ReadonlyArray<st
 
 export const groundLabel = (ground: RefusalGround): string => REFUSAL_GROUNDS[ground];
 
-export const adminName = (name: string | null): string => name ?? "an admin";
+const adminName = (name: string | null): string => name ?? "an admin";
 
 export const describeStanding = (erasure: ErasureCase): string => {
   switch (erasure.decision) {

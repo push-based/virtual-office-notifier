@@ -1,9 +1,8 @@
-import { Array, Clock, Duration, Effect, Option, pipe, Predicate, Schema, Stream } from "effect";
+import { Clock, Duration, Effect, Option, Predicate, Schema, Stream } from "effect";
 import { card, notice, Tabs } from "design-system";
 import { Command, Subscription, Update } from "foldkit";
 import type { Document, Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
-import { defineTaggedUnion } from "foldkit/schema";
 import { modifyFields } from "foldkit/struct";
 
 import * as Consent from "./consent/consent.ts";
@@ -11,10 +10,11 @@ import * as History from "./history/history.ts";
 import * as Recorder from "./recorder/recorder.ts";
 import type { Resources } from "./resources.ts";
 import { Session } from "./session/session.ts";
+import { SignIn } from "./session/sign-in.ts";
 import * as Stats from "./stats/stats.ts";
 import { startTelemetry } from "./telemetry/telemetry.ts";
 
-export const CLOCK_TICK = Duration.seconds(1);
+const CLOCK_TICK = Duration.seconds(1);
 
 export const View = Schema.Literals(["now", "history", "stats", "privacy"]);
 
@@ -27,18 +27,7 @@ export const VIEWS: ReadonlyArray<Tabs.Tab<View>> = [
   { id: "privacy", label: "Privacy" },
 ];
 
-export const viewOf = (id: string): View =>
-  pipe(
-    VIEWS,
-    Array.findFirst((tab) => tab.id === id),
-    Option.match({ onNone: () => "now", onSome: (tab) => tab.id }),
-  );
-
-export const SignIn = defineTaggedUnion({
-  SigningIn: {},
-  SignedIn: {},
-  FailedSignIn: { reason: Schema.String },
-});
+const ViewTabs = Tabs.create(VIEWS);
 
 export const Model = Schema.Struct({
   view: View,
@@ -140,27 +129,15 @@ const foldConsent = Update.foldChild({
   toParentMessage: toConsentMessage,
 });
 
-const stepRecorder = Update.foldChild({
-  update: (
-    recorder: Recorder.Model,
-    step: Update.Step<Recorder.Model, Recorder.Message, Resources>,
-  ) => step(recorder),
-  read: (model: Model) => Option.some(model.recorder),
-  write: (model, nextRecorder) => modifyFields(model, { recorder: () => nextRecorder }),
-  toParentMessage: toRecorderMessage,
-});
-
-const stepStats = Update.foldChild({
-  update: (stats: Stats.Model, step: Update.Step<Stats.Model, Stats.Message, Resources>) =>
-    step(stats),
+const foldStatsOpen = Update.foldChildStep({
+  update: Stats.open,
   read: (model: Model) => Option.some(model.stats),
   write: (model, nextStats) => modifyFields(model, { stats: () => nextStats }),
   toParentMessage: toStatsMessage,
 });
 
-const stepConsent = Update.foldChild({
-  update: (consent: Consent.Model, step: Update.Step<Consent.Model, Consent.Message, Resources>) =>
-    step(consent),
+const foldConsentOpen = Update.foldChildStep({
+  update: Consent.open,
   read: (model: Model) => Option.some(model.consent),
   write: (model, nextConsent) => modifyFields(model, { consent: () => nextConsent }),
   toParentMessage: toConsentMessage,
@@ -172,11 +149,11 @@ const openView = (model: Model): UpdateReturn => {
   }
 
   if (model.view === "stats") {
-    return stepStats(model, Stats.open);
+    return foldStatsOpen(model);
   }
 
   if (model.view === "privacy") {
-    return stepConsent(model, Consent.open);
+    return foldConsentOpen(model);
   }
 
   return { model };
@@ -185,15 +162,18 @@ const openView = (model: Model): UpdateReturn => {
 const selectView = (model: Model, view: View): UpdateReturn =>
   view === model.view ? { model } : openView(modifyFields(model, { view: () => view }));
 
-const foldViewTabsOutMessage = Tabs.OutMessage.match<Update.Step<Model, Message, Resources>>({
+const foldViewTabsOutMessage = Tabs.OutMessage.match<
+  Update.Step<Model, Message, Resources>,
+  Tabs.OutMessage<View>
+>({
   Selected:
     ({ value }) =>
     (stepModel) =>
-      selectView(stepModel, viewOf(value)),
+      selectView(stepModel, value),
 });
 
 const foldViewTabs = Update.foldChild({
-  update: Tabs.update,
+  update: ViewTabs.update,
   read: (model: Model) => Option.some(model.viewTabs),
   write: (model, nextViewTabs) => modifyFields(model, { viewTabs: () => nextViewTabs }),
   toParentMessage: toViewTabsMessage,
@@ -204,17 +184,11 @@ export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
     GotViewTabsMessage: ({ message: viewTabsMessage }) => foldViewTabs(model, viewTabsMessage),
 
-    SucceededSignIn: () =>
-      Update.combine(modifyFields(model, { signIn: () => SignIn.SignedIn() }), [
-        stepRecorder(Recorder.signedIn),
-        openView,
-      ]),
+    SucceededSignIn: () => openView(modifyFields(model, { signIn: () => SignIn.SignedIn() })),
 
-    FailedSignIn: ({ reason }) =>
-      stepRecorder(
-        modifyFields(model, { signIn: () => SignIn.FailedSignIn({ reason }) }),
-        (recorder) => Recorder.failedSignIn(recorder, reason),
-      ),
+    FailedSignIn: ({ reason }) => ({
+      model: modifyFields(model, { signIn: () => SignIn.FailedSignIn({ reason }) }),
+    }),
 
     CompletedStartTelemetry: () => ({ model }),
 
@@ -248,6 +222,7 @@ export const subscriptions = Subscription.aggregate(
   Subscription.lift(Recorder.subscriptions)<Model, Message>({
     read: (model) => Option.some(model.recorder),
     toParentMessage: toRecorderMessage,
+    when: isSignedIn,
   }),
   Subscription.lift(History.subscriptions)<Model, Message>({
     read: (model) => Option.some(model.history),
@@ -257,9 +232,7 @@ export const subscriptions = Subscription.aggregate(
 );
 
 const failedSignInView = (h: HtmlBuilder<Message>, reason: string): ReadonlyArray<Html> => [
-  card(h, "lg", [
-    notice(h, { kind: "error", text: `Couldn't sign in through Discord: ${reason}` }),
-  ]),
+  card(h, [notice(h, { kind: "error", text: `Couldn't sign in through Discord: ${reason}` })]),
 ];
 
 const onceSignedIn = (
@@ -295,7 +268,7 @@ const frame = (
             slotId: "recorder",
             model: model.recorder,
             view: Recorder.view,
-            viewInputs: { now: model.now },
+            viewInputs: { now: model.now, signIn: model.signIn },
             toParentMessage: toRecorderMessage,
           }),
         ],
@@ -353,12 +326,10 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
   body: h.main(
     [h.Class("console")],
     [
-      Tabs.view(h, {
-        slotId: "view-tabs",
+      ViewTabs.view(h, {
         model: model.viewTabs,
         label: "Console",
         appearance: "underline",
-        tabs: VIEWS,
         selected: model.view,
         toParentMessage: toViewTabsMessage,
         toView: (layout) => frame(model, h, layout),

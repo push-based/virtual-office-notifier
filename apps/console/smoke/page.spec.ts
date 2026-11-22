@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -9,9 +9,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 const CLIENT = join(import.meta.dirname, "../dist/client");
 
-const ASSETS = join(CLIENT, "assets");
+const SCRIPT_BUDGET_KB = 220;
 
-const SCRIPT_BUDGET_KB = 260;
+const STARTUP_SCRIPT = /<(?:script[^>]+src|link[^>]+rel="modulepreload"[^>]+href)="\/([^"]+\.js)"/g;
+
+const startupScripts = async (): Promise<ReadonlyArray<string>> =>
+  Array.from(
+    (await readFile(join(CLIENT, "index.html"), "utf8")).matchAll(STARTUP_SCRIPT),
+    (match) => match[1] ?? "",
+  );
 
 const TYPES = new Map([
   [".html", "text/html"],
@@ -112,17 +118,42 @@ afterAll(async () => {
 });
 
 describe("the built page", () => {
-  it(`keeps its scripts under ${SCRIPT_BUDGET_KB} kB gzipped`, async () => {
-    const scripts = (await readdir(ASSETS)).filter((name) => name.endsWith(".js"));
+  it(`starts with under ${SCRIPT_BUDGET_KB} kB of script, gzipped`, async () => {
+    const scripts = await startupScripts();
 
     const sizes = await Promise.all(
-      scripts.map(async (name) => gzipSync(await readFile(join(ASSETS, name))).byteLength),
+      scripts.map(async (path) => gzipSync(await readFile(join(CLIENT, path))).byteLength),
     );
 
     const total = sizes.reduce((sum, size) => sum + size, 0) / 1000;
 
     expect(scripts.length).toBeGreaterThan(0);
     expect(total).toBeLessThanOrEqual(SCRIPT_BUDGET_KB);
+  });
+
+  it("loads no other script when the Worker has no Sentry to report to", async () => {
+    const expected = await startupScripts();
+    const page = await browser.newPage();
+    const loaded: Array<string> = [];
+
+    page.on("request", (request) => {
+      const { pathname } = new URL(request.url());
+
+      if (pathname.endsWith(".js")) loaded.push(pathname.slice(1));
+    });
+    await page.route("**/api/**", (route) => {
+      const answer = API.get(new URL(route.request().url()).pathname);
+
+      return answer === undefined
+        ? route.fulfill({ status: 404 })
+        : route.fulfill({ status: 200, json: answer });
+    });
+    await page.goto(`http://127.0.0.1:${portOf(server)}/`);
+    await expect.poll(() => page.getByRole("heading", { name: "Couldn't start" }).count()).toBe(1);
+
+    expect(loaded.sort()).toEqual([...expected].sort());
+
+    await page.close();
   });
 
   it("starts in a real browser, and says it couldn't start outside Discord", async () => {
