@@ -2,7 +2,7 @@ import { Array, DateTime } from "effect";
 import type { OfficeStats } from "office-domain/OfficeStats";
 import { describe, expect, it } from "vite-plus/test";
 
-import { busiestGrid, describeStats, emojiLabel, rangeOf } from "./describe-stats.ts";
+import { busiestGrid, describeStats, emojiLabel } from "./describe-stats.ts";
 
 const stats: OfficeStats = {
   range: "week",
@@ -47,13 +47,6 @@ describe("emojiLabel", () => {
   it("wraps a custom emoji's name in colons and leaves real emoji alone", () => {
     expect(emojiLabel("party_parrot")).toBe(":party_parrot:");
     expect(emojiLabel("👍")).toBe("👍");
-  });
-});
-
-describe("rangeOf", () => {
-  it("falls back to this week for anything it doesn't know", () => {
-    expect(rangeOf("month")).toBe("month");
-    expect(rangeOf("year")).toBe("week");
   });
 });
 

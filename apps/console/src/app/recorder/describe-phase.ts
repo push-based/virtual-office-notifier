@@ -1,4 +1,4 @@
-import { formatElapsed, formatTimeLeft, formatTimeSince } from "design-system";
+import { formatElapsed, formatTimeLeft, formatTimeSince } from "../time/duration.ts";
 
 import type { RecordingPause, RunningRecording } from "office-domain/RecordingRequest";
 
@@ -14,7 +14,7 @@ export type OfficePhase =
       readonly pause: RecordingPause;
     };
 
-export interface PhaseDescription {
+interface PhaseDescription {
   readonly heading: string;
   readonly description: string;
   readonly live: boolean;

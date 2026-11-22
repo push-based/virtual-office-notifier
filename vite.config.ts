@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 
 import { strict as effectStrict } from "@effect/tsgo/oxlint-presets";
+import foldkit from "@foldkit/oxlint-plugin";
 import { defineConfig } from "vite-plus";
 
 import { typecheck } from "./tools/vite-task/typecheck.ts";
@@ -29,6 +30,7 @@ export default defineConfig({
       { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
       { name: "anti-slop", specifier: plugin("./tools/oxlint/anti-slop/index.ts") },
       { name: "anti-slop-effect", specifier: plugin("./tools/oxlint/anti-slop/effect/index.ts") },
+      { name: "foldkit", specifier: "@foldkit/oxlint-plugin" },
     ],
     options: {
       typeAware: true,
@@ -120,6 +122,11 @@ export default defineConfig({
           "effecttsgo/missing-pipeable-signature": "off",
         },
       },
+      {
+        files: ["apps/console/src/**", "libs/design-system/**"],
+        rules: foldkit.configs.recommended.rules,
+      },
+      ...foldkit.configs.recommended.overrides,
       {
         files: ["libs/office-domain/src/**"],
         rules: {

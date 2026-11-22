@@ -94,16 +94,19 @@ export class VoiceCapture extends Context.Service<
             const failure = (reason: string) =>
               CaptureError.make({ reason, history: history.entries() });
 
-            const fail = (reason: string) => {
-              Queue.failCauseUnsafe(queue, Cause.fail(failure(reason)));
-            };
-
             const flushes = new Set<() => void>();
             const streams = new Set<AudioReceiveStream>();
 
-            const stop = Effect.sync(() => {
+            const flushAll = () => {
               for (const flushPartial of flushes) flushPartial();
-            }).pipe(Effect.andThen(Queue.end(queue)));
+            };
+
+            const fail = (reason: string) => {
+              flushAll();
+              Queue.failCauseUnsafe(queue, Cause.fail(failure(reason)));
+            };
+
+            const stop = Effect.sync(flushAll).pipe(Effect.andThen(Queue.end(queue)));
 
             yield* until.pipe(Effect.andThen(stop), Effect.forkScoped);
 

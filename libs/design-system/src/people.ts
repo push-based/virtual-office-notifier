@@ -8,12 +8,12 @@ export interface Person {
   readonly id: string;
   readonly name: string;
   readonly avatarUrl: string | null;
-  readonly speaking?: boolean;
+  readonly isSpeaking?: boolean;
 }
 
 export interface AvatarConfig {
   readonly name: string;
-  readonly src: string | null;
+  readonly avatarUrl: string | null;
   readonly isSpeaking?: boolean;
   readonly size?: AvatarSize;
 }
@@ -34,12 +34,12 @@ export const avatar = <Message>(h: HtmlBuilder<Message>, config: AvatarConfig): 
   h.span(
     [h.Class(avatarClass(config)), h.Title(config.name)],
     [
-      config.src === null
+      config.avatarUrl === null
         ? h.span(
             [h.Class("text-caption pb-avatar-initials"), h.Role("img"), h.AriaLabel(config.name)],
             [initials(config.name)],
           )
-        : h.img([h.Src(config.src), h.Alt(config.name)]),
+        : h.img([h.Src(config.avatarUrl), h.Alt(config.name)]),
     ],
   );
 
@@ -67,8 +67,8 @@ export const people = <Message>(h: HtmlBuilder<Message>, config: PeopleConfig): 
             [
               avatar(h, {
                 name: person.name,
-                src: person.avatarUrl,
-                isSpeaking: person.speaking ?? false,
+                avatarUrl: person.avatarUrl,
+                isSpeaking: person.isSpeaking ?? false,
               }),
             ],
           ),

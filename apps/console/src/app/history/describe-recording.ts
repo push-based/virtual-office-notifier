@@ -43,7 +43,7 @@ export const formatRunTime = (
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 };
 
-export interface StateBadge {
+interface StateBadge {
   readonly label: string;
   readonly tone: BadgeTone;
 }

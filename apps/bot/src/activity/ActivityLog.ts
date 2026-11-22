@@ -1,5 +1,6 @@
 import { Context, DateTime, Effect, Layer, pipe, Predicate, Schema, String } from "effect";
 import { SqlClient, type SqlError } from "effect/sql";
+import { QUERY_TIMEOUT, TIMED_OUT } from "recording-requests/Query";
 
 import { describeError } from "../database/index.ts";
 import type { TimedVoiceEffect, VoiceObservation } from "../office/index.ts";
@@ -26,6 +27,15 @@ export class ActivityLogError extends Schema.TaggedError<
 >()("ActivityLogError", {
   reason: Schema.Union([Outage, BadRow]),
 }) {}
+
+export const withinQueryTimeout = <A, R>(query: Effect.Effect<A, ActivityLogError, R>) =>
+  query.pipe(
+    Effect.timeoutOrElse({
+      duration: QUERY_TIMEOUT,
+      orElse: () =>
+        Effect.fail(ActivityLogError.make({ reason: Outage.make({ message: TIMED_OUT }) })),
+    }),
+  );
 
 // Data exceptions (class 22) and integrity violations (class 23) are about the
 // row. Anything else, even unrecognised, is treated as an outage: retrying
