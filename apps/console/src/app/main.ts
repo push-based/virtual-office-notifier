@@ -1,5 +1,5 @@
 import { Array, Clock, Duration, Effect, Option, pipe, Predicate, Schema, Stream } from "effect";
-import { Tabs } from "design-system";
+import { card, notice, Tabs } from "design-system";
 import { Command, Subscription, Update } from "foldkit";
 import type { Document, Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
@@ -256,6 +256,28 @@ export const subscriptions = Subscription.aggregate(
   }),
 );
 
+const failedSignInView = (h: HtmlBuilder<Message>, reason: string): ReadonlyArray<Html> => [
+  card(h, "lg", [
+    notice(h, { kind: "error", text: `Couldn't sign in through Discord: ${reason}` }),
+  ]),
+];
+
+const onceSignedIn = (
+  model: Model,
+  h: HtmlBuilder<Message>,
+  content: () => ReadonlyArray<Html>,
+): ReadonlyArray<Html> =>
+  SignIn.match<ReadonlyArray<Html>>(model.signIn, {
+    SigningIn: content,
+    SignedIn: content,
+    FailedSignIn: ({ reason }) => failedSignInView(h, reason),
+  });
+
+const whenShown =
+  (model: Model, shown: View, content: () => ReadonlyArray<Html>): (() => ReadonlyArray<Html>) =>
+  () =>
+    model.view === shown ? content() : [];
+
 const frame = (
   model: Model,
   h: HtmlBuilder<Message>,
@@ -267,7 +289,7 @@ const frame = (
       h.nav([h.Class("console-nav")], [tablist]),
       panel(
         "now",
-        [h.Hidden(model.view !== "now")],
+        [],
         [
           h.submodel({
             slotId: "recorder",
@@ -280,8 +302,8 @@ const frame = (
       ),
       panel(
         "history",
-        [h.Hidden(model.view !== "history")],
-        [
+        [],
+        onceSignedIn(model, h, () => [
           h.submodel({
             slotId: "history",
             model: model.history,
@@ -289,36 +311,40 @@ const frame = (
             viewInputs: { now: model.now },
             toParentMessage: toHistoryMessage,
           }),
-        ],
+        ]),
       ),
-      model.view === "stats"
-        ? panel(
-            "stats",
-            [h.Hidden(false)],
-            [
-              h.submodel({
-                slotId: "stats",
-                model: model.stats,
-                view: Stats.view,
-                toParentMessage: toStatsMessage,
-              }),
-            ],
-          )
-        : h.empty,
-      model.view === "privacy"
-        ? panel(
-            "privacy",
-            [h.Hidden(false)],
-            [
-              h.submodel({
-                slotId: "consent",
-                model: model.consent,
-                view: Consent.view,
-                toParentMessage: toConsentMessage,
-              }),
-            ],
-          )
-        : h.empty,
+      panel(
+        "stats",
+        [],
+        onceSignedIn(
+          model,
+          h,
+          whenShown(model, "stats", () => [
+            h.submodel({
+              slotId: "stats",
+              model: model.stats,
+              view: Stats.view,
+              toParentMessage: toStatsMessage,
+            }),
+          ]),
+        ),
+      ),
+      panel(
+        "privacy",
+        [],
+        onceSignedIn(
+          model,
+          h,
+          whenShown(model, "privacy", () => [
+            h.submodel({
+              slotId: "consent",
+              model: model.consent,
+              view: Consent.view,
+              toParentMessage: toConsentMessage,
+            }),
+          ]),
+        ),
+      ),
     ],
   );
 

@@ -1,4 +1,4 @@
-import { Option, Schema } from "effect";
+import { Array, Option, Schema } from "effect";
 import { Update } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
@@ -69,7 +69,15 @@ const view = (model: Model, h: HtmlBuilder<Message>) =>
     appearance: "underline",
     toParentMessage: toTabsMessage,
     toView: ({ tablist, panel }) =>
-      h.div([], [tablist, panel(model.selected, [h.Class("panel")], [`${model.selected} panel`])]),
+      h.div(
+        [],
+        [
+          tablist,
+          ...Array.map(VIEWS, ({ id }) =>
+            panel(id, id === model.selected ? [h.Class("panel")] : [], [`${id} panel`]),
+          ),
+        ],
+      ),
   });
 
 const start = (selected: View): Model => ({ tabs: Tabs.init("view"), selected });
@@ -98,6 +106,19 @@ describe("Tabs", () => {
       expect(role("tabpanel", { name: "Stats" })).toHaveText("stats panel"),
       expect(role("tabpanel", { name: "Stats" })).toHaveClass("panel"),
       expect(selector(".panel")).toHaveAttr("tabIndex", "-1"),
+    );
+  });
+
+  it("points every tab at a panel that's in the page, and hides the ones not selected", () => {
+    scene(
+      { update, view },
+      given(start("stats")),
+      expect(tab("Now")).toHaveAttr("aria-controls", "view-panel-0"),
+      expect(selector("#view-panel-0")).toExist(),
+      expect(selector("#view-panel-0")).toHaveAttr("hidden", "true"),
+      expect(tab("History")).toHaveAttr("aria-controls", "view-panel-2"),
+      expect(selector("#view-panel-2")).toHaveAttr("hidden", "true"),
+      expect(selector("#view-panel-1")).toHaveAttr("hidden", "false"),
     );
   });
 

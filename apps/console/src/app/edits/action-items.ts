@@ -2,6 +2,7 @@ import { Array, Effect, Option, Schema } from "effect";
 import {
   avatar,
   checkbox,
+  checkboxLabel,
   description,
   descriptionItem,
   eyebrow,
@@ -157,7 +158,6 @@ const itemView = (
     [
       checkbox(h, {
         id: `action-item-${item.id}`,
-        label: item.text,
         isChecked: item.done,
         isDisabled: model.isSaving,
         onToggle: () => Message.ToggledItem({ recordingId: inputs.recordingId, item }),
@@ -165,7 +165,11 @@ const itemView = (
       h.div(
         [h.Class("action-item-body")],
         [
-          h.p([h.Class("text-body action-item-text")], [item.text]),
+          checkboxLabel(h, {
+            checkboxId: `action-item-${item.id}`,
+            text: item.text,
+            className: "action-item-text",
+          }),
           h.div(
             [h.Class("action-item-owner")],
             [

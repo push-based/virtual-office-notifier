@@ -41,35 +41,36 @@ The utilities the page can use as class names are:
 
 ## Helpers
 
-| Helper            | What it renders                                                                                            | Built on            |
-| ----------------- | ---------------------------------------------------------------------------------------------------------- | ------------------- |
-| `avatar`          | A person's picture, or their initials when there's none.                                                   |                     |
-| `badge`           | A small coloured label for a state, like Live or Done.                                                     |                     |
-| `barList`         | A labelled list of values, each with a bar sized against the largest.                                      |                     |
-| `barShare`        | The width, in percent, `barList` gives one bar.                                                            |                     |
-| `blockButton`     | A whole block of content that acts as one button, styled by a class the page passes.                       | `Button`            |
-| `button`          | A button in the primary, ghost or tertiary style.                                                          | `Button`            |
-| `card`            | The bordered panel the page's sections sit in.                                                             |                     |
-| `checkbox`        | A native checkbox named by a label only screen readers see.                                                | `Checkbox`          |
-| `description`     | A paragraph of muted secondary text.                                                                       |                     |
-| `descriptionItem` | The same muted text as a list item, for a list that has nothing in it.                                     |                     |
-| `disclosure`      | A button that shows and hides the content under it.                                                        | `Disclosure`        |
-| `divider`         | A horizontal rule.                                                                                         |                     |
-| `eyebrow`         | The small heading above a section.                                                                         |                     |
-| `heading`         | A section title.                                                                                           |                     |
-| `heatmap`         | A labelled table of cells shaded by value, each described for screen readers.                              |                     |
-| `heatOf`          | The shade, from 0 to 1, `heatmap` gives one cell.                                                          |                     |
-| `initials`        | The first letters of someone's first two names.                                                            |                     |
-| `inlineSelect`    | A compact select that sits in a line of content, named by a label only screen readers see.                 | `Select`            |
-| `liveDot`         | The pulsing red dot that says something is live.                                                           |                     |
-| `notice`          | An info or error message.                                                                                  |                     |
-| `noticeRegion`    | The status region notices go in, so screen readers announce them.                                          |                     |
-| `people`          | A labelled row of avatars.                                                                                 |                     |
-| `selectField`     | A labelled select.                                                                                         | `Select`            |
-| `stat`            | A number with a caption under it.                                                                          |                     |
-| `statusHeading`   | A heading with an optional live dot, subheading and description.                                           |                     |
-| `Tabs`            | A tab list and its panels. A Submodel, see below.                                                          | `Tabs`              |
-| `textField`       | A labelled text input, or a textarea with `isMultiline`, with a character count when it has a `maxLength`. | `Input`, `Textarea` |
+| Helper            | What it renders                                                                                                  | Built on            |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `avatar`          | A person's picture, or their initials when there's none.                                                         |                     |
+| `badge`           | A small coloured label for a state, like Live or Done.                                                           |                     |
+| `barList`         | A labelled list of values, each with a bar sized against the largest.                                            |                     |
+| `barShare`        | The width, in percent, `barList` gives one bar.                                                                  |                     |
+| `blockButton`     | A whole block of content that acts as one button, styled by a class the page passes.                             | `Button`            |
+| `button`          | A button in the primary, ghost or tertiary style.                                                                | `Button`            |
+| `card`            | The bordered panel the page's sections sit in.                                                                   |                     |
+| `checkbox`        | A native checkbox. Name it with `checkboxLabel`, so the visible text is its label and clicking it ticks the box. |                     |
+| `checkboxLabel`   | The visible label for a `checkbox`, tied to it by id.                                                            |                     |
+| `description`     | A paragraph of muted secondary text.                                                                             |                     |
+| `descriptionItem` | The same muted text as a list item, for a list that has nothing in it.                                           |                     |
+| `disclosure`      | A button that shows and hides the content under it.                                                              | `Disclosure`        |
+| `divider`         | A horizontal rule.                                                                                               |                     |
+| `eyebrow`         | The small heading above a section.                                                                               |                     |
+| `heading`         | A section title.                                                                                                 |                     |
+| `heatmap`         | A labelled table of cells shaded by value, each described for screen readers.                                    |                     |
+| `heatOf`          | The shade, from 0 to 1, `heatmap` gives one cell.                                                                |                     |
+| `initials`        | The first letters of someone's first two names.                                                                  |                     |
+| `inlineSelect`    | A compact select that sits in a line of content, named by a label only screen readers see.                       | `Select`            |
+| `liveDot`         | The pulsing red dot that says something is live.                                                                 |                     |
+| `notice`          | An info or error message.                                                                                        |                     |
+| `noticeRegion`    | The status region notices go in, so screen readers announce them.                                                |                     |
+| `people`          | A labelled row of avatars.                                                                                       |                     |
+| `selectField`     | A labelled select.                                                                                               | `Select`            |
+| `stat`            | A number with a caption under it.                                                                                |                     |
+| `statusHeading`   | A heading with an optional live dot, subheading and description.                                                 |                     |
+| `Tabs`            | A tab list and its panels. A Submodel, see below.                                                                | `Tabs`              |
+| `textField`       | A labelled text input, or a textarea with `isMultiline`, with a character count when it has a `maxLength`.       | `Input`, `Textarea` |
 
 `Content` is the type of a helper's children: `Html` or a string.
 

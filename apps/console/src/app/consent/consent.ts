@@ -13,7 +13,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import { ConsoleApi, reasonOf } from "../api/api.ts";
+import { type ApiFailure, ConsoleApi, isUnanswered, reasonOf } from "../api/api.ts";
 import { awaitAnswer } from "../api/answer.ts";
 import { Notice } from "../notice.ts";
 import type { Resources } from "../resources.ts";
@@ -43,6 +43,16 @@ export const NOTHING_TO_WITHDRAW: Notice = {
 export const NO_ANSWER: Notice = {
   kind: "error",
   text: "The bot didn't answer in time. It'll still withdraw your consent once it's back.",
+};
+
+export const NOT_WITHDRAWN: Notice = {
+  kind: "error",
+  text: "Couldn't withdraw your consent. Nothing has changed, so try again in a moment.",
+};
+
+export const NOT_SURE: Notice = {
+  kind: "error",
+  text: "The Console's server didn't answer, so this may or may not have gone through. Check where things stand below before you try again.",
 };
 
 export const SCHEDULED: Notice = {
@@ -121,6 +131,11 @@ export const FetchConsent = Command.define("FetchConsent", {
   ),
 });
 
+const failedWith =
+  (refused: Notice) =>
+  (failure: ApiFailure): Notice =>
+    isUnanswered(failure) ? NOT_SURE : refused;
+
 type AnsweredWithdrawal = SubmittedWithdrawal & {
   readonly outcome: NonNullable<SubmittedWithdrawal["outcome"]>;
 };
@@ -134,31 +149,30 @@ const withdrawalNotice = (withdrawal: SubmittedWithdrawal): Notice =>
 export const WithdrawConsent = Command.define("WithdrawConsent", {
   messages: [Message.CompletedAct],
   execute: ConsoleApi.use((api) =>
-    api.consent
-      .withdraw()
-      .pipe(
-        Effect.flatMap((submitted) =>
+    api.consent.withdraw().pipe(
+      Effect.matchEffect({
+        onFailure: (failure) => Effect.succeed(failedWith(NOT_WITHDRAWN)(failure)),
+        onSuccess: (submitted) =>
           isAnswered(submitted)
-            ? Effect.succeedSome(submitted)
+            ? Effect.succeed(withdrawalNotice(submitted))
             : awaitAnswer(
                 api.consent.find({ params: { id: submitted.id } }),
                 isAnswered,
                 WITHDRAWAL_ANSWER,
+              ).pipe(
+                Effect.map(Option.match({ onNone: () => NO_ANSWER, onSome: withdrawalNotice })),
+                Effect.orElseSucceed(() => NO_ANSWER),
               ),
-        ),
-      ),
-  ).pipe(
-    Effect.map(Option.match({ onNone: () => NO_ANSWER, onSome: withdrawalNotice })),
-    Effect.orElseSucceed(() => NO_ANSWER),
-    Effect.map((shown) => Message.CompletedAct({ notice: shown })),
-  ),
+      }),
+    ),
+  ).pipe(Effect.map((shown) => Message.CompletedAct({ notice: shown }))),
 });
 
 export const RequestErasure = Command.define("RequestErasure", {
   messages: [Message.CompletedAct],
   execute: ConsoleApi.use((api) => api.consent.erase()).pipe(
     Effect.as(SCHEDULED),
-    Effect.orElseSucceed(() => NOT_SCHEDULED),
+    Effect.catch((failure) => Effect.succeed(failedWith(NOT_SCHEDULED)(failure))),
     Effect.map((shown) => Message.CompletedAct({ notice: shown })),
   ),
 });
@@ -169,7 +183,7 @@ export const CancelErasure = Command.define("CancelErasure", {
   execute: ({ id }) =>
     ConsoleApi.use((api) => api.consent.cancelErasure({ params: { id } })).pipe(
       Effect.as(CANCELLED),
-      Effect.orElseSucceed(() => NOT_CANCELLED),
+      Effect.catch((failure) => Effect.succeed(failedWith(NOT_CANCELLED)(failure))),
       Effect.map((shown) => Message.CompletedAct({ notice: shown })),
     ),
 });
@@ -184,8 +198,14 @@ export const OpenAuthorities = Command.define("OpenAuthorities", {
 
 type UpdateReturn = Update.Return<Model, Message, Resources>;
 
-export const open = (_model: Model): UpdateReturn => ({
-  model: modifyFields(init(), { status: () => ConsentData.Loading() }),
+const refreshed = (status: Model["status"]): Model["status"] =>
+  Option.match(AsyncData.getData(status), {
+    onNone: () => ConsentData.Loading(),
+    onSome: (data) => ConsentData.Refreshing({ data }),
+  });
+
+export const open = (model: Model): UpdateReturn => ({
+  model: modifyFields(model, { status: refreshed }),
   commands: [FetchConsent()],
 });
 
@@ -216,11 +236,14 @@ const stepAdmin = Update.foldChild({
 });
 
 const withAdminCases = (model: Model, status: ConsentStatus): UpdateReturn => {
-  if (!status.admin || !AsyncData.isIdle(model.admin.cases)) {
+  if (!status.admin) {
     return { model };
   }
 
-  return stepAdmin(model, ErasureAdmin.open);
+  return stepAdmin(
+    model,
+    AsyncData.isIdle(model.admin.cases) ? ErasureAdmin.open : ErasureAdmin.refresh,
+  );
 };
 
 export const update = (model: Model, message: Message) =>
@@ -257,11 +280,7 @@ export const update = (model: Model, message: Message) =>
         busy: () => Option.none(),
         confirming: () => Option.none(),
         notice: () => Option.some(shown),
-        status: (status) =>
-          Option.match(AsyncData.getData(status), {
-            onNone: () => ConsentData.Loading(),
-            onSome: (data) => ConsentData.Refreshing({ data }),
-          }),
+        status: refreshed,
       }),
       commands: [FetchConsent()],
     }),

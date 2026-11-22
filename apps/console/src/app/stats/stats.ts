@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from "effect";
+import { Array, Effect, Option, Schema } from "effect";
 import {
   barList,
   button,
@@ -26,6 +26,7 @@ export const Model = Schema.Struct({
   range: StatsRange,
   rangeTabs: Tabs.Model,
   stats: StatsData.schema,
+  requests: Schema.Finite,
 });
 
 export type Model = typeof Model.Type;
@@ -34,36 +35,40 @@ export const init = (): Model => ({
   range: "week",
   rangeTabs: Tabs.init("range"),
   stats: StatsData.Idle(),
+  requests: 0,
 });
 
 export const Message = defineMessageUnion({
   GotRangeTabsMessage: { message: Tabs.Message },
   ClickedRetry: {},
-  SucceededFetchStats: { range: StatsRange, stats: OfficeStats },
-  FailedFetchStats: { range: StatsRange, reason: Schema.String },
+  SucceededFetchStats: { request: Schema.Finite, stats: OfficeStats },
+  FailedFetchStats: { request: Schema.Finite, reason: Schema.String },
 });
 
 export type Message = typeof Message.Type;
 
 export const FetchStats = Command.define("FetchStats", {
-  args: { range: StatsRange },
+  args: { range: StatsRange, request: Schema.Finite },
   messages: [Message.SucceededFetchStats, Message.FailedFetchStats],
-  interrupt: true,
-  execute: ({ range }) =>
+  execute: ({ range, request }) =>
     ConsoleApi.use((api) => api.stats.office({ query: { range } })).pipe(
-      Effect.map((stats) => Message.SucceededFetchStats({ range, stats })),
+      Effect.map((stats) => Message.SucceededFetchStats({ request, stats })),
       Effect.catch((failure) =>
-        Effect.succeed(Message.FailedFetchStats({ range, reason: reasonOf(failure) })),
+        Effect.succeed(Message.FailedFetchStats({ request, reason: reasonOf(failure) })),
       ),
     ),
 });
 
 type UpdateReturn = Update.Return<Model, Message, Resources>;
 
-export const open = (model: Model): UpdateReturn => ({
-  model: modifyFields(model, { stats: () => StatsData.Loading() }),
-  commands: [FetchStats({ range: model.range })],
-});
+export const open = (model: Model): UpdateReturn => {
+  const request = model.requests + 1;
+
+  return {
+    model: modifyFields(model, { stats: () => StatsData.Loading(), requests: () => request }),
+    commands: [FetchStats({ range: model.range, request })],
+  };
+};
 
 const toRangeTabsMessage = (message: Tabs.Message) => Message.GotRangeTabsMessage({ message });
 
@@ -91,13 +96,13 @@ export const update = (model: Model, message: Message) =>
 
     ClickedRetry: () => open(model),
 
-    SucceededFetchStats: ({ range, stats }) =>
-      range === model.range
+    SucceededFetchStats: ({ request, stats }) =>
+      request === model.requests
         ? { model: modifyFields(model, { stats: () => StatsData.Success({ data: stats }) }) }
         : { model },
 
-    FailedFetchStats: ({ range, reason }) =>
-      range === model.range
+    FailedFetchStats: ({ request, reason }) =>
+      request === model.requests
         ? { model: modifyFields(model, { stats: () => StatsData.Failure({ error: reason }) }) }
         : { model },
   });
@@ -151,27 +156,36 @@ const rangeView = (
   card(h, "lg", [
     eyebrow(h, { text: "Office stats" }),
     tablist,
-    panel(
-      model.range,
-      [h.Class("stats-panel"), h.AriaBusy(AsyncData.isPending(model.stats))],
-      AsyncData.match(model.stats, {
-        onIdle: () => counting(h),
-        onLoading: () => counting(h),
-        onRefreshing: (stats) => statsView(h, describeStats(stats)),
-        onStale: ({ data }) => statsView(h, describeStats(data)),
-        onSuccess: (stats) => statsView(h, describeStats(stats)),
-        onFailure: (reason) => [
-          notice(h, { kind: "error", text: `Couldn't count the stats: ${reason}` }),
-          button(h, {
-            label: ["Try again"],
-            variant: "ghost",
-            onClick: Message.ClickedRetry(),
-            className: "align-start",
-          }),
-        ],
-      }),
+    ...Array.map(RANGES, ({ id }) =>
+      id === model.range ? rangePanel(model, h, panel) : panel(id, [h.Class("stats-panel")], []),
     ),
   ]);
+
+const rangePanel = (
+  model: Model,
+  h: HtmlBuilder<Message>,
+  panel: Tabs.Layout<StatsRange, Message>["panel"],
+): Html =>
+  panel(
+    model.range,
+    [h.Class("stats-panel"), h.AriaBusy(AsyncData.isPending(model.stats))],
+    AsyncData.match(model.stats, {
+      onIdle: () => counting(h),
+      onLoading: () => counting(h),
+      onRefreshing: (stats) => statsView(h, describeStats(stats)),
+      onStale: ({ data }) => statsView(h, describeStats(data)),
+      onSuccess: (stats) => statsView(h, describeStats(stats)),
+      onFailure: (reason) => [
+        notice(h, { kind: "error", text: `Couldn't count the stats: ${reason}` }),
+        button(h, {
+          label: ["Try again"],
+          variant: "ghost",
+          onClick: Message.ClickedRetry(),
+          className: "align-start",
+        }),
+      ],
+    }),
+  );
 
 export const view = Submodel.defineView<Model, Message>((model, h) =>
   Tabs.view(h, {

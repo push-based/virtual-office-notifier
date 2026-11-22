@@ -1,4 +1,4 @@
-import { Array, Effect, Option, Schema, String } from "effect";
+import { Array, Effect, Match, Option, Schema, String } from "effect";
 import {
   button,
   card,
@@ -15,7 +15,7 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import { ConsoleApi, reasonOf } from "../api/api.ts";
+import { ConsoleApi, isUnanswered, reasonOf } from "../api/api.ts";
 import { Notice } from "../notice.ts";
 import type { Resources } from "../resources.ts";
 import { ErasureCase, RefusalGround } from "office-domain/Consent";
@@ -40,6 +40,11 @@ export const NOTED_REFUSED: Notice = {
 export const ALREADY_DECIDED: Notice = {
   kind: "error",
   text: "That request was already decided, or the deletion has already run.",
+};
+
+export const NOT_SURE: Notice = {
+  kind: "error",
+  text: "The Console's server didn't answer, so this may or may not have gone through. The list below shows where it stands now.",
 };
 
 export const UNREACHABLE: Notice = {
@@ -105,7 +110,7 @@ export const Message = defineMessageUnion({
   UpdatedReason: { value: Schema.String },
   SubmittedRefusal: { id: Schema.Finite },
   SucceededDecideErasure: { decision: Decision },
-  FailedDecideErasure: { isAlreadyDecided: Schema.Boolean },
+  FailedDecideErasure: { why: Schema.Literals(["already_decided", "unreachable", "unanswered"]) },
 });
 
 export type Message = typeof Message.Type;
@@ -142,9 +147,15 @@ export const DecideErasure = Command.define("DecideErasure", {
     decided(id, decision).pipe(
       Effect.as(Message.SucceededDecideErasure({ decision })),
       Effect.catchTag("ErasureNotFound", () =>
-        Effect.succeed(Message.FailedDecideErasure({ isAlreadyDecided: true })),
+        Effect.succeed(Message.FailedDecideErasure({ why: "already_decided" })),
       ),
-      Effect.orElseSucceed(() => Message.FailedDecideErasure({ isAlreadyDecided: false })),
+      Effect.catch((failure) =>
+        Effect.succeed(
+          Message.FailedDecideErasure({
+            why: isUnanswered(failure) ? "unanswered" : "unreachable",
+          }),
+        ),
+      ),
     ),
 });
 
@@ -163,20 +174,31 @@ const decide = (model: Model, id: number, decision: Decision): UpdateReturn =>
         commands: [DecideErasure({ id, decision })],
       };
 
-const settle = (model: Model, shown: Notice): UpdateReturn => ({
-  model: modifyFields(model, {
-    busy: () => Option.none(),
-    confirming: () => Option.none(),
-    reason: () => "",
-    notice: () => Option.some(shown),
-    cases: (cases) =>
-      Option.match(AsyncData.getData(cases), {
-        onNone: () => CasesData.Loading(),
-        onSome: (data) => CasesData.Refreshing({ data }),
-      }),
-  }),
+const refreshedCases = (cases: Model["cases"]): Model["cases"] =>
+  Option.match(AsyncData.getData(cases), {
+    onNone: () => CasesData.Loading(),
+    onSome: (data) => CasesData.Refreshing({ data }),
+  });
+
+export const refresh = (model: Model): UpdateReturn => ({
+  model: modifyFields(model, { cases: refreshedCases }),
   commands: [FetchCases()],
 });
+
+const withoutDraft = (model: Model): Model =>
+  modifyFields(model, {
+    confirming: () => Option.none(),
+    ground: () => "legal_obligation",
+    reason: () => "",
+  });
+
+const settle = (model: Model, shown: Notice): UpdateReturn =>
+  refresh(
+    modifyFields(model, {
+      busy: () => Option.none(),
+      notice: () => Option.some(shown),
+    }),
+  );
 
 const noticeFor = (decision: Decision): Notice => {
   switch (decision.kind) {
@@ -200,10 +222,10 @@ export const update = (model: Model, message: Message) =>
     }),
 
     ClickedConfirm: ({ confirming }) => ({
-      model: modifyFields(model, { confirming: () => Option.some(confirming) }),
+      model: modifyFields(withoutDraft(model), { confirming: () => Option.some(confirming) }),
     }),
 
-    ClickedBack: () => ({ model: modifyFields(model, { confirming: () => Option.none() }) }),
+    ClickedBack: () => ({ model: withoutDraft(model) }),
 
     ClickedDeleteNow: ({ id }) => decide(model, id, { kind: "now" }),
 
@@ -223,10 +245,15 @@ export const update = (model: Model, message: Message) =>
         : decide(model, id, { kind: "refuse", ground: model.ground, reason });
     },
 
-    SucceededDecideErasure: ({ decision }) => settle(model, noticeFor(decision)),
+    SucceededDecideErasure: ({ decision }) => settle(withoutDraft(model), noticeFor(decision)),
 
-    FailedDecideErasure: ({ isAlreadyDecided }) =>
-      settle(model, isAlreadyDecided ? ALREADY_DECIDED : UNREACHABLE),
+    FailedDecideErasure: ({ why }) =>
+      Match.value(why).pipe(
+        Match.when("already_decided", () => settle(withoutDraft(model), ALREADY_DECIDED)),
+        Match.when("unanswered", () => settle(withoutDraft(model), NOT_SURE)),
+        Match.when("unreachable", () => settle(model, UNREACHABLE)),
+        Match.exhaustive,
+      ),
   });
 
 const isConfirming = (model: Model, id: number, action: "now" | "refuse"): boolean =>

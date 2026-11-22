@@ -67,7 +67,8 @@ const layoutOf = <Id extends string, ParentMessage>(
       Array.findFirst(render.tabs, (info) => info.value === id),
       {
         onNone: () => h.div(attributes, children),
-        onSome: (info) => h.div([...info.panel, h.Tabindex(-1), ...attributes], children),
+        onSome: (info) =>
+          h.div([...info.panel, h.Tabindex(-1), h.Hidden(!info.isActive), ...attributes], children),
       },
     ),
 });

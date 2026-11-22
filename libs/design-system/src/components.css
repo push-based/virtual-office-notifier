@@ -423,6 +423,10 @@ textarea.pb-field-control {
   opacity: 0.5;
 }
 
+.pb-checkbox-label {
+  cursor: pointer;
+}
+
 .pb-disclosure-button {
   appearance: none;
   display: block;

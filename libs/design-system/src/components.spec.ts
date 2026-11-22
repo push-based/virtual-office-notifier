@@ -17,7 +17,7 @@ import { describe, expect as expectValue, it } from "vite-plus/test";
 
 import { barList, barShare } from "./bar-list.ts";
 import { blockButton, button } from "./button.ts";
-import { checkbox } from "./checkbox.ts";
+import { checkbox, checkboxLabel } from "./checkbox.ts";
 import { disclosure } from "./disclosure.ts";
 import { inlineSelect, selectField, textField } from "./fields.ts";
 import { heatOf, heatmap } from "./heatmap.ts";
@@ -91,13 +91,18 @@ describe("blockButton", () => {
 describe("checkbox", () => {
   const ticks = (isChecked: boolean, isDisabled = false) =>
     counting((h) =>
-      checkbox(h, {
-        id: "item-4",
-        label: "write up the checklist",
-        isChecked,
-        isDisabled,
-        onToggle: (next) => (next ? "ticked" : "unticked"),
-      }),
+      h.div(
+        [],
+        [
+          checkbox(h, {
+            id: "item-4",
+            isChecked,
+            isDisabled,
+            onToggle: (next) => (next ? "ticked" : "unticked"),
+          }),
+          checkboxLabel(h, { checkboxId: "item-4", text: "write up the checklist" }),
+        ],
+      ),
     );
 
   it("is a native checkbox named by its label", () => {
@@ -106,6 +111,15 @@ describe("checkbox", () => {
       given<Clicks>([]),
       expect(role("checkbox", { name: "write up the checklist" })).toBeChecked(),
       expect(role("checkbox", { name: "write up the checklist" })).toHaveAttr("type", "checkbox"),
+    );
+  });
+
+  it("is named by the visible text, which is its label", () => {
+    scene(
+      ticks(false),
+      given<Clicks>([]),
+      expect(role("checkbox", { name: "write up the checklist" })).toExist(),
+      expect(selector(".sr-only")).toBeAbsent(),
     );
   });
 

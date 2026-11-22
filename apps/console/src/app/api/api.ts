@@ -185,6 +185,10 @@ const clientReason = (error: HttpClientError.HttpClientError): string => {
   });
 };
 
+export const isUnanswered = (failure: ApiFailure): boolean =>
+  Predicate.isTagged(failure, "HttpClientError") &&
+  Predicate.isTagged(failure.reason, "TransportError");
+
 export const reasonOf: (failure: ApiFailure) => string = Match.type<ApiFailure>().pipe(
   Match.tags({
     HttpClientError: clientReason,

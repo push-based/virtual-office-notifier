@@ -15,7 +15,12 @@ export {
 
 export { type CardSize, card } from "./card.ts";
 
-export { type CheckboxConfig, checkbox } from "./checkbox.ts";
+export {
+  type CheckboxConfig,
+  type CheckboxLabelConfig,
+  checkbox,
+  checkboxLabel,
+} from "./checkbox.ts";
 
 export { type DisclosureConfig, disclosure } from "./disclosure.ts";
 
