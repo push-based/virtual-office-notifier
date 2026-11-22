@@ -81,11 +81,11 @@ const threadReply = {
   parent_user_id: "UBOT",
 };
 
-const eventEnvelope = (envelopeId: string, retryAttempt = 0) => ({
+const eventEnvelope = (envelopeId: string, retryAttempt = 0, eventId = `Ev-${envelopeId}`) => ({
   envelope_id: envelopeId,
   type: "events_api",
   retry_attempt: retryAttempt,
-  payload: { type: "event_callback", event: threadReply },
+  payload: { type: "event_callback", event_id: eventId, event: threadReply },
 });
 
 const connection = (ticket: string) =>
@@ -164,19 +164,38 @@ describe("SlackSocket", () => {
     }),
   );
 
-  it.effect("acks a redelivery but drops it", () =>
+  it.effect("acks a redelivery of an event it already handed on, but drops it", () =>
     Effect.gen(function* () {
       const slack = yield* connect([connection("first")]);
       const socket = slack.latest();
 
-      socket.receive(eventEnvelope("env-1", 1));
+      socket.receive(eventEnvelope("env-1", 0, "Ev-1"));
+      yield* settle;
+      socket.receive(eventEnvelope("env-2", 1, "Ev-1"));
       yield* settle;
 
       assert.deepStrictEqual(yield* Effect.forEach(socket.sent, (sent) => decodeJson(sent)), [
         { envelope_id: "env-1" },
+        { envelope_id: "env-2" },
       ]);
-      assert.deepStrictEqual(yield* slack.received, []);
+      assert.strictEqual((yield* slack.received).length, 1);
     }),
+  );
+
+  it.effect(
+    "hands on a redelivery of an event it never got, such as one sent while it restarted",
+    () =>
+      Effect.gen(function* () {
+        const slack = yield* connect([connection("first"), connection("second")]);
+
+        slack.latest().receive({ type: "disconnect", reason: "refresh_requested" });
+        yield* settle;
+        slack.latest().receive(eventEnvelope("env-1", 1));
+        yield* settle;
+
+        assert.strictEqual(yield* slack.connectionsOpened, 2);
+        assert.strictEqual((yield* slack.received).length, 1);
+      }),
   );
 
   it.effect("reconnects straight away with a fresh URL when Slack asks it to", () =>

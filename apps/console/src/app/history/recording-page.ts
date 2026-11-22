@@ -4,6 +4,7 @@ import {
   badge,
   button,
   description,
+  descriptionItem,
   divider,
   eyebrow,
   heading,
@@ -26,7 +27,7 @@ import {
 } from "./describe-recording.ts";
 import { personOf } from "./recording-row.ts";
 
-export interface RecordingPageConfig<Message> {
+interface RecordingPageConfig<Message> {
   readonly recording: RecordingDetail;
   readonly now: number;
   readonly back: Html;
@@ -36,7 +37,7 @@ export interface RecordingPageConfig<Message> {
   readonly onOpenInSlack: (url: string) => Message;
 }
 
-export const pageFacts = (recording: RecordingDetail, now: number): string =>
+const pageFacts = (recording: RecordingDetail, now: number): string =>
   Array.join(
     [
       ...(recording.title === null ? [] : [formatOfficeTime(recording.startedAt)]),
@@ -61,8 +62,8 @@ const headerView = <Message>(
       h.div(
         [h.Class("recording-page-top")],
         [
-          heading(h, recording.title ?? formatOfficeTime(recording.startedAt)),
-          badge(h, state.tone, state.label),
+          heading(h, { text: recording.title ?? formatOfficeTime(recording.startedAt) }),
+          badge(h, { tone: state.tone, label: state.label }),
         ],
       ),
       description(h, [pageFacts(recording, config.now)]),
@@ -116,7 +117,7 @@ const turnView = <Message>(h: HtmlBuilder<Message>, turn: TranscriptTurn): Html 
     `${DateTime.toEpochMillis(turn.startedAt)}${turn.speaker.userId}`,
     [h.Class("transcript-turn")],
     [
-      avatar(h, { name: turn.speaker.name, src: turn.speaker.avatarUrl }),
+      avatar(h, { name: turn.speaker.name, avatarUrl: turn.speaker.avatarUrl }),
       h.div(
         [h.Class("transcript-said")],
         [
@@ -143,7 +144,7 @@ const transcriptView = <Message>(h: HtmlBuilder<Message>, recording: RecordingDe
       h.ol(
         [h.Class("transcript")],
         turns.length === 0
-          ? [h.li([h.Class("text-body-sm pb-description")], ["Nothing transcribed yet."])]
+          ? [descriptionItem(h, ["Nothing transcribed yet."])]
           : Array.map(turns, (turn) => turnView(h, turn)),
       ),
       isLive(recording.state) ? description(h, ["More on the way…"]) : h.empty,

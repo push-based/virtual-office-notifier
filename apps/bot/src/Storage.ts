@@ -1,4 +1,4 @@
-import { Cause, Effect, ErrorReporter, Layer, Option } from "effect";
+import { Cause, type Context, Effect, ErrorReporter, Layer, Option } from "effect";
 import { ConsentRequests } from "recording-requests/ConsentRequests";
 import { RecordingEdits } from "recording-requests/RecordingEdits";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
@@ -28,32 +28,14 @@ const disabled = Layer.mergeAll(
   ErasureStore.layerDisabled,
 );
 
-const recordingRequests = Layer.effect(
-  RecordingRequests,
-  Effect.gen(function* () {
-    const database = yield* Database;
-
-    return yield* RecordingRequests.make(database.ready);
-  }),
-);
-
-const recordingEdits = Layer.effect(
-  RecordingEdits,
-  Effect.gen(function* () {
-    const database = yield* Database;
-
-    return yield* RecordingEdits.make(database.ready);
-  }),
-);
-
-const consentRequests = Layer.effect(
-  ConsentRequests,
-  Effect.gen(function* () {
-    const database = yield* Database;
-
-    return yield* ConsentRequests.make(database.ready);
-  }),
-);
+const onceDatabaseReady = <I, S, E, R>(
+  service: Context.Key<I, S>,
+  make: (ready: Effect.Effect<void>) => Effect.Effect<S, E, R>,
+) =>
+  Layer.effect(
+    service,
+    Effect.flatMap(Effect.service(Database), (database) => make(database.ready)),
+  );
 
 export const StorageLayer = Layer.unwrap(
   Effect.gen(function* () {
@@ -70,9 +52,9 @@ export const StorageLayer = Layer.unwrap(
           OfficeHistory.layer,
           SlackHistory.layer,
           RecordingStore.layer,
-          recordingRequests,
-          recordingEdits,
-          consentRequests,
+          onceDatabaseReady(RecordingRequests, RecordingRequests.make),
+          onceDatabaseReady(RecordingEdits, RecordingEdits.make),
+          onceDatabaseReady(ConsentRequests, ConsentRequests.make),
           ErasureStore.layer,
           ConsentBook.layer.pipe(Layer.provide(ConsentLog.layer)),
         ).pipe(
