@@ -65,8 +65,26 @@ let server: Server;
 
 let browser: Browser;
 
-const openPage = async (): Promise<{ page: Page; errors: Array<string> }> => {
-  const page = await browser.newPage();
+const ADOPTION_MARK = `
+  document.addEventListener("readystatechange", () => {
+    if (document.readyState === "interactive") {
+      Object.defineProperty(window, "served", {
+        value: {
+          main: document.querySelector("main"),
+          tab: document.querySelector("[role=tab]"),
+        },
+      });
+    }
+  });
+`;
+
+const openPage = async (
+  options: { readonly javaScript?: boolean } = {},
+): Promise<{ page: Page; errors: Array<string> }> => {
+  const context = await browser.newContext({ javaScriptEnabled: options.javaScript ?? true });
+  const page = await context.newPage();
+
+  await page.addInitScript(ADOPTION_MARK);
   const errors: Array<string> = [];
 
   page.on("pageerror", (error) => errors.push(error.message));
@@ -117,6 +135,34 @@ describe("the built page", () => {
       "Stats",
       "Privacy",
     ]);
+    expect(errors).toEqual([]);
+
+    await page.close();
+  });
+
+  it("arrives already rendered, before any script runs", async () => {
+    const { page } = await openPage({ javaScript: false });
+
+    expect(await page.getByRole("heading", { name: "Connecting…" }).count()).toBe(1);
+    expect(await page.getByRole("tab").allTextContents()).toEqual([
+      "Now",
+      "History",
+      "Stats",
+      "Privacy",
+    ]);
+    expect(await page.getByRole("button", { name: "Start recording" }).count()).toBe(1);
+
+    await page.close();
+  });
+
+  it("takes over the served markup instead of drawing the page again", async () => {
+    const { page, errors } = await openPage();
+
+    await expect.poll(() => page.getByRole("heading", { name: "Couldn't start" }).count()).toBe(1);
+    expect(await page.evaluate('window.served.main === document.querySelector("main")')).toBe(true);
+    expect(await page.evaluate("window.served.tab === document.querySelector('[role=tab]')")).toBe(
+      true,
+    );
     expect(errors).toEqual([]);
 
     await page.close();

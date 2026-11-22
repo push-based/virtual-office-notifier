@@ -15,4 +15,8 @@ const application = Runtime.makeApplication({
   crash: { report: ({ error }) => reportCrash(error) },
 });
 
-Runtime.run(application);
+if (import.meta.env.DEV) {
+  Runtime.run(application);
+} else {
+  Runtime.hydrate(application);
+}
