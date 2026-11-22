@@ -1,5 +1,6 @@
-import * as Sentry from "@sentry/browser";
 import { Array, Context, Effect, pipe, Record, String } from "effect";
+
+import { loadSentry } from "./sentry.ts";
 
 export const BODY_LIMIT = 200;
 
@@ -42,22 +43,26 @@ interface GatewayFailuresService {
 
 const sentryGatewayFailures: GatewayFailuresService = {
   retrying: (failure) =>
-    Effect.sync(() =>
-      Sentry.addBreadcrumb({
-        category: "http.retry",
-        level: "warning",
-        message: `${failure.path} answered ${failure.status}, asking again`,
-        data: failure.details,
-      }),
+    Effect.promise(loadSentry).pipe(
+      Effect.map((Sentry) =>
+        Sentry.addBreadcrumb({
+          category: "http.retry",
+          level: "warning",
+          message: `${failure.path} answered ${failure.status}, asking again`,
+          data: failure.details,
+        }),
+      ),
     ),
   gaveUp: (failure) =>
-    Effect.sync(() => {
-      Sentry.captureMessage(`${failure.path} kept answering ${failure.status}`, {
-        level: "warning",
-        fingerprint: ["gateway-failure", `${failure.status}`],
-        contexts: { response: failure.details },
-      });
-    }),
+    Effect.promise(loadSentry).pipe(
+      Effect.map((Sentry) => {
+        Sentry.captureMessage(`${failure.path} kept answering ${failure.status}`, {
+          level: "warning",
+          fingerprint: ["gateway-failure", `${failure.status}`],
+          contexts: { response: failure.details },
+        });
+      }),
+    ),
 };
 
 export const GatewayFailures = Context.Reference<GatewayFailuresService>(
