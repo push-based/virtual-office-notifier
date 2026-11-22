@@ -1,9 +1,9 @@
 import { Array, Context, Effect, Layer, Option, pipe, Schema, Stream, String } from "effect";
-import type { Admin } from "recording-requests/Admins";
-import type { ErasureCase, RefusalGround } from "recording-requests/Consent";
-import { RefusalGround as RefusalGroundSchema } from "recording-requests/Consent";
+import type { Admin } from "office-domain/Admins";
+import type { ErasureCase, RefusalGround } from "office-domain/Consent";
+import { RefusalGround as RefusalGroundSchema } from "office-domain/Consent";
 import type { ErasureNotice } from "recording-requests/ConsentRequests";
-import { REFUSAL_GROUNDS } from "recording-requests/wire";
+import { REFUSAL_GROUNDS } from "office-domain/wire";
 
 import { Notice } from "../consent/index.ts";
 import type { AdminLine, ErasureAction, ErasureVerdict } from "../office/index.ts";

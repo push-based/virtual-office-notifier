@@ -1,10 +1,11 @@
-import { identity, Option } from "effect";
+import { DateTime, identity, Option } from "effect";
 import { Scene, Story } from "foldkit";
 import type { HtmlBuilder } from "foldkit/html";
 import { modifyFields } from "foldkit/struct";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { RecordingStatus, RunningRecording } from "../wire.ts";
+import type { RecordingStatus, RunningRecording } from "office-domain/RecordingRequest";
+import { SignIn } from "../session/sign-in.ts";
 import {
   Connection,
   FetchStatus,
@@ -23,14 +24,14 @@ const idle: RecordingStatus = {
   botInOffice: true,
   occupants: [{ userId: "u2", displayName: "Ben", avatarUrl: null, speaking: false }],
   recording: null,
-  updatedAt: "2026-10-27T12:00:00Z",
+  updatedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
 };
 
 const chris: RunningRecording = {
   id: "r1",
-  startedAt: "2026-10-27T12:00:00Z",
+  startedAt: DateTime.makeUnsafe("2026-10-27T12:00:00Z"),
   startedByName: "Chris",
-  endsAt: "2026-10-27T16:00:00Z",
+  endsAt: DateTime.makeUnsafe("2026-10-27T16:00:00Z"),
   pause: null,
   title: "Deploy retro",
   agenda: null,
@@ -41,7 +42,10 @@ const recording: RecordingStatus = { ...idle, recording: chris };
 
 const paused: RecordingStatus = {
   ...idle,
-  recording: { ...chris, pause: { since: "2026-10-27T12:20:00Z", byName: "Ben" } },
+  recording: {
+    ...chris,
+    pause: { since: DateTime.makeUnsafe("2026-10-27T12:20:00Z"), byName: "Ben" },
+  },
 };
 
 const loaded = (status: RecordingStatus): Model =>
@@ -52,14 +56,28 @@ const loaded = (status: RecordingStatus): Model =>
 
 const now = Date.parse("2026-10-27T12:12:34Z");
 
-const scene = {
+const sceneWith = (signIn: SignIn) => ({
   update,
   view: (model: Model, h: HtmlBuilder<Message>) =>
-    h.submodel({ slotId: "recorder", model, view, viewInputs: { now }, toParentMessage: identity }),
-};
+    h.submodel({
+      slotId: "recorder",
+      model,
+      view,
+      viewInputs: { now, signIn },
+      toParentMessage: identity,
+    }),
+});
+
+const scene = sceneWith(SignIn.SignedIn());
 
 describe("the recorder", () => {
   it("is connecting until signed in and the first status arrives", () => {
+    Scene.scene(
+      sceneWith(SignIn.SigningIn()),
+      Scene.given(init()),
+      Scene.expect(Scene.role("heading", { name: "Connecting…" })).toExist(),
+      Scene.expect(Scene.role("button", { name: "Start recording" })).toBeDisabled(),
+    );
     Scene.scene(
       scene,
       Scene.given(init()),
@@ -68,15 +86,10 @@ describe("the recorder", () => {
     );
   });
 
-  it("keeps the sign-in error and never polls when sign-in fails", () => {
-    const failed = modifyFields(init(), {
-      connection: () => Connection.FailedSignIn({ reason: "/api/config answered 502" }),
-    });
-
-    expect(pollInterval(failed)).toEqual(Option.none());
+  it("shows the sign-in error when sign-in fails", () => {
     Scene.scene(
-      scene,
-      Scene.given(failed),
+      sceneWith(SignIn.FailedSignIn({ reason: "/api/config answered 502" })),
+      Scene.given(init()),
       Scene.expect(Scene.role("heading", { name: "Couldn't start" })).toExist(),
       Scene.expect(Scene.text("/api/config answered 502")).toExist(),
     );
@@ -100,7 +113,9 @@ describe("the recorder", () => {
     );
     Story.story(
       update,
-      Story.given(modifyFields(loaded(recording), { statusRequests: () => 1 })),
+      Story.given(
+        modifyFields(loaded(recording), { statusRequests: () => ({ sent: 1, answered: 0 }) }),
+      ),
       Story.message(Message.TickedStatusPoll()),
       Story.Command.expectNone(),
     );
@@ -124,11 +139,9 @@ describe("the recorder", () => {
   });
 
   it("polls every three seconds, and every second while recording", () => {
-    expect(pollInterval(modifyFields(init(), { connection: () => Connection.Loading() }))).toEqual(
-      Option.some(3000),
-    );
-    expect(pollInterval(loaded(idle))).toEqual(Option.some(3000));
-    expect(pollInterval(loaded(recording))).toEqual(Option.some(1000));
+    expect(pollInterval(init())).toBe(3000);
+    expect(pollInterval(loaded(idle))).toBe(3000);
+    expect(pollInterval(loaded(recording))).toBe(1000);
   });
 
   it("shows the office in the Rich Presence once per phase", () => {

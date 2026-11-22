@@ -1,8 +1,8 @@
 import { Array, Effect, pipe, Schema, String } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 
-import type { ErasureInventory } from "./Consent.ts";
-import { FORMER_MEMBER } from "./Wire.ts";
+import type { ErasureInventory } from "office-domain/Consent";
+import { FORMER_MEMBER } from "office-domain/wire";
 
 export const MIN_NAME_LENGTH = 3;
 

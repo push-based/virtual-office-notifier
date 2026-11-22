@@ -9,8 +9,10 @@ export default defineConfig(({ mode }) => ({
     __SENTRY_RELEASE__: JSON.stringify(process.env["GITHUB_SHA"] ?? ""),
   },
   plugins: lazyPlugins(() => [
-    foldkit(),
-    mode === "test" ? [] : cloudflare({ viteEnvironment: { name: "worker" } }),
+    foldkit({ buildId: process.env["GITHUB_SHA"] ?? "local" }),
+    mode === "test" || mode === "prerender" || mode === "fake"
+      ? []
+      : cloudflare({ viteEnvironment: { name: "worker" } }),
   ]),
   test: {
     projects: [
@@ -22,21 +24,45 @@ export default defineConfig(({ mode }) => ({
         extends: true,
         test: { name: "worker", environment: "node", include: ["worker/**/*.spec.ts"] },
       },
+      {
+        extends: true,
+        test: {
+          name: "built",
+          environment: "node",
+          include: ["smoke/**/*.spec.ts"],
+          testTimeout: 30_000,
+        },
+      },
     ],
   },
   run: {
     tasks: {
       typecheck: typecheck(
-        "pnpm -w exec tsc --noEmit -p apps/console && pnpm -w exec tsc --noEmit -p apps/console/worker",
+        "pnpm -w exec tsc --noEmit -p apps/console && pnpm -w exec tsc --noEmit -p apps/console/worker && pnpm -w exec tsc --noEmit -p apps/console/tsconfig.node.json",
       ),
       build: {
-        command: "vp build",
+        command: "vp build && node scripts/render-shell.ts",
         cache: {
-          input: [{ auto: true }, "!node_modules/.vite/**", "!.wrangler/state/**"],
-          output: [{ auto: true }, "!node_modules/.vite/**", "!.wrangler/state/**"],
+          input: [
+            { auto: true },
+            "!node_modules/.vite/**",
+            "!node_modules/.render-shell/**",
+            "!.wrangler/state/**",
+            "!dist/**",
+          ],
+          output: [
+            { auto: true },
+            "!node_modules/.vite/**",
+            "!node_modules/.render-shell/**",
+            "!.wrangler/state/**",
+          ],
         },
       },
-      test: "vp test",
+      test: "vp test --project page --project worker",
+      smoke: {
+        command: "vp test --project built",
+        dependsOn: ["build"],
+      },
     },
   },
 }));

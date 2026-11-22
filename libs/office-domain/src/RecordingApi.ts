@@ -1,4 +1,3 @@
-import { SignInGroup } from "activity-sign-in/SignInApi";
 import { Context, Schema } from "effect";
 import {
   HttpApi,
@@ -21,6 +20,8 @@ import { OfficeStats, StatsQuery } from "./OfficeStats.ts";
 import { RecordingDetail, RecordingId, RecordingPage } from "./Recording.ts";
 import { RecordingChange, SubmittedEdit } from "./RecordingEdit.ts";
 import { RecordingStatus, RequestSubmission, SubmittedRequest } from "./RecordingRequest.ts";
+import { SignInGroup } from "./SignInApi.ts";
+import { TelemetryGroup } from "./Telemetry.ts";
 
 export interface Requester {
   readonly id: string;
@@ -28,7 +29,7 @@ export interface Requester {
 }
 
 export class CurrentRequester extends Context.Service<CurrentRequester, Requester>()(
-  "recording-requests/RecordingApi/CurrentRequester",
+  "office-domain/RecordingApi/CurrentRequester",
 ) {}
 
 export class Unauthorized extends Schema.TaggedError<
@@ -68,7 +69,7 @@ export class NotAnAdmin extends Schema.TaggedError<NotAnAdmin, { readonly brand:
 ) {}
 
 export class SignedIn extends HttpApiMiddleware.Service<SignedIn, { provides: CurrentRequester }>()(
-  "recording-requests/SignedIn",
+  "office-domain/SignedIn",
   {
     security: { session: HttpApiSecurity.bearer },
     error: Unauthorized,
@@ -201,6 +202,7 @@ export class ErasureAdminGroup extends HttpApiGroup.make("erasureAdmin")
 
 export class RecordingApi extends HttpApi.make("console")
   .add(SignInGroup.prefix("/api"))
+  .add(TelemetryGroup)
   .add(RecordingGroup)
   .add(StatsGroup)
   .add(HistoryGroup)

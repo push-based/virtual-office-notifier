@@ -38,12 +38,12 @@ const threadReply = {
 };
 
 describe("decodeEnvelope", () => {
-  it("reads the envelope ID and retry attempt of an event", () => {
+  it("reads the envelope ID and event ID of an event", () => {
     const decoded = Option.getOrThrow(decodeEnvelope(envelope(threadReply, { retry_attempt: 2 })));
 
     assert.deepStrictEqual(decoded.envelopeId, Option.some("env-1"));
     assert.strictEqual(decoded.type, "events_api");
-    assert.strictEqual(decoded.retryAttempt, 2);
+    assert.deepStrictEqual(decoded.eventId, Option.some("Ev1"));
   });
 
   it("reads hello and disconnect messages, which have no envelope ID", () => {

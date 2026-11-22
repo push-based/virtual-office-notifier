@@ -1,7 +1,7 @@
 import { Array, Context, DateTime, Effect, Layer, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
-import type { ConsentEventKind, Delivery, Wording } from "recording-requests/Consent";
-import { CONSENT_NOTICE_VERSION } from "recording-requests/wire";
+import type { ConsentEventKind, Delivery, Wording } from "office-domain/Consent";
+import { CONSENT_NOTICE_VERSION } from "office-domain/wire";
 
 import { type ActivityLogError, classify } from "../activity/index.ts";
 

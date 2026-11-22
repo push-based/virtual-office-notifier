@@ -1,3 +1,4 @@
+import { Array } from "effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 
 import { eyebrow } from "./text.ts";
@@ -21,7 +22,10 @@ export interface HeatmapConfig {
 }
 
 export const heatOf = (rows: ReadonlyArray<HeatmapRow>, cell: HeatmapCell): number => {
-  const hottest = Math.max(0, ...rows.flatMap((row) => row.cells.map((each) => each.value ?? 0)));
+  const hottest = Math.max(
+    0,
+    ...Array.flatMap(rows, (row) => Array.map(row.cells, (each) => each.value ?? 0)),
+  );
 
   return hottest > 0 && cell.value !== null ? cell.value / hottest : 0;
 };
@@ -47,20 +51,22 @@ export const heatmap = <Message>(h: HtmlBuilder<Message>, config: HeatmapConfig)
                         [],
                         [
                           h.td([]),
-                          ...config.columns.map((column) => h.th([h.Scope("col")], [column])),
+                          ...Array.map(config.columns, (column) =>
+                            h.th([h.Scope("col")], [column]),
+                          ),
                         ],
                       ),
                     ],
                   ),
                   h.tbody(
                     [],
-                    config.rows.map((row) =>
+                    Array.map(config.rows, (row) =>
                       h.keyed("tr")(
                         row.label,
                         [],
                         [
                           h.th([h.Scope("row")], [row.label]),
-                          ...row.cells.map((cell) =>
+                          ...Array.map(row.cells, (cell) =>
                             h.td(
                               [
                                 ...(cell.value === null ? [h.Class("pb-heatmap-unknown")] : []),

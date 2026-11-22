@@ -2,7 +2,7 @@ import { Context, DateTime, Duration, Effect, Layer, Redacted, Schema, String } 
 import { Mac, SecureRandom } from "effect/crypto";
 import { Base64Url } from "effect/encoding";
 
-import type { SignedInUser } from "./SignInApi.ts";
+import type { SignedInUser } from "office-domain/SignInApi";
 import { SignInSettings } from "./SignInSettings.ts";
 
 export const SESSION_LIFETIME = Duration.hours(12);

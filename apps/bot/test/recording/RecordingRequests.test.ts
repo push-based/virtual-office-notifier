@@ -4,16 +4,11 @@ import { Array, DateTime, Effect, Layer, Option, pipe, Redacted, Schema, String 
 import { HttpClientRequest, HttpServer } from "effect/http";
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api";
 import { SqlClient } from "effect/sql";
-import {
-  CurrentRequester,
-  RecordingApi,
-  SignedIn,
-  Unauthorized,
-} from "recording-requests/RecordingApi";
+import { CurrentRequester, RecordingApi, SignedIn, Unauthorized } from "office-domain/RecordingApi";
 import { EditHandlers, RecordingHandlers } from "recording-requests/RecordingHandlers";
-import { explainEdit } from "recording-requests/RecordingEdit";
+import { explainEdit } from "office-domain/RecordingEdit";
 import { type EditHandler, RecordingEdits } from "recording-requests/RecordingEdits";
-import type { ActiveRecording } from "recording-requests/RecordingRequest";
+import type { ActiveRecording } from "office-domain/RecordingRequest";
 import { RecordingRequests, type RequestHandler } from "recording-requests/RecordingRequests";
 
 import { columnNaming, Database } from "../../src/database/Database.ts";

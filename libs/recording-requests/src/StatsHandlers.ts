@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { HttpApiBuilder, HttpApiError } from "effect/http-api";
 
 import { OfficeStatsReader, type StatsUnavailable } from "./OfficeStats.ts";
-import { RecordingApi } from "./RecordingApi.ts";
+import { RecordingApi } from "office-domain/RecordingApi";
 
 const serviceUnavailable = (error: StatsUnavailable) =>
   Effect.logWarning("Couldn't read the office stats").pipe(

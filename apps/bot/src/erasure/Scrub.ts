@@ -1,9 +1,8 @@
 import { Array, Option, Order, pipe, Predicate, Record, type Schema, String } from "effect";
-import { FORMER_MEMBER } from "recording-requests/wire";
+import { FORMER_MEMBER } from "office-domain/wire";
+import { MIN_NAME_LENGTH } from "recording-requests/ErasureInventory";
 
 import { escapeSlackText } from "../slack/index.ts";
-
-export const MIN_NAME_LENGTH = 3;
 
 const DISPLAYED_KEYS: ReadonlySet<string> = new Set(["text", "alt_text"]);
 

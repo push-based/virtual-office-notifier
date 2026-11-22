@@ -1,30 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option, Ref } from "effect";
+import { Array, Effect, Option, Ref } from "effect";
 
 import { SessionToken } from "../api/api.ts";
-import { fakeDiscord, fakeResources, fakeServer, type SentRequest } from "../fakes.ts";
+import { fakeResources, fakeWorker } from "../dev/fake-worker.ts";
+import { fakeDiscord, fakeServer } from "../fakes.ts";
 import { Session } from "./session.ts";
-
-const worker = (request: SentRequest) => {
-  if (request.path === "/api/config") return { body: { clientId: "client-1" } };
-
-  if (request.path === "/api/token")
-    return {
-      body: {
-        accessToken: "access-1",
-        session: "session-1",
-        user: { id: "u1", name: "Ada", avatarUrl: null },
-      },
-    };
-
-  return { status: 404 };
-};
 
 const presence = { details: "In the office", state: "Not recording", timestamps: null };
 
 describe("the session", () => {
   it.effect("signs in through Discord and keeps the Worker's session", () => {
-    const server = fakeServer(worker);
+    const worker = fakeWorker();
     const discord = fakeDiscord();
 
     return Effect.gen(function* () {
@@ -37,12 +23,15 @@ describe("the session", () => {
         prompt: "none",
         scope: ["identify", "rpc.activities.write"],
       });
-      expect(server.sent.find(({ path }) => path === "/api/token")?.body).toEqual({
-        code: "discord-code",
-      });
+      expect(
+        Option.map(
+          Array.findFirst(worker.sent, ({ path }) => path === "/api/token"),
+          ({ body }) => body,
+        ),
+      ).toEqual(Option.some({ code: "discord-code" }));
       expect(discord.commands.authenticate).toHaveBeenCalledWith({ access_token: "access-1" });
       expect(yield* Ref.get(yield* SessionToken)).toEqual(Option.some("session-1"));
-    }).pipe(Effect.provide(fakeResources(server, discord)));
+    }).pipe(Effect.provide(fakeResources(worker.layer, discord)));
   });
 
   it.effect("says why the sign-in failed, whether the Worker or Discord refused", () => {
@@ -53,17 +42,12 @@ describe("the session", () => {
     return Effect.gen(function* () {
       const refused = yield* Session.use((session) => session.signIn).pipe(
         Effect.flip,
-        Effect.provide(
-          fakeResources(
-            fakeServer(() => ({ status: 500 })),
-            fakeDiscord(),
-          ),
-        ),
+        Effect.provide(fakeResources(fakeServer(() => ({ status: 500 })).layer, fakeDiscord())),
       );
 
       const cancelled = yield* Session.use((session) => session.signIn).pipe(
         Effect.flip,
-        Effect.provide(fakeResources(fakeServer(worker), discord)),
+        Effect.provide(fakeResources(fakeWorker().layer, discord)),
       );
 
       expect(refused.reason).toBe("/api/config answered 500");
@@ -87,7 +71,7 @@ describe("the session", () => {
         yield* session.signIn;
         yield* session.showPresence(presence);
         expect(discord.commands.setActivity).toHaveBeenCalledWith({ activity: presence });
-      }).pipe(Effect.provide(fakeResources(fakeServer(worker), discord)));
+      }).pipe(Effect.provide(fakeResources(fakeWorker().layer, discord)));
     },
   );
 
@@ -103,6 +87,6 @@ describe("the session", () => {
       expect(discord.commands.openExternalLink).toHaveBeenCalledWith({
         url: "https://office.slack.com/archives/C1/p12",
       });
-    }).pipe(Effect.provide(fakeResources(fakeServer(worker), discord)));
+    }).pipe(Effect.provide(fakeResources(fakeWorker().layer, discord)));
   });
 });

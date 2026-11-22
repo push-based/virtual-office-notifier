@@ -1,8 +1,10 @@
 import { assert, describe, expectTypeOf, it } from "@effect/vitest";
 import { DateTime, Effect, Schema } from "effect";
 
-import { OfficeStats, statsWindow } from "../src/OfficeStats.ts";
-import type * as Wire from "../src/Wire.ts";
+import { OfficeStats } from "office-domain/OfficeStats";
+
+import { statsWindow } from "../src/OfficeStats.ts";
+import type * as Wire from "office-domain/wire";
 
 const at = (iso: string) => DateTime.makeUnsafe(iso);
 

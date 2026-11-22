@@ -1,10 +1,12 @@
-import { Duration, Effect, Option, Schema } from "effect";
+import { Array, Duration, Effect, Option, Schema } from "effect";
 import {
   button,
   card,
+  confirmBox,
   description,
   eyebrow,
   notice,
+  NoticeContent,
   noticeRegion,
   statusHeading,
 } from "design-system";
@@ -13,57 +15,63 @@ import type { Html, HtmlBuilder } from "foldkit/html";
 import { defineMessageUnion } from "foldkit/message";
 import { modifyFields } from "foldkit/struct";
 
-import * as Api from "../api/api.ts";
+import { type ApiFailure, ConsoleApi, isUnanswered, reasonOf } from "../api/api.ts";
 import { awaitAnswer } from "../api/answer.ts";
-import { Notice } from "../notice.ts";
 import type { Resources } from "../resources.ts";
 import { Session } from "../session/session.ts";
+import { ConsentStatus, type Refusal, SubmittedWithdrawal } from "office-domain/Consent";
 import {
   ANSWER_WINDOW_MS,
   CHECK_INTERVAL_MS,
-  ConsentStatus,
   DATA_PROTECTION_AUTHORITIES_URL,
   ERASURE_REVIEW_DAYS,
   RECORDED_IN_THE_OFFICE,
-  type Refusal,
-  SubmittedErasure,
-  SubmittedWithdrawal,
-} from "../wire.ts";
+} from "office-domain/wire";
 import { type ConsentView, describeConsent } from "./describe-consent.ts";
 import { groundLabel, officeTime } from "./describe-erasure.ts";
 import * as ErasureAdmin from "./erasure-admin.ts";
 
-export const WITHDRAWN: Notice = {
+export const WITHDRAWN: NoticeContent = {
   kind: "info",
   text: "Your consent is withdrawn. If you were in the office, the bot has shown you out, and it's sent you a DM. We'll miss you.",
 };
 
-export const NOTHING_TO_WITHDRAW: Notice = {
+const NOTHING_TO_WITHDRAW: NoticeContent = {
   kind: "info",
   text: "There was nothing to withdraw: you hadn't agreed to being recorded.",
 };
 
-export const NO_ANSWER: Notice = {
+export const NO_ANSWER: NoticeContent = {
   kind: "error",
   text: "The bot didn't answer in time. It'll still withdraw your consent once it's back.",
 };
 
-export const SCHEDULED: Notice = {
+export const NOT_WITHDRAWN: NoticeContent = {
+  kind: "error",
+  text: "Couldn't withdraw your consent. Nothing has changed, so try again in a moment.",
+};
+
+export const NOT_SURE: NoticeContent = {
+  kind: "error",
+  text: "The Console's server didn't answer, so this may or may not have gone through. Check where things stand below before you try again.",
+};
+
+export const SCHEDULED: NoticeContent = {
   kind: "info",
   text: "Done. Your consent is withdrawn, the bot will show you out if you're in and send you a DM with the date, and the office admins have been told what will be deleted.",
 };
 
-export const NOT_SCHEDULED: Notice = {
+export const NOT_SCHEDULED: NoticeContent = {
   kind: "error",
   text: "Couldn't ask for your data to be deleted. Nothing has changed, so try again in a moment.",
 };
 
-export const CANCELLED: Notice = {
+export const CANCELLED: NoticeContent = {
   kind: "info",
   text: "Your deletion request is cancelled. Nothing was deleted, and the bot will send you a DM.",
 };
 
-export const NOT_CANCELLED: Notice = {
+const NOT_CANCELLED: NoticeContent = {
   kind: "error",
   text: "Couldn't cancel the request. It may already have run, or the bot's records are out of reach. Check again in a moment.",
 };
@@ -83,7 +91,7 @@ export const Model = Schema.Struct({
   status: ConsentData.schema,
   confirming: Schema.Option(Action),
   busy: Schema.Option(Action),
-  notice: Schema.Option(Notice),
+  notice: Schema.Option(NoticeContent),
   admin: ErasureAdmin.Model,
 });
 
@@ -105,8 +113,8 @@ export const Message = defineMessageUnion({
   ClickedKeep: {},
   ClickedWithdraw: {},
   ClickedErase: {},
-  ClickedCancelErasure: { id: Schema.Number },
-  CompletedAct: { notice: Notice },
+  ClickedCancelErasure: { id: Schema.Finite },
+  CompletedAct: { notice: NoticeContent },
   ClickedAuthorities: {},
   CompletedOpenAuthorities: {},
   GotAdminMessage: { message: ErasureAdmin.Message },
@@ -116,13 +124,18 @@ export type Message = typeof Message.Type;
 
 export const FetchConsent = Command.define("FetchConsent", {
   messages: [Message.SucceededFetchConsent, Message.FailedFetchConsent],
-  execute: Api.get("/api/consent", ConsentStatus).pipe(
+  execute: ConsoleApi.use((api) => api.consent.status()).pipe(
     Effect.map((status) => Message.SucceededFetchConsent({ status })),
-    Effect.catchTag("ApiFailure", ({ reason }) =>
-      Effect.succeed(Message.FailedFetchConsent({ reason })),
+    Effect.catch((failure) =>
+      Effect.succeed(Message.FailedFetchConsent({ reason: reasonOf(failure) })),
     ),
   ),
 });
+
+const failedWith =
+  (refused: NoticeContent) =>
+  (failure: ApiFailure): NoticeContent =>
+    isUnanswered(failure) ? NOT_SURE : refused;
 
 type AnsweredWithdrawal = SubmittedWithdrawal & {
   readonly outcome: NonNullable<SubmittedWithdrawal["outcome"]>;
@@ -131,43 +144,47 @@ type AnsweredWithdrawal = SubmittedWithdrawal & {
 const isAnswered = (withdrawal: SubmittedWithdrawal): withdrawal is AnsweredWithdrawal =>
   withdrawal.outcome !== null;
 
-const withdrawalNotice = (withdrawal: SubmittedWithdrawal): Notice =>
+const withdrawalNotice = (withdrawal: SubmittedWithdrawal): NoticeContent =>
   withdrawal.outcome === "ignored" ? NOTHING_TO_WITHDRAW : WITHDRAWN;
 
 export const WithdrawConsent = Command.define("WithdrawConsent", {
   messages: [Message.CompletedAct],
-  execute: Api.post("/api/consent/withdrawals", SubmittedWithdrawal).pipe(
-    Effect.flatMap((submitted) =>
-      isAnswered(submitted)
-        ? Effect.succeed(Option.some(submitted))
-        : awaitAnswer(
-            Api.get(`/api/consent/withdrawals/${submitted.id}`, SubmittedWithdrawal),
-            isAnswered,
-            WITHDRAWAL_ANSWER,
-          ),
+  execute: ConsoleApi.use((api) =>
+    api.consent.withdraw().pipe(
+      Effect.matchEffect({
+        onFailure: (failure) => Effect.succeed(failedWith(NOT_WITHDRAWN)(failure)),
+        onSuccess: (submitted) =>
+          isAnswered(submitted)
+            ? Effect.succeed(withdrawalNotice(submitted))
+            : awaitAnswer(
+                api.consent.find({ params: { id: submitted.id } }),
+                isAnswered,
+                WITHDRAWAL_ANSWER,
+              ).pipe(
+                Effect.map(Option.match({ onNone: () => NO_ANSWER, onSome: withdrawalNotice })),
+                Effect.orElseSucceed(() => NO_ANSWER),
+              ),
+      }),
     ),
-    Effect.map(Option.match({ onNone: () => NO_ANSWER, onSome: withdrawalNotice })),
-    Effect.orElseSucceed(() => NO_ANSWER),
-    Effect.map((shown) => Message.CompletedAct({ notice: shown })),
-  ),
+  ).pipe(Effect.map((shown) => Message.CompletedAct({ notice: shown }))),
 });
 
 export const RequestErasure = Command.define("RequestErasure", {
   messages: [Message.CompletedAct],
-  execute: Api.post("/api/consent/erasures", SubmittedErasure).pipe(
+  execute: ConsoleApi.use((api) => api.consent.erase()).pipe(
     Effect.as(SCHEDULED),
-    Effect.orElseSucceed(() => NOT_SCHEDULED),
+    Effect.catch((failure) => Effect.succeed(failedWith(NOT_SCHEDULED)(failure))),
     Effect.map((shown) => Message.CompletedAct({ notice: shown })),
   ),
 });
 
 export const CancelErasure = Command.define("CancelErasure", {
-  args: { id: Schema.Number },
+  args: { id: Schema.Finite },
   messages: [Message.CompletedAct],
   execute: ({ id }) =>
-    Api.post(`/api/consent/erasures/${id}/cancel`, SubmittedErasure).pipe(
+    ConsoleApi.use((api) => api.consent.cancelErasure({ params: { id } })).pipe(
       Effect.as(CANCELLED),
-      Effect.orElseSucceed(() => NOT_CANCELLED),
+      Effect.catch((failure) => Effect.succeed(failedWith(NOT_CANCELLED)(failure))),
       Effect.map((shown) => Message.CompletedAct({ notice: shown })),
     ),
 });
@@ -182,8 +199,14 @@ export const OpenAuthorities = Command.define("OpenAuthorities", {
 
 type UpdateReturn = Update.Return<Model, Message, Resources>;
 
-export const open = (_model: Model): UpdateReturn => ({
-  model: modifyFields(init(), { status: () => ConsentData.Loading() }),
+const refreshed = (status: Model["status"]): Model["status"] =>
+  Option.match(AsyncData.getData(status), {
+    onNone: () => ConsentData.Loading(),
+    onSome: (data) => ConsentData.Refreshing({ data }),
+  });
+
+export const open = (model: Model): UpdateReturn => ({
+  model: modifyFields(model, { status: refreshed }),
   commands: [FetchConsent()],
 });
 
@@ -203,20 +226,15 @@ const foldAdmin = Update.foldChild({
   toParentMessage: (message) => Message.GotAdminMessage({ message }),
 });
 
-const withAdminCases = (model: Model, status: ConsentStatus): UpdateReturn => {
-  if (!status.admin || !AsyncData.isIdle(model.admin.cases)) {
-    return { model };
-  }
+const foldAdminRefresh = Update.foldChildStep({
+  update: ErasureAdmin.refresh,
+  read: (model: Model) => Option.some(model.admin),
+  write: (model, nextAdmin) => modifyFields(model, { admin: () => nextAdmin }),
+  toParentMessage: (message) => Message.GotAdminMessage({ message }),
+});
 
-  const adminOpen = ErasureAdmin.open(model.admin);
-
-  return {
-    model: modifyFields(model, { admin: () => adminOpen.model }),
-    commands: Command.mapMessages(adminOpen.commands, (message) =>
-      Message.GotAdminMessage({ message }),
-    ),
-  };
-};
+const withAdminCases = (model: Model, status: ConsentStatus): UpdateReturn =>
+  status.admin ? foldAdminRefresh(model) : { model };
 
 export const update = (model: Model, message: Message) =>
   Message.match<UpdateReturn>(message, {
@@ -252,11 +270,7 @@ export const update = (model: Model, message: Message) =>
         busy: () => Option.none(),
         confirming: () => Option.none(),
         notice: () => Option.some(shown),
-        status: (status) =>
-          Option.match(AsyncData.getData(status), {
-            onNone: () => ConsentData.Loading(),
-            onSome: (data) => ConsentData.Refreshing({ data }),
-          }),
+        status: refreshed,
       }),
       commands: [FetchConsent()],
     }),
@@ -287,13 +301,10 @@ interface ConfirmConfig {
 }
 
 const confirmView = (model: Model, config: ConfirmConfig, h: HtmlBuilder<Message>): Html =>
-  h.div(
-    [
-      h.Class(config.isDanger === true ? "confirm confirm-danger" : "confirm"),
-      h.Role("group"),
-      h.AriaLabelledBy(`confirm-${config.action}-text`),
-    ],
-    [
+  confirmBox(h, {
+    labelledBy: `confirm-${config.action}-text`,
+    isDanger: config.isDanger === true,
+    children: [
       h.p([h.Id(`confirm-${config.action}-text`), h.Class("text-body-sm")], [config.text]),
       h.div(
         [h.Class("controls")],
@@ -313,7 +324,7 @@ const confirmView = (model: Model, config: ConfirmConfig, h: HtmlBuilder<Message
         ],
       ),
     ],
-  );
+  });
 
 const askButton = (model: Model, action: Action, label: string, h: HtmlBuilder<Message>): Html =>
   button(h, {
@@ -334,7 +345,7 @@ const recordedView = (h: HtmlBuilder<Message>): Html =>
       ),
       h.ul(
         [h.Class("text-body-sm bullets")],
-        RECORDED_IN_THE_OFFICE.map((item) => h.li([], [item])),
+        Array.map(RECORDED_IN_THE_OFFICE, (item) => h.li([], [item])),
       ),
       description(h, [
         "It's shared in the office Slack channel, and AI models read it to write the office banter and summarise recordings. That's how the office works, so it can't be switched off for one person.",
@@ -430,7 +441,12 @@ const statusView = (
   shown: ConsentView,
   h: HtmlBuilder<Message>,
 ): ReadonlyArray<Html> => [
-  statusHeading(h, { heading: shown.heading, description: shown.description, level: 2 }),
+  statusHeading(h, {
+    heading: shown.heading,
+    subheading: null,
+    description: shown.description,
+    level: 2,
+  }),
   recordedView(h),
   shown.canCancel && status.pendingErasure !== null
     ? cancelView(model, status.pendingErasure.id, h)
@@ -443,7 +459,7 @@ const statusView = (
 const checking = (h: HtmlBuilder<Message>): ReadonlyArray<Html> => [description(h, ["Checking…"])];
 
 const consentCard = (model: Model, h: HtmlBuilder<Message>): Html =>
-  card(h, "lg", [
+  card(h, [
     eyebrow(h, { text: "Privacy" }),
     ...AsyncData.match(model.status, {
       onIdle: () => checking(h),
@@ -461,10 +477,7 @@ const consentCard = (model: Model, h: HtmlBuilder<Message>): Html =>
       onStale: ({ data }) => statusView(model, data, describeConsent(data), h),
       onSuccess: (status) => statusView(model, status, describeConsent(status), h),
     }),
-    noticeRegion(
-      h,
-      Option.match(model.notice, { onNone: () => [], onSome: (shown) => [notice(h, shown)] }),
-    ),
+    noticeRegion(h, model.notice),
   ]);
 
 export const view = Submodel.defineView<Model, Message>((model, h) => {

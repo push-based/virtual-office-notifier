@@ -1,6 +1,6 @@
 import type { Effect, Option, Stream } from "effect";
-import type { Admin } from "recording-requests/Admins";
-import type { ErasureCase, RefusalGround } from "recording-requests/Consent";
+import type { Admin } from "office-domain/Admins";
+import type { ErasureCase, RefusalGround } from "office-domain/Consent";
 import type { ErasureNotice, NoticeMedium } from "recording-requests/ConsentRequests";
 
 export type ErasureVerdict =

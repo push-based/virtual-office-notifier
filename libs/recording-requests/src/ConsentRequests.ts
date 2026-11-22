@@ -1,7 +1,7 @@
 import { Array, Context, Duration, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/sql";
 
-import { Admin } from "./Admins.ts";
+import { Admin } from "office-domain/Admins";
 import {
   type ConsentStanding,
   type ConsentStatus,
@@ -17,7 +17,7 @@ import {
   type SubmittedErasure,
   type SubmittedWithdrawal,
   WithdrawalOutcome,
-} from "./Consent.ts";
+} from "office-domain/Consent";
 import { inventoryOf } from "./ErasureInventory.ts";
 import {
   type Committable,
@@ -27,13 +27,13 @@ import {
   guardQuery,
   guardTransaction,
 } from "./Query.ts";
-import { RowId } from "./RecordingRequest.ts";
+import { RowId } from "office-domain/RecordingRequest";
 import {
   recordingUnavailable,
   type RecordingUnavailable,
   recordingUnreadable,
 } from "./RecordingRequests.ts";
-import { CONSENT_NOTICE_VERSION, ERASURE_REVIEW_DAYS, ERASURE_WAIT_MS } from "./Wire.ts";
+import { CONSENT_NOTICE_VERSION, ERASURE_REVIEW_DAYS, ERASURE_WAIT_MS } from "office-domain/wire";
 
 export const ERASURE_TIMEOUT = Duration.minutes(10);
 
@@ -507,6 +507,7 @@ export class ConsentRequests extends Context.Service<
           SET decision = ${decision}, decided_by = ${by}, decided_at = now(),
               due_at = CASE WHEN ${decision} = 'now' THEN now() ELSE due_at END
           WHERE id = ${id} AND kind = 'erase' AND handled_at IS NULL AND decision IS NULL
+            AND due_at > now()
             ${Option.match(ownedBy, { onNone: () => sql.literal(""), onSome: (userId) => sql`AND user_id = ${userId}` })}
           RETURNING id
         `,
@@ -564,6 +565,7 @@ export class ConsentRequests extends Context.Service<
                 SET decision = 'refused', decided_by = ${adminId}, decided_at = now(),
                     refusal_ground = ${refusal.ground}, refusal_reason = ${refusal.reason}
                 WHERE id = ${id} AND kind = 'erase' AND handled_at IS NULL AND decision IS NULL
+                  AND due_at > now()
                 RETURNING id
               `,
             })(),

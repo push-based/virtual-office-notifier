@@ -1,37 +1,45 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Duration, Effect, Fiber, Layer, Option } from "effect";
+import { Array, Duration, Effect, Fiber, Option, Ref } from "effect";
+import { HttpApiBuilder } from "effect/http-api";
+import { RecordingApi } from "office-domain/RecordingApi";
+import type { HandledEdit } from "office-domain/RecordingEdit";
 import { TestClock } from "effect/testing";
 
 import { REQUEST_ANSWER } from "../api/answer.ts";
 import { SessionToken } from "../api/api.ts";
-import { fakeServer, type SentRequest } from "../fakes.ts";
+import { fakeApi, fakeWorker, SESSION } from "../dev/fake-worker.ts";
 import { saveChanges } from "./save.ts";
 
-const bot = (outcomes: Readonly<Record<string, "applied">>) => {
+const RECORDING = "6a1f2c3e-4b5d-4e6f-8a7b-9c0d1e2f3a4b";
+
+const bot = (answer: (id: number) => HandledEdit | null) => {
   let submitted = 0;
 
-  return fakeServer((request: SentRequest) => {
-    if (request.method === "POST") {
-      submitted += 1;
+  return fakeWorker({
+    edits: HttpApiBuilder.group(RecordingApi, "edits", (handlers) =>
+      handlers
+        .handle("submit", () =>
+          Effect.sync(() => {
+            submitted += 1;
 
-      return { status: 202, body: { id: submitted, outcome: null } };
-    }
-
-    const id = request.path.split("/").at(-1) ?? "";
-
-    return {
-      body: {
-        id: Number(id),
-        ...(outcomes[id] === undefined ? { outcome: null } : { outcome: outcomes[id] }),
-      },
-    };
+            return { id: submitted, outcome: null };
+          }),
+        )
+        .handle("find", ({ params }) =>
+          Effect.succeed(answer(params.id) ?? { id: params.id, outcome: null }),
+        ),
+    ),
   });
 };
 
-const run = (server: ReturnType<typeof fakeServer>, seconds: number) =>
+const applied = (id: number): HandledEdit => ({ id, outcome: "applied" });
+
+const run = (server: ReturnType<typeof fakeWorker>, seconds: number) =>
   Effect.gen(function* () {
+    yield* Ref.set(yield* SessionToken, Option.some(SESSION));
+
     const fiber = yield* Effect.forkChild(
-      saveChanges("r1", [
+      saveChanges(RECORDING, [
         { kind: "title", title: "Retro" },
         { kind: "agenda", agenda: null },
       ]),
@@ -40,36 +48,30 @@ const run = (server: ReturnType<typeof fakeServer>, seconds: number) =>
     yield* TestClock.adjust(Duration.seconds(seconds));
 
     return yield* Fiber.join(fiber);
-  }).pipe(Effect.provide(Layer.mergeAll(server.layer, SessionToken.layer)));
+  }).pipe(Effect.provide(fakeApi(server.layer)));
 
 describe("saving edits", () => {
   it.effect("sends one change after the other, each once the bot applied the last", () => {
-    const server = bot({ "1": "applied", "2": "applied" });
+    const server = bot(applied);
 
     return Effect.gen(function* () {
       expect(yield* run(server, 2)).toEqual(Option.none());
-      expect(server.sent.map(({ method, path }) => `${method} ${path}`)).toEqual([
-        "POST /api/recordings/r1/edits",
+      expect(Array.map(server.sent, ({ method, path }) => `${method} ${path}`)).toEqual([
+        `POST /api/recordings/${RECORDING}/edits`,
         "GET /api/edits/1",
-        "POST /api/recordings/r1/edits",
+        `POST /api/recordings/${RECORDING}/edits`,
         "GET /api/edits/2",
       ]);
     });
   });
 
   it.effect("explains a change the bot ignored", () => {
-    const server = fakeServer((request) =>
-      request.method === "POST"
-        ? { status: 202, body: { id: 1, outcome: null } }
-        : {
-            body: {
-              id: 1,
-              outcome: "ignored",
-              reason: "unfinished",
-              explanation: "That recording is still running.",
-            },
-          },
-    );
+    const server = bot((id) => ({
+      id,
+      outcome: "ignored",
+      reason: "unfinished",
+      explanation: "That recording is still running.",
+    }));
 
     return Effect.gen(function* () {
       expect(yield* run(server, 2)).toEqual(
@@ -79,7 +81,7 @@ describe("saving edits", () => {
   });
 
   it.effect("stops waiting after the answer window and says the bot will catch up", () => {
-    const server = bot({});
+    const server = bot(() => null);
 
     return Effect.gen(function* () {
       expect(yield* run(server, REQUEST_ANSWER.attempts * 2)).toEqual(
@@ -88,7 +90,7 @@ describe("saving edits", () => {
           text: "The bot hasn't saved that yet. It will once it's back.",
         }),
       );
-      expect(server.sent.filter(({ path }) => path === "/api/edits/1")).toHaveLength(
+      expect(Array.filter(server.sent, ({ path }) => path === "/api/edits/1")).toHaveLength(
         REQUEST_ANSWER.attempts,
       );
     });

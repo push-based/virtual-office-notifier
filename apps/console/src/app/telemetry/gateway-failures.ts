@@ -1,29 +1,32 @@
-import * as Sentry from "@sentry/browser";
-import { Context, Effect } from "effect";
+import { Array, Context, Effect, pipe, Record, String } from "effect";
+
+import { loadSentry } from "./sentry.ts";
 
 export const BODY_LIMIT = 200;
 
 const SAFE_HEADERS = ["retry-after", "cf-ray", "server", "via", "content-type"] as const;
 
-export type FailureDetails = Readonly<Record<string, string>>;
+type FailureDetails = Readonly<Record<string, string>>;
 
-export interface FailedResponse {
+interface FailedResponse {
   readonly status: number;
   readonly headers: Readonly<Record<string, string | undefined>>;
   readonly body: string;
 }
 
 export const describeGatewayFailure = (response: FailedResponse): FailureDetails => {
-  const headers = SAFE_HEADERS.flatMap((name) => {
+  const headers = Array.flatMap(SAFE_HEADERS, (name) => {
     const value = response.headers[name];
 
     return value === undefined ? [] : [[name, value] as const];
   });
 
-  return Object.fromEntries([
-    ["status", String(response.status)],
+  return Record.fromEntries([
+    ["status", `${response.status}`] as const,
     ...headers,
-    ...(response.body === "" ? [] : [["body", response.body.slice(0, BODY_LIMIT)] as const]),
+    ...(response.body === ""
+      ? []
+      : [["body", pipe(response.body, String.slice(0, BODY_LIMIT))] as const]),
   ]);
 };
 
@@ -33,29 +36,33 @@ export interface GatewayFailure {
   readonly details: FailureDetails;
 }
 
-export interface GatewayFailuresService {
+interface GatewayFailuresService {
   readonly retrying: (failure: GatewayFailure) => Effect.Effect<void>;
   readonly gaveUp: (failure: GatewayFailure) => Effect.Effect<void>;
 }
 
-export const sentryGatewayFailures: GatewayFailuresService = {
+const sentryGatewayFailures: GatewayFailuresService = {
   retrying: (failure) =>
-    Effect.sync(() =>
-      Sentry.addBreadcrumb({
-        category: "http.retry",
-        level: "warning",
-        message: `${failure.path} answered ${failure.status}, asking again`,
-        data: failure.details,
-      }),
+    Effect.promise(loadSentry).pipe(
+      Effect.map((Sentry) =>
+        Sentry.addBreadcrumb({
+          category: "http.retry",
+          level: "warning",
+          message: `${failure.path} answered ${failure.status}, asking again`,
+          data: failure.details,
+        }),
+      ),
     ),
   gaveUp: (failure) =>
-    Effect.sync(() => {
-      Sentry.captureMessage(`${failure.path} kept answering ${failure.status}`, {
-        level: "warning",
-        fingerprint: ["gateway-failure", String(failure.status)],
-        contexts: { response: failure.details },
-      });
-    }),
+    Effect.promise(loadSentry).pipe(
+      Effect.map((Sentry) => {
+        Sentry.captureMessage(`${failure.path} kept answering ${failure.status}`, {
+          level: "warning",
+          fingerprint: ["gateway-failure", `${failure.status}`],
+          contexts: { response: failure.details },
+        });
+      }),
+    ),
 };
 
 export const GatewayFailures = Context.Reference<GatewayFailuresService>(

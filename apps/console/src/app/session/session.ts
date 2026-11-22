@@ -1,10 +1,8 @@
 import { DiscordSDK } from "@discord/embedded-app-sdk";
 import { Context, Effect, Layer, Option, Ref, Schema } from "effect";
-import type { HttpClient } from "effect/http";
 
-import * as Api from "../api/api.ts";
+import { type ApiFailure, ConsoleApi, reasonOf, SessionToken } from "../api/api.ts";
 import type { Presence } from "../recorder/describe-presence.ts";
-import { type SignInCode, SignInConfig, SignedInSession } from "../wire.ts";
 
 export type DiscordClient = Pick<DiscordSDK, "ready"> & {
   readonly commands: Pick<
@@ -32,13 +30,16 @@ export class LinkFailure extends Schema.TaggedError<
   reason: Schema.String,
 }) {}
 
-const reasonOf = (cause: unknown): string =>
+const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
+
+const askWorker = <A, E extends ApiFailure, R>(asking: Effect.Effect<A, E, R>) =>
+  Effect.mapError(asking, (failure) => SignInFailure.make({ reason: reasonOf(failure) }));
 
 const fromDiscord = <A>(call: () => Promise<A>) =>
   Effect.tryPromise({
     try: call,
-    catch: (cause) => new SignInFailure({ reason: reasonOf(cause) }),
+    catch: (cause) => SignInFailure.make({ reason: messageOf(cause) }),
   });
 
 export class Session extends Context.Service<
@@ -48,21 +49,21 @@ export class Session extends Context.Service<
     readonly showPresence: (presence: Presence) => Effect.Effect<void>;
     readonly openExternalLink: (url: string) => Effect.Effect<void, LinkFailure>;
   }
->()("console/session/Session") {
+>()("console/app/session/session") {
   static readonly layer = Layer.effect(
     Session,
     Effect.gen(function* () {
-      const http = yield* Effect.context<HttpClient.HttpClient | Api.SessionToken>();
-      const token = yield* Api.SessionToken;
+      const api = yield* ConsoleApi;
+      const token = yield* SessionToken;
       const createClient = yield* DiscordClients;
       const linked = yield* Ref.make(Option.none<DiscordClient>());
 
       const signIn = Effect.gen(function* () {
-        const { clientId } = yield* Api.get("/api/config", SignInConfig);
+        const { clientId } = yield* askWorker(api.signIn.config());
 
         const discord = yield* Effect.try({
           try: () => createClient(clientId),
-          catch: (cause) => new SignInFailure({ reason: reasonOf(cause) }),
+          catch: (cause) => SignInFailure.make({ reason: messageOf(cause) }),
         });
 
         yield* fromDiscord(() => discord.ready());
@@ -77,20 +78,14 @@ export class Session extends Context.Service<
           }),
         );
 
-        const body: SignInCode = { code };
-        const session = yield* Api.post("/api/token", SignedInSession, body);
+        const session = yield* askWorker(api.signIn.token({ payload: { code } }));
 
         yield* Ref.set(token, Option.some(session.session));
         yield* fromDiscord(() =>
           discord.commands.authenticate({ access_token: session.accessToken }),
         );
         yield* Ref.set(linked, Option.some(discord));
-      }).pipe(
-        Effect.catchTag("ApiFailure", (failure) =>
-          Effect.fail(new SignInFailure({ reason: failure.reason })),
-        ),
-        Effect.provide(http),
-      );
+      });
 
       const showPresence = (presence: Presence) =>
         Ref.get(linked).pipe(
@@ -115,7 +110,7 @@ export class Session extends Context.Service<
               onSome: (discord) =>
                 Effect.tryPromise({
                   try: () => discord.commands.openExternalLink({ url }),
-                  catch: (cause) => new LinkFailure({ reason: reasonOf(cause) }),
+                  catch: (cause) => LinkFailure.make({ reason: messageOf(cause) }),
                 }).pipe(Effect.asVoid),
             }),
           ),

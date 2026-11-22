@@ -4,13 +4,14 @@ import { env } from "cloudflare:workers";
 import { DiscordOAuth } from "activity-sign-in/DiscordOAuth";
 import { Sessions } from "activity-sign-in/Sessions";
 import { SignInSettings } from "activity-sign-in/SignInSettings";
-import { ConfigProvider, Function, Layer, Redacted } from "effect";
+import { ConfigProvider, Function, Layer, Option, Redacted } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/http";
 import { HttpApiBuilder } from "effect/http-api";
 import { ConsentHandlers, ErasureAdminHandlers } from "recording-requests/ConsentHandlers";
 import { ConsentRequests } from "recording-requests/ConsentRequests";
 import { OfficeStatsReader } from "recording-requests/OfficeStats";
-import { RecordingApi } from "recording-requests/RecordingApi";
+import { RecordingApi } from "office-domain/RecordingApi";
+import type { Telemetry } from "office-domain/Telemetry";
 import {
   EditHandlers,
   HistoryHandlers,
@@ -21,6 +22,7 @@ import { RecordingHistory } from "recording-requests/RecordingHistory";
 import { RecordingRequests } from "recording-requests/RecordingRequests";
 import { SignedInLayer, SignInHandlers } from "recording-requests/SignInHandlers";
 import { StatsHandlers } from "recording-requests/StatsHandlers";
+import { TelemetryHandlers } from "recording-requests/TelemetryHandlers";
 import { columnNaming } from "recording-requests/SqlNaming";
 
 import {
@@ -30,7 +32,7 @@ import {
   sentryOptions,
   telemetryFrom,
 } from "./Observability.ts";
-import { TelemetryRoutes } from "./Telemetry.ts";
+import { SentryTunnel } from "./Telemetry.ts";
 
 declare global {
   namespace Cloudflare {
@@ -56,9 +58,10 @@ const connectionTo = (env: Env) =>
     ...columnNaming,
   });
 
-const api = (env: Env) =>
+const api = (env: Env, telemetry: Option.Option<Telemetry>) =>
   HttpApiBuilder.layer(RecordingApi).pipe(
     Layer.provide([
+      TelemetryHandlers(telemetry),
       SignInHandlers.pipe(Layer.provide(DiscordOAuth.layer)),
       RecordingHandlers.pipe(Layer.provide(RecordingRequests.layerPerCall(connectionTo(env)))),
       StatsHandlers.pipe(Layer.provide(OfficeStatsReader.layerPerCall(connectionTo(env)))),
@@ -73,11 +76,14 @@ const api = (env: Env) =>
     Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   );
 
-const routes = (env: Env) =>
-  Layer.mergeAll(api(env), TelemetryRoutes(telemetryFrom(env, __SENTRY_RELEASE__))).pipe(
+const routes = (env: Env) => {
+  const telemetry = telemetryFrom(env, __SENTRY_RELEASE__);
+
+  return Layer.mergeAll(api(env, telemetry), SentryTunnel(telemetry)).pipe(
     Layer.provide([RouteSpanNames.layer, FetchHttpClient.layer, HttpServer.layerServices]),
     Layer.provideMerge(ObservabilityLayer),
   );
+};
 
 const appFor = Function.memoize((bindings: Env) =>
   HttpRouter.toWebHandler(routes(bindings), { disableLogger: true }),
