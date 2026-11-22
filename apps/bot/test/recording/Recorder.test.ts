@@ -767,6 +767,43 @@ describe("Recorder", () => {
     }),
   );
 
+  it.effect("records a stop the database missed when the office emptied, on the next tick", () =>
+    Effect.gen(function* () {
+      const failures = yield* Ref.make(1);
+
+      const h = yield* makeHarness({
+        present: [ada],
+        store: (store) =>
+          RecordingStore.of({
+            ...store,
+            stopRecording: (id, at, reason, by) =>
+              Ref.getAndUpdate(failures, (left) => left - 1).pipe(
+                Effect.flatMap((left) =>
+                  left > 0
+                    ? Effect.fail(StoreUnavailable.make({ reason: "Timed out after 10 seconds" }))
+                    : store.stopRecording(id, at, reason, by),
+                ),
+              ),
+          }),
+      });
+
+      yield* h.request("u1", "start");
+      yield* h.tick;
+      yield* recordingStarted(h);
+      yield* h.offer(leave());
+      yield* h.eventually(Ref.get(failures), (left) => left === 0);
+      yield* h.settle;
+
+      assert.isNull((yield* h.recordingRows)[0]?.stoppedAt);
+
+      yield* h.tick;
+
+      const [recording] = yield* recordingFinished(h);
+      assert.strictEqual(recording?.stopReason, "office_emptied");
+      assert.deepStrictEqual(yield* h.recordings, ["Capturing", "Off"]);
+    }),
+  );
+
   it.effect("stops when the office empties, and posts nothing when nobody spoke", () =>
     Effect.gen(function* () {
       const h = yield* makeHarness({ present: [ada] });
