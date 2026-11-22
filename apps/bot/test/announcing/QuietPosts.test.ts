@@ -2,12 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { DateTime, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 
-import {
-  isQuiet,
-  tidyEveryMorning,
-  tidyQuietBanter,
-  yesterday,
-} from "../../src/announcing/QuietBanter.ts";
+import { isQuiet, tidyEveryMorning, tidyQuietPosts } from "../../src/announcing/QuietPosts.ts";
 import type { Engagement, SlackErrorReason } from "../../src/slack/SlackClient.ts";
 import { InvalidPayload, Unavailable } from "../../src/slack/SlackClient.ts";
 import { type PostKind, SlackHistory } from "../../src/slack/SlackHistory.ts";
@@ -58,21 +53,6 @@ const makeOffice = Effect.fnUntraced(function* (setup: Setup = {}) {
   };
 });
 
-describe("yesterday", () => {
-  it("covers the whole previous office day", () => {
-    const { from, until } = yesterday(FRIDAY_MORNING);
-
-    assert.strictEqual(
-      DateTime.formatIso(from),
-      DateTime.formatIso(officeTime("2026-10-01T00:00:00")),
-    );
-    assert.strictEqual(
-      DateTime.formatIso(until),
-      DateTime.formatIso(officeTime("2026-10-02T00:00:00")),
-    );
-  });
-});
-
 describe("isQuiet", () => {
   it.each([
     { reactions: 0, replies: 0, quiet: true },
@@ -84,29 +64,54 @@ describe("isQuiet", () => {
   });
 });
 
-describe("tidyQuietBanter", () => {
-  it.effect("deletes yesterday's banter that nobody reacted to or replied under", () =>
+describe("tidyQuietPosts", () => {
+  it.effect(
+    "deletes yesterday's announcements, reminder and banter that nobody reacted to or replied under",
+    () =>
+      Effect.gen(function* () {
+        const office = yield* makeOffice();
+
+        yield* office.post("1.0", "2026-10-01T09:30:00", "Opened");
+        yield* office.post("2.0", "2026-10-01T10:00:00");
+        yield* office.post("3.0", "2026-10-01T11:15:00", "Reminder");
+        yield* office.post("4.0", "2026-10-01T17:30:00", "Emptied");
+
+        const outcomes = yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+
+        assert.deepStrictEqual(outcomes, ["deleted", "deleted", "deleted", "deleted"]);
+        assert.deepStrictEqual(yield* office.deletions, [
+          [CHANNEL, "1.0"],
+          [CHANNEL, "2.0"],
+          [CHANNEL, "3.0"],
+          [CHANNEL, "4.0"],
+        ]);
+        assert.deepStrictEqual(yield* office.recordedDeletions, [
+          { channel: CHANNEL, ts: "1.0" },
+          { channel: CHANNEL, ts: "2.0" },
+          { channel: CHANNEL, ts: "3.0" },
+          { channel: CHANNEL, ts: "4.0" },
+        ]);
+      }),
+  );
+
+  it.effect("catches up on quiet posts from before yesterday that no morning deleted", () =>
     Effect.gen(function* () {
       const office = yield* makeOffice();
 
-      yield* office.post("1.0", "2026-10-01T10:00:00");
-      yield* office.post("2.0", "2026-10-01T17:30:00");
+      yield* office.post("1.0", "2026-09-14T10:00:00");
+      yield* office.post("2.0", "2026-09-30T23:59:00", "Emptied");
 
-      const outcomes = yield* tidyQuietBanter(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+      const outcomes = yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
 
       assert.deepStrictEqual(outcomes, ["deleted", "deleted"]);
       assert.deepStrictEqual(yield* office.deletions, [
         [CHANNEL, "1.0"],
         [CHANNEL, "2.0"],
       ]);
-      assert.deepStrictEqual(yield* office.recordedDeletions, [
-        { channel: CHANNEL, ts: "1.0" },
-        { channel: CHANNEL, ts: "2.0" },
-      ]);
     }),
   );
 
-  it.effect("keeps banter with a reaction, or a reply in its thread", () =>
+  it.effect("keeps a post with a reaction, or a reply in its thread", () =>
     Effect.gen(function* () {
       const office = yield* makeOffice({
         engagement: new Map([
@@ -115,56 +120,72 @@ describe("tidyQuietBanter", () => {
         ]),
       });
 
-      yield* office.post("1.0", "2026-10-01T10:00:00");
+      yield* office.post("1.0", "2026-10-01T10:00:00", "Opened");
       yield* office.post("2.0", "2026-10-01T12:00:00");
       yield* office.post("3.0", "2026-10-01T14:00:00");
 
-      const outcomes = yield* tidyQuietBanter(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+      const outcomes = yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
 
       assert.deepStrictEqual(outcomes, ["kept", "kept", "deleted"]);
       assert.deepStrictEqual(yield* office.deletions, [[CHANNEL, "3.0"]]);
     }),
   );
 
-  it.effect("leaves today's and older banter, the other posts and replies in threads alone", () =>
+  it.effect("looks again the next morning at a post it kept", () =>
+    Effect.gen(function* () {
+      const office = yield* makeOffice({
+        engagement: new Map([["1.0", { reactions: 1, replies: 0 }]]),
+      });
+
+      yield* office.post("1.0", "2026-10-01T10:00:00", "Emptied");
+
+      yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+
+      const nextMorning = yield* tidyQuietPosts(officeTime("2026-10-03T08:45:00")).pipe(
+        Effect.provide(office.layer),
+      );
+
+      assert.deepStrictEqual(nextMorning, ["kept"]);
+    }),
+  );
+
+  it.effect("leaves today's posts, recordings and replies in threads alone", () =>
     Effect.gen(function* () {
       const office = yield* makeOffice();
 
-      yield* office.post("1.0", "2026-09-30T23:59:00");
-      yield* office.post("2.0", "2026-10-02T00:00:00");
-      yield* office.post("3.0", "2026-10-01T11:15:00", "Reminder");
-      yield* office.post("4.0", "2026-10-01T12:00:00", "Opened");
-      yield* office.post("5.0", "2026-10-01T12:05:00", "Reply", "9.0");
-      yield* office.post("6.0", "2026-10-01T12:10:00", "Recording");
+      yield* office.post("1.0", "2026-10-02T00:00:00");
+      yield* office.post("2.0", "2026-10-02T08:30:00", "Opened");
+      yield* office.post("3.0", "2026-10-01T12:05:00", "Reply", "9.0");
+      yield* office.post("4.0", "2026-10-01T12:10:00", "Recording");
 
-      const outcomes = yield* tidyQuietBanter(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+      const outcomes = yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
 
       assert.deepStrictEqual(outcomes, []);
       assert.deepStrictEqual(yield* office.deletions, []);
     }),
   );
 
-  it.effect("keeps the deleted banter's text in the history", () =>
+  it.effect("keeps the deleted post's text in the history", () =>
     Effect.gen(function* () {
       const office = yield* makeOffice();
 
       yield* office.post("1.0", "2026-10-01T10:00:00");
 
-      yield* tidyQuietBanter(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+      yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
 
       const [kept] = yield* office.posts;
       assert.strictEqual(kept?.text, "Post 1.0");
     }),
   );
 
-  it.effect("doesn't check banter it already deleted again", () =>
+  it.effect("doesn't check a post it already deleted again", () =>
     Effect.gen(function* () {
       const office = yield* makeOffice();
 
       yield* office.post("1.0", "2026-10-01T10:00:00");
 
-      yield* tidyQuietBanter(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
-      const again = yield* tidyQuietBanter(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+      yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+      const again = yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
 
       assert.deepStrictEqual(again, []);
       assert.strictEqual((yield* office.deletions).length, 1);
@@ -184,7 +205,7 @@ describe("tidyQuietBanter", () => {
       yield* office.post("2.0", "2026-10-01T12:00:00");
       yield* office.post("3.0", "2026-10-01T14:00:00");
 
-      const outcomes = yield* tidyQuietBanter(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
+      const outcomes = yield* tidyQuietPosts(FRIDAY_MORNING).pipe(Effect.provide(office.layer));
 
       assert.deepStrictEqual(outcomes, ["failed", "failed", "deleted"]);
       assert.deepStrictEqual(yield* office.deletions, [[CHANNEL, "3.0"]]);
@@ -195,7 +216,7 @@ describe("tidyQuietBanter", () => {
     Effect.gen(function* () {
       const slack = yield* makeFakeSlackClient();
 
-      const outcomes = yield* tidyQuietBanter(FRIDAY_MORNING).pipe(
+      const outcomes = yield* tidyQuietPosts(FRIDAY_MORNING).pipe(
         Effect.provide(Layer.merge(slack.layer, SlackHistory.layerDisabled)),
       );
 
@@ -207,7 +228,7 @@ describe("tidyQuietBanter", () => {
 
 describe("tidyEveryMorning", () => {
   it.effect(
-    "tidies at 08:45 office time, weekends included, so Friday's banter goes on Saturday",
+    "tidies at 08:45 office time, weekends included, so Friday's posts go on Saturday",
     () =>
       Effect.gen(function* () {
         const office = yield* makeOffice();

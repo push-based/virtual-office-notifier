@@ -80,9 +80,9 @@ _Avoid_: nudge, ping
 A Slack post an AI model writes about recent voice activity, at most five an office day, at random times in office hours.
 _Avoid_: chatter, commentary, small talk
 
-**Quiet banter**:
-Banter from the office day before that nobody reacted to or replied under, which the bot deletes from Slack the next morning but keeps in its history.
-_Avoid_: stale banter, unpopular banter, ignored banter
+**Quiet post**:
+An announcement, reminder or banter from before today that nobody reacted to or replied under, which the bot deletes from Slack in the morning but keeps in its history.
+_Avoid_: stale post, quiet banter, unpopular banter, ignored banter
 
 **Reaction**:
 An emoji the bot puts on a Slack message instead of replying to it.

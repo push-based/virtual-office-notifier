@@ -1,7 +1,7 @@
 import { Array, Cron, DateTime, Effect, ErrorReporter, Layer, Schedule, Stream } from "effect";
 
 import { OFFICE_TIME_ZONE, startOfOfficeDay } from "../office/index.ts";
-import { type Engagement, type PostedBanter, SlackClient, SlackHistory } from "../slack/index.ts";
+import { type Engagement, type PostInSlack, SlackClient, SlackHistory } from "../slack/index.ts";
 
 export const tidyingCron = Cron.make({
   minutes: [45],
@@ -17,14 +17,8 @@ export type TidyOutcome = "deleted" | "kept" | "failed";
 export const isQuiet = ({ reactions, replies }: Engagement): boolean =>
   reactions === 0 && replies === 0;
 
-export const yesterday = (at: DateTime.Utc) => {
-  const today = startOfOfficeDay(at);
-
-  return { from: DateTime.subtract(today, { days: 1 }), until: today };
-};
-
 const tidyPost = Effect.fnUntraced(
-  function* (post: PostedBanter) {
+  function* (post: PostInSlack) {
     const slack = yield* SlackClient;
     const history = yield* SlackHistory;
 
@@ -38,7 +32,7 @@ const tidyPost = Effect.fnUntraced(
       .recordDeleted(post, yield* DateTime.now)
       .pipe(
         Effect.catchTag("HistoryUnavailable", (error) =>
-          Effect.logWarning("Couldn't record that the banter was deleted").pipe(
+          Effect.logWarning("Couldn't record that the post was deleted").pipe(
             Effect.annotateLogs({ reason: error.reason, ts: post.ts }),
           ),
         ),
@@ -48,25 +42,24 @@ const tidyPost = Effect.fnUntraced(
   },
   (effect) => Effect.withErrorReporting(effect),
   Effect.catchTag("SlackError", (error) =>
-    Effect.logWarning("Couldn't tidy a bit of banter, leaving it in Slack").pipe(
+    Effect.logWarning("Couldn't tidy a post, leaving it in Slack").pipe(
       Effect.annotateLogs({ reason: error.reason._tag }),
       Effect.as("failed" satisfies TidyOutcome),
     ),
   ),
 );
 
-export const tidyQuietBanter = Effect.fn("QuietBanter.tidy")(
+export const tidyQuietPosts = Effect.fn("QuietPosts.tidy")(
   function* (at: DateTime.Utc) {
     const history = yield* SlackHistory;
-    const { from, until } = yesterday(at);
 
-    const posted = yield* history.banterInSlackBetween(from, until);
+    const posted = yield* history.tidiedPostsInSlackBefore(startOfOfficeDay(at));
     const outcomes = yield* Effect.forEach(posted, tidyPost);
 
     const count = (outcome: TidyOutcome) =>
       Array.filter(outcomes, (each) => each === outcome).length;
 
-    yield* Effect.logInfo("Tidied yesterday's banter").pipe(
+    yield* Effect.logInfo("Tidied the quiet posts").pipe(
       Effect.annotateLogs({
         checked: outcomes.length,
         deleted: count("deleted"),
@@ -78,7 +71,7 @@ export const tidyQuietBanter = Effect.fn("QuietBanter.tidy")(
     return outcomes;
   },
   Effect.catchTag("HistoryUnavailable", (error) =>
-    Effect.logWarning("Skipped tidying banter, couldn't read the Slack history").pipe(
+    Effect.logWarning("Skipped tidying the posts, couldn't read the Slack history").pipe(
       Effect.annotateLogs({ reason: error.reason }),
       Effect.as<ReadonlyArray<TidyOutcome>>([]),
     ),
@@ -87,13 +80,13 @@ export const tidyQuietBanter = Effect.fn("QuietBanter.tidy")(
 
 export const tidyEveryMorning = Stream.fromSchedule(Schedule.cron(tidyingCron)).pipe(
   Stream.orDie,
-  Stream.runForEach(() => Effect.flatMap(DateTime.now, tidyQuietBanter)),
+  Stream.runForEach(() => Effect.flatMap(DateTime.now, tidyQuietPosts)),
 );
 
-export const QuietBanterLayer = Layer.effectDiscard(
+export const QuietPostsLayer = Layer.effectDiscard(
   tidyEveryMorning.pipe(
     Effect.catchCause((cause) =>
-      Effect.logError("Stopped tidying banter", cause).pipe(
+      Effect.logError("Stopped tidying posts", cause).pipe(
         Effect.andThen(ErrorReporter.report(cause)),
       ),
     ),

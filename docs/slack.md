@@ -43,16 +43,28 @@ A [recording](recording.md#the-summary) also ends in a Slack post, with its summ
 | Opened   | The first person joins the empty office. Moving in from another voice channel counts as joining.                                                                                                    |
 | Emptied  | The last person leaves. Moving to another voice channel counts as leaving. The recap is left out for an occupancy that was already under way when the bot started, since it missed the beginning.   |
 | Reminder | Weekdays at 11:15 office time (UTC+2). It's a fixed offset, so it doesn't shift with daylight saving. Skipped if the office wasn't found at startup, since there's nothing to link to.              |
-| Banter   | At random, between 1 and 2½ hours apart, from 09:00 to 18:00 office time on weekdays, and at most 5 a day. Deleted the next morning if nobody reacted or replied. See [Banter](#banter).            |
+| Banter   | At random, between 1 and 2½ hours apart, from 09:00 to 18:00 office time on weekdays, and at most 5 a day. See [Banter](#banter).                                                                   |
 | Reply    | In the thread, when someone mentions the bot or Clef decides a reply under one of its posts wants an answer, 09:00 to 18:00 office time on weekdays. See [Answering in Slack](#answering-in-slack). |
 
-Only the first person in and the last person out are announced. Joins and leaves in between aren't, to keep the channel quiet. It only watches the one office and ignores bots, itself included. Mute, deafen and camera changes, soundboard sounds and emoji aren't announced, only [recorded](database.md#whats-recorded).
+Only the first person in and the last person out are announced. Joins and leaves in between aren't, to keep the channel quiet. Announcements, reminders and banter that nobody reacted to or replied under are deleted the next morning, as [Tidying up](#tidying-up) describes. It only watches the one office and ignores bots, itself included. Mute, deafen and camera changes, soundboard sounds and emoji aren't announced, only [recorded](database.md#whats-recorded).
 
 The bot counts whoever is already in the office at startup, so a restart mid-occupancy doesn't announce the office opening again.
 
 The fixed opened and emptied headlines are picked at random from a few phrasings. The reminder rotates through its phrasings by date, so each one comes up once before any repeats.
 
 The original design is in [issue #1](https://github.com/push-based/virtual-office-notifier/issues/1).
+
+## Tidying up
+
+So the channel doesn't turn into a wall of bot posts, the bot deletes the ones nobody cared about. The design is in [issue #158](https://github.com/push-based/virtual-office-notifier/issues/158) for banter, and [issue #193](https://github.com/push-based/virtual-office-notifier/issues/193) for the rest.
+
+- Every day at 08:45 office time, weekends included, it looks at every Opened, Emptied, Reminder and Banter post of its own that's still in Slack and was posted before that day. Friday's are looked at on Saturday morning, and a morning the bot was down is caught up on the next one.
+- It asks Slack, not the database, about each one: `reactions.get` for its reactions and `conversations.replies` for how many replies its thread has. So reactions and replies that came while the bot was down count, and answering in Slack doesn't need to be on.
+- One with no reactions and no replies at all is deleted with `chat.delete`. A single reaction or reply from anyone keeps it, and a kept post is looked at again every morning, so it goes once its last reaction is taken back.
+- Recording summaries and replies in threads are never deleted.
+- Deleting it only takes it out of Slack. Its row in [`slack_posts`](database.md#whats-recorded) stays, text included, with `deleted_at` set, and the banter prompt still reads deleted banter, so the model still doesn't tell its story again.
+- If Slack fails on one, it's left in the channel with a `Couldn't tidy a post` warning, the others are still looked at, and it's tried again the next morning. Each run logs `Tidied the quiet posts` with how many it checked, deleted, kept and failed on.
+- It needs the [database](setup.md#database), like banter. Without it, nothing is deleted. It needs no extra Slack scopes.
 
 ## AI headlines
 
@@ -98,17 +110,6 @@ Up to five times an office day, at random, an AI model reads what happened in th
 **Which model writes it**
 
 The same way as the headlines, except OpenRouter uses `OPENROUTER_BANTER_MODELS`. Its defaults leave out the `openrouter/free` router, because it often picks a small model that misses the point of the log or makes things up.
-
-**Tidying up quiet banter**
-
-So banter doesn't turn the channel into a wall of bot posts, the bot deletes the ones nobody cared about. The design is in [issue #158](https://github.com/push-based/virtual-office-notifier/issues/158).
-
-- Every day at 08:45 office time, weekends included, it looks at the banter it posted the office day before: Friday's is looked at on Saturday morning.
-- It asks Slack, not the database, about each one: `reactions.get` for its reactions and `conversations.replies` for how many replies its thread has. So reactions and replies that came while the bot was down count, and answering in Slack doesn't need to be on.
-- One with no reactions and no replies at all is deleted with `chat.delete`. A single reaction or reply from anyone keeps it.
-- Deleting it only takes it out of Slack. Its row in [`slack_posts`](database.md#whats-recorded) stays, text included, with `deleted_at` set, and the banter prompt still reads it, so the model still doesn't tell its story again.
-- If Slack fails on one, it's left in the channel with a `Couldn't tidy a bit of banter` warning, and the others are still looked at. Each run logs `Tidied yesterday's banter` with how many it checked, deleted, kept and failed on.
-- It needs the [database](setup.md#database), like banter itself. Without it, nothing is deleted. It needs no extra Slack scopes.
 
 **Trying it on made-up data**
 

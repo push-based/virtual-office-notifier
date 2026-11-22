@@ -3,7 +3,7 @@ import { SecureRandom } from "effect/crypto";
 
 import { ActivityRecorder } from "./activity/index.ts";
 import { AiProviders } from "./ai/index.ts";
-import { banter, QuietBanterLayer, reminders, SlackNotifier } from "./announcing/index.ts";
+import { banter, QuietPostsLayer, reminders, SlackNotifier } from "./announcing/index.ts";
 import { ConsentGate, DiscordGateway, OfficeEvent, OfficeSeat } from "./office/index.ts";
 import { Eraser } from "./erasure/index.ts";
 import { ConsentDeskLayer, SlackAdminLine } from "./reception/index.ts";
@@ -84,7 +84,7 @@ export const program = Effect.gen(function* () {
 export const MainLayer = Layer.mergeAll(
   ResponderLayer,
   RecordingLayer,
-  QuietBanterLayer,
+  QuietPostsLayer,
   ConsentDeskLayer.pipe(Layer.provide([Eraser.layer, SlackAdminLine.layer])),
 ).pipe(
   Layer.provideMerge(SlackSocket.layer),

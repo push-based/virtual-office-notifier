@@ -25,7 +25,7 @@ export {
   type ClefVerdict,
   type DecisionReason,
   type Outcome,
-  type PostedBanter,
+  type PostInSlack,
   type ResponderSettings,
   SlackHistory,
 } from "./SlackHistory.ts";

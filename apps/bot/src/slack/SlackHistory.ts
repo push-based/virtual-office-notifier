@@ -46,7 +46,9 @@ export interface SlackPost {
   readonly postedAt: DateTime.Utc;
 }
 
-export interface PostedBanter {
+export const TIDIED_KINDS: ReadonlyArray<PostKind> = ["Opened", "Emptied", "Reminder", "Banter"];
+
+export interface PostInSlack {
   readonly channel: string;
   readonly ts: string;
 }
@@ -158,10 +160,7 @@ const DecisionRow = Schema.Struct({
 
 const Since = Schema.Struct({ from: Schema.DateTimeUtcFromDate });
 
-const Between = Schema.Struct({
-  from: Schema.DateTimeUtcFromDate,
-  until: Schema.DateTimeUtcFromDate,
-});
+const Before = Schema.Struct({ until: Schema.DateTimeUtcFromDate });
 
 const Total = Schema.Struct({ total: Schema.Int });
 
@@ -178,12 +177,11 @@ export class SlackHistory extends Context.Service<
     repliesSince(from: DateTime.Utc): Effect.Effect<number, HistoryUnavailable>;
     reactionsSince(from: DateTime.Utc): Effect.Effect<number, HistoryUnavailable>;
     repliesInThread(channel: string, threadTs: string): Effect.Effect<number, HistoryUnavailable>;
-    banterInSlackBetween(
-      from: DateTime.Utc,
+    tidiedPostsInSlackBefore(
       until: DateTime.Utc,
-    ): Effect.Effect<ReadonlyArray<PostedBanter>, HistoryUnavailable>;
+    ): Effect.Effect<ReadonlyArray<PostInSlack>, HistoryUnavailable>;
     recordDeleted(
-      post: PostedBanter,
+      post: PostInSlack,
       deletedAt: DateTime.Utc,
     ): Effect.Effect<void, HistoryUnavailable>;
     linkMember(
@@ -275,13 +273,13 @@ export class SlackHistory extends Context.Service<
         `,
       });
 
-      const findBanterInSlack = SqlSchema.findAll({
-        Request: Between,
+      const findTidiedPostsInSlack = SqlSchema.findAll({
+        Request: Before,
         Result: Schema.Struct({ channel: Schema.String, ts: Schema.String }),
-        execute: ({ from, until }) => sql`
+        execute: ({ until }) => sql`
           SELECT channel_id AS channel, ts FROM office.slack_posts
-          WHERE kind = 'Banter' AND thread_ts IS NULL AND deleted_at IS NULL
-            AND posted_at >= ${from} AND posted_at < ${until}
+          WHERE kind IN ${sql.in(TIDIED_KINDS)} AND thread_ts IS NULL AND deleted_at IS NULL
+            AND posted_at < ${until}
           ORDER BY posted_at, id
         `,
       });
@@ -391,12 +389,12 @@ export class SlackHistory extends Context.Service<
         (channel: string, threadTs: string) => count(countRepliesInThread({ channel, threadTs })),
       );
 
-      const banterInSlackBetween = Effect.fn("SlackHistory.banterInSlackBetween")(
-        (from: DateTime.Utc, until: DateTime.Utc) => onceReady(findBanterInSlack({ from, until })),
+      const tidiedPostsInSlackBefore = Effect.fn("SlackHistory.tidiedPostsInSlackBefore")(
+        (until: DateTime.Utc) => onceReady(findTidiedPostsInSlack({ until })),
       );
 
       const recordDeleted = Effect.fn("SlackHistory.recordDeleted")(
-        ({ channel, ts }: PostedBanter, deletedAt: DateTime.Utc) =>
+        ({ channel, ts }: PostInSlack, deletedAt: DateTime.Utc) =>
           onceReady(markDeleted({ channel, ts, deletedAt })),
       );
 
@@ -414,7 +412,7 @@ export class SlackHistory extends Context.Service<
         repliesSince,
         reactionsSince,
         repliesInThread,
-        banterInSlackBetween,
+        tidiedPostsInSlackBefore,
         recordDeleted,
         linkMember,
       });
@@ -432,7 +430,7 @@ export class SlackHistory extends Context.Service<
       repliesSince: notRecording,
       reactionsSince: notRecording,
       repliesInThread: notRecording,
-      banterInSlackBetween: notRecording,
+      tidiedPostsInSlackBefore: notRecording,
       recordDeleted: notRecording,
       linkMember: notRecording,
     }),
