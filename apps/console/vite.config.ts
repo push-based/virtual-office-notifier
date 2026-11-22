@@ -1,8 +1,24 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { foldkit } from "@foldkit/vite-plugin";
-import { defineConfig, lazyPlugins } from "vite-plus";
+import { defineConfig, lazyPlugins, type Plugin } from "vite-plus";
 
 import { typecheck } from "../../tools/vite-task/typecheck.ts";
+import { renderFirstScreen } from "./scripts/render-shell.ts";
+
+const renderingFirstScreen = (): Plugin => ({
+  name: "console:render-first-screen",
+  apply: (_config, { command, mode }) => command === "build" && mode !== "prerender",
+  applyToEnvironment: (environment) => environment.name === "client",
+  closeBundle: {
+    order: "post",
+    sequential: true,
+    async handler() {
+      const { root, build } = this.environment.config;
+
+      await renderFirstScreen(root, build.outDir);
+    },
+  },
+});
 
 export default defineConfig(({ mode }) => ({
   define: {
@@ -10,6 +26,7 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: lazyPlugins(() => [
     foldkit({ buildId: process.env["GITHUB_SHA"] ?? "local" }),
+    renderingFirstScreen(),
     mode === "test" || mode === "prerender" || mode === "fake"
       ? []
       : cloudflare({ viteEnvironment: { name: "worker" } }),
@@ -41,7 +58,7 @@ export default defineConfig(({ mode }) => ({
         "pnpm -w exec tsc --noEmit -p apps/console && pnpm -w exec tsc --noEmit -p apps/console/worker && pnpm -w exec tsc --noEmit -p apps/console/tsconfig.node.json",
       ),
       build: {
-        command: "vp build && node scripts/render-shell.ts",
+        command: "vp build",
         cache: {
           input: [
             { auto: true },
